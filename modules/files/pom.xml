@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>tz.co.pharmacy</groupId>
+        <artifactId>pharmacy-core-api</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>pharmacy-files</artifactId>
+    <name>pharmacy-files</name>
+    <description>The files module: stored files and attachments (prescription images, logos) behind a storage port with local-disk and S3-compatible adapters. Depends on pharmacy-platform only.</description>
+
+    <properties>
+        <awssdk.version>2.30.6</awssdk.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-platform</artifactId>
+        </dependency>
+        <!-- The S3-compatible adapter (AWS S3, MinIO, Cloudflare R2): presigned PUT/GET. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+    </dependencies>
+</project>

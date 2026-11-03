@@ -1,0 +1,45 @@
+# Local stack: PostgreSQL 17 with the production roles, and the API.
+#   docker compose up --build
+# The passwords are local-only; set real secrets in any shared environment.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pharmacy-pg:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/01-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      PHARMACY_DB_URL: jdbc:postgresql://postgres:5432/pharmacy
+      PHARMACY_DB_USER: pharmacy_app
+      PHARMACY_DB_PASSWORD: local-app-password
+      PHARMACY_DB_OWNER_USER: pharmacy_owner
+      PHARMACY_DB_OWNER_PASSWORD: local-owner-password
+      PHARMACY_ROOT_EMAIL: root@pharmacy.local
+      PHARMACY_ROOT_PASSWORD: "Root#2026"
+      PHARMACY_SEED_DEMO: "true"
+      PHARMACY_CORS_ORIGINS: http://localhost:4200
+
+  # web:
+  #   build: ../pharmacy-core-web
+  #   ports:
+  #     - "4200:80"
+  #   depends_on: [api]
+
+volumes:
+  pharmacy-pg:

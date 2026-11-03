@@ -1,0 +1,9 @@
+pharmacy:
+  bootstrap:
+    root-email: root@test.local
+    root-password: "Root#Test2026"
+  seed:
+    demo: false
+logging:
+  level:
+    org.springframework.modulith: WARN

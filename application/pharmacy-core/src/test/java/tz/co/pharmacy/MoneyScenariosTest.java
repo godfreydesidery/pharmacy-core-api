@@ -1,0 +1,342 @@
+package tz.co.pharmacy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import tz.co.pharmacy.support.Api;
+import tz.co.pharmacy.support.Api.Response;
+import tz.co.pharmacy.support.IntegrationTest;
+
+/**
+ * Every way a customer can pay, end to end over HTTP: partial payment with the balance on account,
+ * full credit, mixed currencies and change, refusals, settlement in a foreign currency, deposits
+ * spent at the till, an insured sale with co-pay and its claim, returns of a credit sale, and the
+ * ledger catching up. One product at TZS 10,000 keeps the arithmetic readable.
+ */
+class MoneyScenariosTest extends IntegrationTest {
+
+  private static final double PRICE = 10_000.0;
+  private static final double USD = 2_650.0;
+
+  private Api admin;
+  private Api till;
+  private String product;
+  private String clinic;
+
+  @BeforeEach
+  void pharmacy() {
+    Api anonymous = api();
+    Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    String code = "MS" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+    String email = code.toLowerCase() + "@test.local";
+    String tenant =
+        root.post(
+                "/api/v1/platform/tenants",
+                """
+                {"code":"%s","name":"Money %s","legalName":"Money %s Ltd","country":"TZ",
+                 "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
+                 "headOffice":{"code":"HQ","name":"Head Office"},
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                """
+                    .formatted(code, code, code, email))
+            .expect(201)
+            .string("$.data.uid");
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    String branch =
+        admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
+    till = admin.in(tenant, branch);
+
+    admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"USD\"]}").expect(200);
+    admin
+        .post(
+            "/api/v1/fx/rates",
+            "{\"base\":\"USD\",\"quote\":\"TZS\",\"rate\":%s,\"effectiveOn\":\"%s\"}"
+                .formatted(USD, LocalDate.now()))
+        .expect(201);
+    product =
+        admin
+            .post(
+                "/api/v1/products",
+                """
+                {"name":"Amoxicillin 500mg","genericName":"Amoxicillin","dosageForm":"CAPSULE",
+                 "schedule":"OTC","sellingPrice":%s,"costPrice":6000,"taxRatePercent":0,
+                 "storage":"ROOM_TEMPERATURE"}
+                """
+                    .formatted(PRICE))
+            .expect(201)
+            .string("$.data.uid");
+    till.post(
+            "/api/v1/stock/opening",
+            """
+            {"productUid":"%s","batchNumber":"AMX-1","expiryDate":"%s","quantity":200,"unitCost":6000}
+            """
+                .formatted(product, LocalDate.now().plusYears(2)))
+        .expect(201);
+    clinic =
+        admin
+            .post(
+                "/api/v1/customers",
+                """
+                {"name":"City Clinic","phone":"+255700000001","type":"WHOLESALE",
+                 "creditLimit":50000,"paymentTerms":"NET_30"}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+  }
+
+  @Test
+  @DisplayName("partial payment puts the balance on account, which a USD payment later settles")
+  void partialPaymentThenForeignSettlement() {
+    Response sale =
+        sell(
+                "\"customerUid\":\"%s\",\"balanceToAccount\":true".formatted(clinic),
+                payment("CASH", 4_000, null))
+            .expect(201);
+    assertThat(money(sale, "$.data.total")).isEqualTo(PRICE);
+    assertThat(sale.json().read("$.data.payments[*].method", List.class)).contains("CREDIT");
+    assertThat(balance()).isEqualTo(6_000.0);
+
+    // The customer pays USD 2 (TZS 5,300) on account.
+    admin
+        .post(
+            "/api/v1/receivables/payments",
+            """
+            {"customerUid":"%s","amount":2,"method":"CASH","reference":"USD-CASH","currency":"USD",
+             "exchangeRate":%s}
+            """
+                .formatted(clinic, USD))
+        .expect(201);
+    assertThat(balance()).isEqualTo(700.0);
+  }
+
+  @Test
+  @DisplayName("mixed currencies cover a sale; change is given in base cash")
+  void mixedCurrencyTenderAndChange() {
+    Response mixed =
+        sell(null, payment("CASH", 2, "USD"), payment("MOBILE_MONEY", 4_700, null)).expect(201);
+    assertThat(money(mixed, "$.data.paidTotal")).isEqualTo(PRICE);
+    assertThat(money(mixed, "$.data.changeDue")).isZero();
+
+    Response change = sell(null, payment("CASH", 5, "USD")).expect(201);
+    assertThat(money(change, "$.data.changeDue")).isEqualTo(5 * USD - PRICE);
+  }
+
+  @Test
+  @DisplayName("refusals: card overpayment, credit for a walk-in, credit over the limit, short pay")
+  void refusals() {
+    assertThat(sell(null, payment("CARD", 12_000, null)).expect(422).string("$.reason"))
+        .isEqualTo("overpaid_non_cash");
+    assertThat(sell(null, payment("CREDIT", PRICE, null)).expect(422).string("$.reason"))
+        .isEqualTo("customer_required");
+    assertThat(sell(null, payment("CASH", 9_000, null)).expect(422).string("$.reason"))
+        .isEqualTo("payment_short");
+    Response overLimit =
+        sell(
+            "\"customerUid\":\"%s\",\"balanceToAccount\":true".formatted(clinic), 6, new String[0]);
+    assertThat(overLimit.expect(422).string("$.reason")).isEqualTo("credit_limit_exceeded");
+  }
+
+  @Test
+  @DisplayName("a deposit on account is spent at the till as ACCOUNT_CREDIT")
+  void depositSpentAtTheTill() {
+    admin
+        .post(
+            "/api/v1/receivables/payments",
+            "{\"customerUid\":\"%s\",\"amount\":4000,\"method\":\"MOBILE_MONEY\",\"reference\":\"DEP-1\"}"
+                .formatted(clinic))
+        .expect(201);
+    assertThat(balance()).isEqualTo(-4_000.0);
+
+    sell(
+            "\"customerUid\":\"%s\"".formatted(clinic),
+            payment("ACCOUNT_CREDIT", 4_000, null),
+            payment("CASH", 6_000, null))
+        .expect(201);
+    assertThat(balance()).isZero();
+  }
+
+  @Test
+  @DisplayName("an insured sale: the patient pays the 10% co-pay, the insurer's share is claimed")
+  void insuredSaleRaisesAClaim() {
+    String patient =
+        admin
+            .post(
+                "/api/v1/customers",
+                "{\"name\":\"Neema Kileo\",\"phone\":\"+255700000002\",\"type\":\"INSURANCE\"}")
+            .expect(201)
+            .string("$.data.uid");
+    String payer =
+        admin
+            .post(
+                "/api/v1/insurance/payers",
+                "{\"code\":\"NHIF\",\"name\":\"NHIF\",\"paymentTermsDays\":30,\"requiresPreauth\":false}")
+            .expect(201)
+            .string("$.data.uid");
+    String scheme =
+        admin
+            .post(
+                "/api/v1/insurance/schemes",
+                "{\"payerUid\":\"%s\",\"name\":\"Standard\",\"copayType\":\"PERCENT\",\"copayValue\":10}"
+                    .formatted(payer))
+            .expect(201)
+            .string("$.data.uid");
+    String member =
+        admin
+            .post(
+                "/api/v1/insurance/members",
+                """
+                {"customerUid":"%s","schemeUid":"%s","memberNumber":"NHIF-1","principalName":"Neema",
+                 "validFrom":"%s","validUntil":"%s"}
+                """
+                    .formatted(
+                        patient,
+                        scheme,
+                        LocalDate.now().minusDays(1),
+                        LocalDate.now().plusYears(1)))
+            .expect(201)
+            .string("$.data.uid");
+
+    Response quote =
+        till.post(
+                "/api/v1/pos/coverage-quote",
+                "{\"memberUid\":\"%s\",\"lines\":[{\"productUid\":\"%s\",\"quantity\":1}]}"
+                    .formatted(member, product))
+            .expect(200);
+    assertThat(money(quote, "$.data.covered")).isEqualTo(9_000.0);
+    assertThat(money(quote, "$.data.copay")).isEqualTo(1_000.0);
+
+    Response sale =
+        sell(
+                "\"customerUid\":\"%s\",\"memberUid\":\"%s\",\"diagnosisCode\":\"B54\""
+                    .formatted(patient, member),
+                payment("CASH", 1_000, null))
+            .expect(201);
+    assertThat(sale.json().read("$.data.payments[*].method", List.class)).contains("INSURANCE");
+    Api.eventually(
+        () ->
+            admin
+                    .get("/api/v1/insurance/claims?payerUid=" + payer)
+                    .expect(200)
+                    .read("$.data.items.length()", Integer.class)
+                == 1);
+    Response claims = admin.get("/api/v1/insurance/claims?payerUid=" + payer).expect(200);
+    assertThat(money(claims, "$.data.items[0].claimed")).isEqualTo(9_000.0);
+  }
+
+  @Test
+  @DisplayName("returning a credit sale credits the account; the ledger posts receivables")
+  void creditSaleReturn() {
+    Response sale =
+        sell("\"customerUid\":\"%s\",\"balanceToAccount\":true".formatted(clinic), new String[0])
+            .expect(201);
+    assertThat(balance()).isEqualTo(PRICE);
+    String line = sale.string("$.data.lines[0].uid");
+    till.post(
+            "/api/v1/sales/" + sale.string("$.data.uid") + "/returns",
+            """
+            {"reason":"Wrong item","refundMethod":"CREDIT","lines":[{"saleLineUid":"%s","quantity":1}]}
+            """
+                .formatted(line))
+        .expect(201);
+    assertThat(balance()).isZero();
+
+    Api.eventually(
+        () -> admin.get("/api/v1/journal?limit=100").expect(200).body().contains("\"1100\""));
+  }
+
+  @Test
+  @DisplayName("a USD sale refunded in USD after the rate moved: the loss goes to 7000")
+  void foreignRefundRealisesTheExchangeDifference() {
+    Response sale = sell(null, payment("CASH", 5, "USD")).expect(201);
+    String line = sale.string("$.data.lines[0].uid");
+    String saleUid = sale.string("$.data.uid");
+
+    // Credit and insurance are base-currency only; a currency not tendered is refused.
+    Response viaCredit =
+        till.post("/api/v1/sales/" + saleUid + "/returns", returnBody(line, "CREDIT", "USD"));
+    assertThat(viaCredit.expect(422).string("$.reason")).isEqualTo("foreign_refund_method");
+    Response euro =
+        till.post("/api/v1/sales/" + saleUid + "/returns", returnBody(line, "CASH", "EUR"));
+    assertThat(euro.expect(422).string("$.reason")).isNotBlank();
+
+    // The shilling weakens to 2,800 before the customer comes back.
+    admin
+        .post(
+            "/api/v1/fx/rates",
+            "{\"base\":\"USD\",\"quote\":\"TZS\",\"rate\":2800,\"effectiveOn\":\"%s\"}"
+                .formatted(LocalDate.now()))
+        .expect(201);
+    Response refund =
+        till.post("/api/v1/sales/" + saleUid + "/returns", returnBody(line, "CASH", "USD"))
+            .expect(201);
+    // USD 3.77 back (TZS 10,000 at the sale's 2,650); paying it out today costs TZS 10,556.
+    assertThat(money(refund, "$.data.refundTotal")).isEqualTo(PRICE);
+    assertThat(refund.string("$.data.refundCurrency")).isEqualTo("USD");
+    assertThat(money(refund, "$.data.refundForeignAmount")).isEqualTo(3.77);
+    assertThat(money(refund, "$.data.saleExchangeRate")).isEqualTo(USD);
+    assertThat(money(refund, "$.data.refundExchangeRate")).isEqualTo(2_800.0);
+    assertThat(money(refund, "$.data.fxDifference")).isEqualTo(556.0);
+
+    String number = refund.string("$.data.number");
+    Api.eventually(
+        () -> admin.get("/api/v1/journal?limit=100").expect(200).body().contains(number));
+    Response journal = admin.get("/api/v1/journal?limit=100").expect(200);
+    List<Object> fx =
+        journal
+            .json()
+            .read(
+                "$.data.items[?(@.sourceReference == '%s')].lines[?(@.accountCode == '7000')].debit"
+                    .formatted(number));
+    assertThat(fx).hasSize(1);
+    assertThat(Double.parseDouble(fx.getFirst().toString())).isEqualTo(556.0);
+  }
+
+  private static String returnBody(String saleLine, String method, String currency) {
+    return """
+        {"reason":"Changed mind","refundMethod":"%s","refundCurrency":"%s",
+         "lines":[{"saleLineUid":"%s","quantity":1}]}
+        """
+        .formatted(method, currency, saleLine);
+  }
+
+  private Response sell(String extra, String... payments) {
+    return sell(extra, 1, payments);
+  }
+
+  private Response sell(String extra, int quantity, String... payments) {
+    String body =
+        """
+        {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":%d}],"payments":[%s]%s}
+        """
+            .formatted(
+                UUID.randomUUID(),
+                product,
+                quantity,
+                String.join(",", payments),
+                extra == null ? "" : "," + extra);
+    return till.post("/api/v1/sales", body);
+  }
+
+  private static String payment(String method, double amount, String currency) {
+    return currency == null
+        ? "{\"method\":\"%s\",\"amount\":%s}".formatted(method, amount)
+        : "{\"method\":\"%s\",\"amount\":%s,\"currency\":\"%s\"}"
+            .formatted(method, amount, currency);
+  }
+
+  private double balance() {
+    return money(admin.get("/api/v1/receivables/accounts/" + clinic).expect(200), "$.data.balance");
+  }
+
+  private static double money(Response response, String path) {
+    Object value = response.json().read(path);
+    return value instanceof Number number
+        ? number.doubleValue()
+        : Double.parseDouble((String) value);
+  }
+}

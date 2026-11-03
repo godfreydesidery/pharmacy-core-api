@@ -1,0 +1,20 @@
+package tz.co.pharmacy.modules.partners.ports.inbound;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+
+public record CustomerView(
+    UUID uid,
+    String code,
+    String name,
+    String phone,
+    String email,
+    CustomerType type,
+    String insuranceProvider,
+    String insuranceNumber,
+    BigDecimal creditLimit,
+    String address,
+    boolean active,
+    Instant createdAt,
+    PaymentTerms paymentTerms) {}

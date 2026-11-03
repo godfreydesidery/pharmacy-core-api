@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>tz.co.pharmacy</groupId>
+    <artifactId>pharmacy-core-api</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>pharmacy-core-api</name>
+    <description>Pharmacy Core API: one deployable modulith built from these Maven modules (PRD section 8).</description>
+
+    <!--
+      Each domain module is its own jar and depends on pharmacy-platform only, so javac itself refuses
+      an import of another module. Modules meet in three places only:
+        * application/* services (checkout, receiving, onboarding) orchestrate a use case that writes
+          to more than one module, through those modules' ports.inbound;
+        * delivery, the HTTP edge, calls modules' ports.inbound;
+        * application/pharmacy-core's platform/composition binds one module's ports.outbound to
+          another's ports.inbound, and turns one module's events into calls on another's ports.
+      architecture-tests verifies the boundaries with Spring Modulith and ArchUnit.
+    -->
+    <modules>
+        <module>platform</module>
+        <module>modules/tenancy</module>
+        <module>modules/access</module>
+        <module>modules/catalogue</module>
+        <module>modules/partners</module>
+        <module>modules/inventory</module>
+        <module>modules/purchasing</module>
+        <module>modules/sales</module>
+        <module>modules/finance</module>
+        <module>modules/reporting</module>
+        <module>modules/integrations</module>
+        <module>modules/fx</module>
+        <module>modules/notifications</module>
+        <module>modules/files</module>
+        <module>modules/receivables</module>
+        <module>modules/insurance</module>
+        <module>application/onboarding</module>
+        <module>application/checkout</module>
+        <module>application/receiving</module>
+        <module>delivery</module>
+        <module>application/pharmacy-core</module>
+        <module>architecture-tests</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-modulith.version>2.1.1</spring-modulith.version>
+        <springdoc.version>3.1.1</springdoc.version>
+        <archunit.version>1.5.1</archunit.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
+        <embedded-postgres.version>2.2.2</embedded-postgres.version>
+        <embedded-postgres-binaries.version>17.6.0</embedded-postgres-binaries.version>
+        <spotless.version>3.10.4</spotless.version>
+        <google-java-format.version>1.28.0</google-java-format.version>
+        <!-- Only pharmacy-core is runnable: mvn -pl application/pharmacy-core -am spring-boot:run -->
+        <spring-boot.run.skip>true</spring-boot.run.skip>
+        <!-- The build folder. CI and scripts may pass -Dpharmacy.build.dir=target-mvn so an IDE's
+             incremental compiler, which writes target/, cannot interfere with a command-line build. -->
+        <pharmacy.build.dir>target</pharmacy.build.dir>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-platform</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-tenancy</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-access</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-catalogue</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-partners</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-inventory</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-purchasing</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-sales</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-finance</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-reporting</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-integrations</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-fx</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-notifications</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-files</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-receivables</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-insurance</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-onboarding</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-checkout</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-receiving</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-delivery</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>tz.co.pharmacy</groupId><artifactId>pharmacy-core</artifactId><version>${project.version}</version></dependency>
+            <dependency>
+                <groupId>org.springframework.modulith</groupId>
+                <artifactId>spring-modulith-bom</artifactId>
+                <version>${spring-modulith.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>${embedded-postgres-binaries.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.zonky.test</groupId>
+                <artifactId>embedded-postgres</artifactId>
+                <version>${embedded-postgres.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- Every module: Lombok at compile time only, and the test starter. -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <directory>${project.basedir}/${pharmacy.build.dir}</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <parameters>true</parameters>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!-- The build fails on Java that is not in Google Java Format: mvn spotless:apply fixes it. -->
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <lineEndings>UNIX</lineEndings>
+                    <java>
+                        <googleJavaFormat>
+                            <version>${google-java-format.version}</version>
+                        </googleJavaFormat>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

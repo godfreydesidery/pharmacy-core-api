@@ -1,0 +1,131 @@
+spring:
+  application:
+    name: pharmacy-core-api
+  threads:
+    virtual:
+      # Java 21 virtual threads for requests and async event listeners.
+      enabled: true
+  servlet:
+    multipart:
+      # Direct uploads (POST /api/v1/files); presigned uploads bypass the API with S3.
+      max-file-size: 10MB
+      max-request-size: 11MB
+  datasource:
+    url: ${PHARMACY_DB_URL:jdbc:postgresql://localhost:5432/pharmacy}
+    username: ${PHARMACY_DB_USER:pharmacy_app}
+    password: ${PHARMACY_DB_PASSWORD:}
+    hikari:
+      connection-init-sql: SET TIME ZONE 'UTC'
+      maximum-pool-size: ${PHARMACY_DB_POOL_SIZE:20}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  modulith:
+    detection-strategy: explicitly-annotated
+    events:
+      jdbc:
+        schema: platform
+        schema-initialization:
+          enabled: false
+      republish-outstanding-events-on-restart: true
+  mvc:
+    problemdetails:
+      enabled: false
+
+server:
+  port: ${PHARMACY_PORT:8080}
+  shutdown: graceful
+
+pharmacy:
+  database:
+    owner-username: ${PHARMACY_DB_OWNER_USER:pharmacy_owner}
+    owner-password: ${PHARMACY_DB_OWNER_PASSWORD:}
+    migrations-enabled: ${PHARMACY_DB_MIGRATIONS_ENABLED:true}
+  access:
+    session-hours: ${PHARMACY_SESSION_HOURS:12}
+  edge:
+    cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
+  bootstrap:
+    # The first root administrator, created at start when none exists (then change the password).
+    root-name: ${PHARMACY_ROOT_NAME:Root Administrator}
+    root-email: ${PHARMACY_ROOT_EMAIL:}
+    root-password: ${PHARMACY_ROOT_PASSWORD:}
+  seed:
+    demo: ${PHARMACY_SEED_DEMO:false}
+  files:
+    # local (a directory; presigned URLs served by the API) or s3 (AWS S3, MinIO, Cloudflare R2).
+    storage: ${PHARMACY_FILES_STORAGE:local}
+    signing-secret: ${PHARMACY_FILES_SIGNING_SECRET:local-development-file-signing-secret}
+    local:
+      root: ${PHARMACY_FILES_ROOT:target/files}
+    s3:
+      bucket: ${PHARMACY_FILES_S3_BUCKET:}
+      region: ${PHARMACY_FILES_S3_REGION:}
+      endpoint: ${PHARMACY_FILES_S3_ENDPOINT:}
+      access-key: ${PHARMACY_FILES_S3_ACCESS_KEY:}
+      secret-key: ${PHARMACY_FILES_S3_SECRET_KEY:}
+  integrations:
+    payments:
+      provider: ${PHARMACY_PAYMENTS_PROVIDER:manual}
+    fiscal:
+      provider: ${PHARMACY_FISCAL_PROVIDER:none}
+  notifications:
+    # Local numbers (0712…) are sent as +<code>712… (255 = Tanzania).
+    default-country-code: ${PHARMACY_NOTIFY_COUNTRY_CODE:255}
+    email:
+      # log (default: logs only) or smtp (set spring.mail.host/port/username/password).
+      provider: ${PHARMACY_EMAIL_PROVIDER:log}
+      from: ${PHARMACY_EMAIL_FROM:Pharmacy Core <no-reply@pharmacy.local>}
+    sms:
+      # log (default), africastalking, twilio or beem.
+      provider: ${PHARMACY_SMS_PROVIDER:log}
+      africastalking:
+        username: ${PHARMACY_AT_USERNAME:}
+        api-key: ${PHARMACY_AT_API_KEY:}
+        sender-id: ${PHARMACY_AT_SENDER_ID:}
+      twilio:
+        account-sid: ${PHARMACY_TWILIO_ACCOUNT_SID:}
+        auth-token: ${PHARMACY_TWILIO_AUTH_TOKEN:}
+        from: ${PHARMACY_TWILIO_SMS_FROM:}
+      beem:
+        api-key: ${PHARMACY_BEEM_API_KEY:}
+        secret-key: ${PHARMACY_BEEM_SECRET_KEY:}
+        sender-id: ${PHARMACY_BEEM_SENDER_ID:INFO}
+    whatsapp:
+      # log (default) or twilio.
+      provider: ${PHARMACY_WHATSAPP_PROVIDER:log}
+      twilio:
+        account-sid: ${PHARMACY_TWILIO_ACCOUNT_SID:}
+        auth-token: ${PHARMACY_TWILIO_AUTH_TOKEN:}
+        from: ${PHARMACY_TWILIO_WHATSAPP_FROM:}
+    retry:
+      every: PT1M
+    digests:
+      # Expiry digest at 07:00 and daily summary at 18:00, each tenant's local time.
+      cron: "0 */15 * * * *"
+
+springdoc:
+  api-docs:
+    enabled: ${PHARMACY_SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${PHARMACY_SWAGGER_ENABLED:true}
+
+logging:
+  structured:
+    format:
+      console: ${PHARMACY_LOG_FORMAT:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true

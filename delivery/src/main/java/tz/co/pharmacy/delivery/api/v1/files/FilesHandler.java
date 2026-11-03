@@ -1,0 +1,200 @@
+package tz.co.pharmacy.delivery.api.v1.files;
+
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import tz.co.pharmacy.delivery.api.Access;
+import tz.co.pharmacy.delivery.api.AccessScope;
+import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.modules.files.ports.inbound.DownloadLink;
+import tz.co.pharmacy.modules.files.ports.inbound.FileRules;
+import tz.co.pharmacy.modules.files.ports.inbound.FileView;
+import tz.co.pharmacy.modules.files.ports.inbound.Files;
+import tz.co.pharmacy.modules.files.ports.inbound.SignedBlobs;
+import tz.co.pharmacy.modules.files.ports.inbound.UploadCommand;
+import tz.co.pharmacy.modules.files.ports.inbound.UploadTicket;
+import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.Uids;
+
+/**
+ * Files and attachments (contract "Files"). The browser uploads with a presigned PUT: begin, PUT
+ * the bytes to {@code uploadUrl}, then complete. Small files may also be posted as multipart. The
+ * tenant's own files ({@code ownerType=TENANT}, such as the logo) need {@code settings.manage}.
+ */
+@RestController
+@RequestMapping("/api/v1/files")
+@RequiredArgsConstructor
+public class FilesHandler {
+
+  private static final String BLOB = "/api/v1/files/blob/";
+
+  private final Files files;
+  private final SignedBlobs blobs;
+
+  @PostMapping("/uploads")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<UploadTicket> begin(@RequestBody UploadRequest body) {
+    requireOwnerPermission(body.ownerType());
+    return ApiResponse.created(files.beginUpload(body.toCommand()), "Upload ready");
+  }
+
+  @PostMapping("/uploads/{fileUid}/complete")
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<FileView> complete(@PathVariable UUID fileUid) {
+    return ApiResponse.ok(files.completeUpload(fileUid), "File stored");
+  }
+
+  @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<FileView> upload(
+      @RequestParam("file") MultipartFile file,
+      @RequestParam String ownerType,
+      @RequestParam(required = false) String ownerUid,
+      @RequestParam(required = false) String purpose) {
+    requireOwnerPermission(ownerType);
+    UploadCommand command =
+        new UploadCommand(
+            file.getOriginalFilename() == null ? "file" : file.getOriginalFilename(),
+            file.getContentType(),
+            file.getSize(),
+            ownerType,
+            Uids.parse(ownerUid, "ownerUid"),
+            purpose);
+    try (InputStream content = file.getInputStream()) {
+      return ApiResponse.created(files.uploadDirect(command, content), "File stored");
+    } catch (IOException exception) {
+      throw new UncheckedIOException(exception);
+    }
+  }
+
+  @GetMapping
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<List<FileView>> list(
+      @RequestParam String ownerType, @RequestParam(required = false) String ownerUid) {
+    return ApiResponse.ok(
+        files.attachments(ownerType, Uids.parse(ownerUid, "ownerUid")), "Files retrieved");
+  }
+
+  /** A presigned GET for an {@code <img src>} or a link, valid five minutes. */
+  @GetMapping("/{fileUid}/url")
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<DownloadLink> url(@PathVariable UUID fileUid) {
+    return ApiResponse.ok(files.downloadLink(fileUid), "Download link");
+  }
+
+  @GetMapping("/{fileUid}/download")
+  @Access(scope = AccessScope.TENANT)
+  public ResponseEntity<Void> download(@PathVariable UUID fileUid) {
+    return ResponseEntity.status(HttpStatus.FOUND)
+        .location(URI.create(files.downloadUrl(fileUid)))
+        .build();
+  }
+
+  @DeleteMapping("/{fileUid}")
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<Void> delete(@PathVariable UUID fileUid) {
+    FileView file =
+        files.find(fileUid).orElseThrow(() -> Refusal.notFound("file_not_found", "No such file."));
+    requireOwnerPermission(file.ownerType());
+    files.delete(fileUid);
+    return ApiResponse.ok("File deleted");
+  }
+
+  /** The local store's presigned PUT: the signature is the authorisation. */
+  @PutMapping("/blob/**")
+  @Access(scope = AccessScope.PUBLIC)
+  public ResponseEntity<Void> putBlob(
+      HttpServletRequest request,
+      @RequestParam long exp,
+      @RequestParam String sig,
+      @RequestHeader(HttpHeaders.CONTENT_TYPE) String contentType)
+      throws IOException {
+    try (InputStream content = request.getInputStream()) {
+      blobs.put(key(request), exp, sig, contentType, content);
+    }
+    return ResponseEntity.ok().build();
+  }
+
+  /** The local store's presigned GET. */
+  @GetMapping("/blob/**")
+  @Access(scope = AccessScope.PUBLIC)
+  public ResponseEntity<StreamingResponseBody> getBlob(
+      HttpServletRequest request,
+      @RequestParam long exp,
+      @RequestParam String sig,
+      @RequestParam String ct) {
+    SignedBlobs.Blob blob = blobs.get(key(request), exp, sig, ct);
+    StreamingResponseBody body =
+        out -> {
+          try (InputStream content = blob.content()) {
+            content.transferTo(out);
+          }
+        };
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(blob.contentType()))
+        .contentLength(blob.size())
+        .cacheControl(CacheControl.maxAge(java.time.Duration.ofMinutes(5)).cachePrivate())
+        .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(body);
+  }
+
+  private static String key(HttpServletRequest request) {
+    String uri = request.getRequestURI();
+    int at = uri.indexOf(BLOB);
+    if (at < 0) {
+      throw Refusal.forbidden("invalid_signature", "This file link is not valid.");
+    }
+    return URLDecoder.decode(uri.substring(at + BLOB.length()), StandardCharsets.UTF_8);
+  }
+
+  /** The tenant's own files, such as its logo, are settings. */
+  private static void requireOwnerPermission(String ownerType) {
+    if ("TENANT".equalsIgnoreCase(ownerType) && !ExecutionContext.permits("settings.manage")) {
+      throw Refusal.forbidden(
+          "forbidden", "Your role does not include the permission settings.manage.");
+    }
+  }
+
+  public record UploadRequest(
+      String name, String contentType, Long size, String ownerType, UUID ownerUid, String purpose) {
+
+    UploadCommand toCommand() {
+      return new UploadCommand(
+          name,
+          contentType,
+          size == null ? 0 : size,
+          FileRules.ownerType(ownerType),
+          ownerUid,
+          purpose);
+    }
+  }
+}

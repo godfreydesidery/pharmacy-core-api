@@ -1,0 +1,599 @@
+package tz.co.pharmacy.modules.receivables.application;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import javax.sql.DataSource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.modules.receivables.domain.Allocation;
+import tz.co.pharmacy.modules.receivables.domain.Allocator;
+import tz.co.pharmacy.modules.receivables.domain.CreditAccount;
+import tz.co.pharmacy.modules.receivables.domain.Entry;
+import tz.co.pharmacy.modules.receivables.events.CreditNoteIssued;
+import tz.co.pharmacy.modules.receivables.events.DebtWrittenOff;
+import tz.co.pharmacy.modules.receivables.events.PaymentReceived;
+import tz.co.pharmacy.modules.receivables.persistence.AllocationRepository;
+import tz.co.pharmacy.modules.receivables.persistence.CreditAccountRepository;
+import tz.co.pharmacy.modules.receivables.persistence.EntryRepository;
+import tz.co.pharmacy.modules.receivables.ports.inbound.AccountView;
+import tz.co.pharmacy.modules.receivables.ports.inbound.AgeingRow;
+import tz.co.pharmacy.modules.receivables.ports.inbound.AllocationView;
+import tz.co.pharmacy.modules.receivables.ports.inbound.CustomerCredit;
+import tz.co.pharmacy.modules.receivables.ports.inbound.EntryType;
+import tz.co.pharmacy.modules.receivables.ports.inbound.EntryView;
+import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivableTotals;
+import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivePaymentCommand;
+import tz.co.pharmacy.modules.receivables.ports.outbound.CustomerDirectory;
+import tz.co.pharmacy.modules.receivables.ports.outbound.CustomerDirectory.CustomerFacts;
+import tz.co.pharmacy.modules.receivables.ports.outbound.ReceivablesCurrency;
+import tz.co.pharmacy.platform.bus.DomainEventPublisher;
+import tz.co.pharmacy.platform.kernel.Amounts;
+import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.DocumentNumbers;
+
+/**
+ * Customer accounts. Every movement is an entry in the base currency; credits settle debits through
+ * allocations, so a statement shows exactly which payment cleared which invoice, and what is left
+ * of a payment stays on the account as credit the customer may spend later.
+ */
+@Service
+class CustomerCreditImpl implements CustomerCredit {
+
+  private final CreditAccountRepository accounts;
+  private final EntryRepository entries;
+  private final AllocationRepository allocations;
+  private final CustomerDirectory customers;
+  private final ReceivablesCurrency currency;
+  private final DocumentNumbers numbers;
+  private final DomainEventPublisher events;
+  private final Clock clock;
+  private final JdbcTemplate jdbc;
+
+  CustomerCreditImpl(
+      CreditAccountRepository accounts,
+      EntryRepository entries,
+      AllocationRepository allocations,
+      CustomerDirectory customers,
+      ReceivablesCurrency currency,
+      DocumentNumbers numbers,
+      DomainEventPublisher events,
+      Clock clock,
+      DataSource dataSource) {
+    this.accounts = accounts;
+    this.entries = entries;
+    this.allocations = allocations;
+    this.customers = customers;
+    this.currency = currency;
+    this.numbers = numbers;
+    this.events = events;
+    this.clock = clock;
+    this.jdbc = new JdbcTemplate(dataSource);
+  }
+
+  @Override
+  @Transactional
+  public AccountView account(UUID customerUid) {
+    return view(accountOf(customerUid));
+  }
+
+  @Override
+  @Transactional
+  public void checkCredit(UUID customerUid, BigDecimal amount) {
+    CreditAccount account = accountOf(customerUid);
+    if (account.isOnHold()) {
+      throw Refusal.invalid(
+          "account_on_hold",
+          account.getCustomerName() + "'s account is on hold; no new credit is allowed.",
+          "customerUid");
+    }
+    BigDecimal balance = balance(customerUid);
+    BigDecimal after = balance.add(Amounts.money(amount));
+    if (after.compareTo(account.getCreditLimit()) > 0) {
+      throw Refusal.invalid(
+          "credit_limit_exceeded",
+          "This would take "
+              + account.getCustomerName()
+              + " to "
+              + after.toPlainString()
+              + ", over the credit limit of "
+              + account.getCreditLimit().toPlainString()
+              + " (available "
+              + account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO).toPlainString()
+              + ").",
+          "payments");
+    }
+  }
+
+  @Override
+  @Transactional
+  public EntryView charge(
+      UUID customerUid, UUID saleUid, String saleNumber, BigDecimal amount, LocalDate date) {
+    CreditAccount account = accountOf(customerUid);
+    BigDecimal value = positive(amount, "amount");
+    LocalDate on = date == null ? today() : date;
+    // Idempotent per (customer, sale, reference): a redelivered event charges nothing new.
+    var earlier =
+        entries.findFirstByCustomerUidAndTypeAndSaleUidAndReference(
+            customerUid, EntryType.CHARGE, saleUid, saleNumber);
+    if (earlier.isPresent()) {
+      return view(earlier.get(), List.of());
+    }
+    Entry charge =
+        entries.save(
+            Entry.debit(
+                customerUid,
+                EntryType.CHARGE,
+                saleNumber,
+                saleUid,
+                value,
+                true,
+                on,
+                on.plusDays(account.getTermsDays()),
+                null));
+    return view(charge, List.of());
+  }
+
+  @Override
+  @Transactional
+  public EntryView applyCredit(
+      UUID customerUid, UUID saleUid, String saleNumber, BigDecimal amount) {
+    accountOf(customerUid);
+    BigDecimal value = positive(amount, "amount");
+    List<Entry> credits = entries.openCredits(customerUid);
+    BigDecimal available =
+        credits.stream().map(Entry::getOpenAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    if (available.compareTo(value) < 0) {
+      throw Refusal.invalid(
+          "insufficient_account_credit",
+          "The account holds "
+              + available.toPlainString()
+              + " of credit, less than "
+              + value.toPlainString()
+              + ".",
+          "payments");
+    }
+    Entry spend =
+        entries.save(
+            Entry.debit(
+                customerUid,
+                EntryType.CREDIT_APPLIED,
+                saleNumber,
+                saleUid,
+                value,
+                true,
+                today(),
+                null,
+                "Account credit used at the till"));
+    List<Allocation> made = allocations.saveAll(Allocator.settle(spend, credits));
+    return view(spend, made);
+  }
+
+  @Override
+  @Transactional
+  public EntryView receivePayment(ReceivePaymentCommand c) {
+    UUID customerUid = Checks.required(c.customerUid(), "customerUid");
+    accountOf(customerUid);
+    BigDecimal paid = positive(c.amount(), "amount");
+    String method =
+        c.method() == null || c.method().isBlank() ? "CASH" : c.method().trim().toUpperCase();
+    LocalDate date = c.date() == null ? today() : c.date();
+    String base = currency.baseCurrency();
+    String paidIn =
+        c.currency() == null || c.currency().isBlank() ? base : c.currency().trim().toUpperCase();
+    Conversion conversion = convert(paid, paidIn, base, c.exchangeRate(), date);
+
+    String number = numbers.format("RCP", 6);
+    String reference = Checks.optionalText(c.reference(), "reference", 100);
+    Entry payment =
+        Entry.credit(
+                customerUid, EntryType.PAYMENT, number, null, conversion.base(), date, reference)
+            .paidIn(
+                method,
+                paidIn.equals(base) ? null : paidIn,
+                paidIn.equals(base) ? null : paid,
+                paidIn.equals(base) ? null : conversion.rate());
+    payment = entries.save(payment);
+    List<Allocation> made =
+        allocations.saveAll(Allocator.allocate(payment, chosenDebits(customerUid, c.allocateTo())));
+    Entry saved = payment;
+    events.publish(
+        "receivable.payment_received",
+        meta ->
+            new PaymentReceived(
+                meta,
+                customerUid,
+                conversion.base(),
+                method,
+                number,
+                saved.getUid(),
+                saved.getCurrency(),
+                saved.getForeignAmount(),
+                saved.getExchangeRate(),
+                conversion.difference()));
+    return view(payment, made);
+  }
+
+  @Override
+  @Transactional
+  public EntryView creditNote(
+      UUID customerUid, UUID saleUid, String reference, BigDecimal amount, String refundMethod) {
+    accountOf(customerUid);
+    BigDecimal value = positive(amount, "amount");
+    Entry note =
+        entries.save(
+            Entry.credit(
+                customerUid,
+                EntryType.CREDIT_NOTE,
+                reference,
+                saleUid,
+                value,
+                today(),
+                "Return " + reference));
+    List<Entry> debits = new ArrayList<>(entries.openDebits(customerUid));
+    // The returned sale's own charge first, then nothing else: what is left is account credit.
+    debits.removeIf(debit -> !saleUid.equals(debit.getSaleUid()));
+    List<Allocation> made = allocations.saveAll(Allocator.allocate(note, debits));
+    events.publish(
+        "receivable.credit_note_issued",
+        meta ->
+            new CreditNoteIssued(
+                meta, customerUid, note.getUid(), saleUid, reference, value, refundMethod));
+    return view(note, made);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public BigDecimal openForSale(UUID customerUid, UUID saleUid) {
+    return Amounts.money(entries.openForSale(customerUid, saleUid));
+  }
+
+  @Override
+  @Transactional
+  public EntryView writeOff(UUID customerUid, BigDecimal amount, String reason) {
+    accountOf(customerUid);
+    BigDecimal value = positive(amount, "amount");
+    String why = Checks.text(reason, "reason", 500);
+    List<Entry> debits = entries.openDebits(customerUid);
+    BigDecimal open =
+        debits.stream().map(Entry::getOpenAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    if (value.compareTo(open) > 0) {
+      throw Refusal.invalid(
+          "write_off_exceeds_open",
+          "Only " + open.toPlainString() + " is open on this account.",
+          "amount");
+    }
+    String number = numbers.format("WO", 6);
+    Entry writeOff =
+        entries.save(
+            Entry.credit(customerUid, EntryType.WRITE_OFF, number, null, value, today(), why));
+    List<Allocation> made = allocations.saveAll(Allocator.allocate(writeOff, debits));
+    events.publish(
+        "receivable.written_off",
+        meta -> new DebtWrittenOff(meta, customerUid, writeOff.getUid(), number, value, why));
+    return view(writeOff, made);
+  }
+
+  @Override
+  @Transactional
+  public AccountView hold(UUID customerUid, boolean onHold, String reason) {
+    CreditAccount account = accountOf(customerUid);
+    account.hold(onHold, onHold ? Checks.text(reason, "reason", 500) : null);
+    return view(account);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Page<EntryView> statement(
+      UUID customerUid, LocalDate from, LocalDate to, PageQuery query) {
+    LocalDate start = from == null ? LocalDate.of(2000, 1, 1) : from;
+    LocalDate end = to == null ? LocalDate.of(9999, 12, 31) : to;
+    List<Entry> rows = entries.between(customerUid, start, end);
+    BigDecimal running = Amounts.money(entries.balanceBefore(customerUid, start));
+    Map<Long, List<Allocation>> touching = touching(rows);
+    List<EntryView> views = new ArrayList<>();
+    for (Entry entry : rows) {
+      running = running.add(entry.getAmount());
+      views.add(withRunning(view(entry, touching.getOrDefault(entry.getId(), List.of())), running));
+    }
+    int offset = query.offset();
+    List<EntryView> slice =
+        views.subList(
+            Math.min(offset, views.size()), Math.min(offset + query.limit() + 1, views.size()));
+    return Page.offset(slice, query);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public BigDecimal openingBalance(UUID customerUid, LocalDate before) {
+    return Amounts.money(entries.balanceBefore(customerUid, before));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<AgeingRow> ageing(LocalDate asOf) {
+    LocalDate on = asOf == null ? today() : asOf;
+    return jdbc.query(
+        "select a.customer_uid, a.customer_name,"
+            + " coalesce(sum(case when ? - e.entry_date <= 30 then e.open_amount end), 0) as current,"
+            + " coalesce(sum(case when ? - e.entry_date between 31 and 60 then e.open_amount end), 0) as d31,"
+            + " coalesce(sum(case when ? - e.entry_date between 61 and 90 then e.open_amount end), 0) as d61,"
+            + " coalesce(sum(case when ? - e.entry_date > 90 then e.open_amount end), 0) as d90,"
+            + " coalesce(sum(e.open_amount), 0) as total"
+            + " from receivables.accounts a"
+            + " join receivables.entries e on e.customer_uid = a.customer_uid"
+            + " where e.amount > 0 and e.open_amount > 0 and e.entry_date <= ?"
+            + " group by a.customer_uid, a.customer_name order by total desc",
+        (row, i) ->
+            new AgeingRow(
+                row.getObject("customer_uid", UUID.class),
+                row.getString("customer_name"),
+                Amounts.money(row.getBigDecimal("current")),
+                Amounts.money(row.getBigDecimal("d31")),
+                Amounts.money(row.getBigDecimal("d61")),
+                Amounts.money(row.getBigDecimal("d90")),
+                Amounts.money(row.getBigDecimal("total"))),
+        on,
+        on,
+        on,
+        on,
+        on);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Page<AccountView> accounts(String q, boolean withBalanceOnly, PageQuery query) {
+    String pattern = q == null || q.isBlank() ? null : "%" + q.trim().toLowerCase() + "%";
+    List<AccountView> rows =
+        jdbc.query(
+            "select a.customer_uid, a.customer_name, a.credit_limit, a.on_hold, a.hold_reason,"
+                + " a.terms_days, coalesce(sum(e.amount), 0) as balance,"
+                + " coalesce(sum(case when e.amount > 0 and e.open_amount > 0 and e.due_date < ?"
+                + "   then e.open_amount end), 0) as overdue,"
+                + " min(case when e.amount > 0 and e.open_amount > 0 then e.entry_date end) as oldest,"
+                + " coalesce(sum(case when e.amount < 0 then e.open_amount end), 0) as unallocated"
+                + " from receivables.accounts a"
+                + " left join receivables.entries e on e.customer_uid = a.customer_uid"
+                + " where (cast(? as text) is null or lower(a.customer_name) like cast(? as text))"
+                + " group by a.id, a.customer_uid, a.customer_name, a.credit_limit, a.on_hold,"
+                + " a.hold_reason, a.terms_days"
+                + (withBalanceOnly ? " having coalesce(sum(e.amount), 0) <> 0" : "")
+                + " order by lower(a.customer_name), a.id limit ? offset ?",
+            (row, i) -> {
+              BigDecimal limit = Amounts.money(row.getBigDecimal("credit_limit"));
+              BigDecimal balance = Amounts.money(row.getBigDecimal("balance"));
+              var oldest = row.getDate("oldest");
+              return new AccountView(
+                  row.getObject("customer_uid", UUID.class),
+                  row.getString("customer_name"),
+                  limit,
+                  balance,
+                  Amounts.money(limit.subtract(balance)),
+                  Amounts.money(row.getBigDecimal("overdue")),
+                  oldest == null ? null : oldest.toLocalDate(),
+                  row.getBoolean("on_hold"),
+                  row.getString("hold_reason"),
+                  Amounts.money(row.getBigDecimal("unallocated")),
+                  row.getInt("terms_days"));
+            },
+            today(),
+            pattern,
+            pattern,
+            query.limit() + 1,
+            query.offset());
+    return Page.offset(rows, query);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public ReceivableTotals totals(LocalDate asOf) {
+    LocalDate on = asOf == null ? today() : asOf;
+    return jdbc.queryForObject(
+        "select coalesce(sum(case when amount > 0 then open_amount end), 0) as outstanding,"
+            + " coalesce(sum(case when amount > 0 and due_date < ? then open_amount end), 0) as overdue,"
+            + " coalesce(sum(case when amount < 0 then open_amount end), 0) as unallocated,"
+            + " count(distinct case when amount > 0 and open_amount > 0 then customer_uid end) as accounts"
+            + " from receivables.entries",
+        (row, i) ->
+            new ReceivableTotals(
+                Amounts.money(row.getBigDecimal("outstanding")),
+                Amounts.money(row.getBigDecimal("overdue")),
+                Amounts.money(row.getBigDecimal("unallocated")),
+                row.getLong("accounts")),
+        on);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The base amount of a payment, the rate used and the rounding left over (to FX gains/losses).
+   */
+  record Conversion(BigDecimal base, BigDecimal rate, BigDecimal difference) {}
+
+  Conversion convert(
+      BigDecimal paid, String paidIn, String base, BigDecimal givenRate, LocalDate on) {
+    if (paidIn.equals(base)) {
+      return new Conversion(Amounts.money(paid), BigDecimal.ONE, Amounts.ZERO);
+    }
+    BigDecimal rate = givenRate != null ? givenRate : currency.rateToBase(paidIn, on);
+    if (rate == null || rate.signum() <= 0) {
+      throw Refusal.invalid(
+          "invalid_exchange_rate", "exchangeRate must be more than zero.", "exchangeRate");
+    }
+    return conversion(paid, rate);
+  }
+
+  /** Exact base value, rounded to cents; the sub-cent rounding is reported, never lost. */
+  static Conversion conversion(BigDecimal paid, BigDecimal rate) {
+    BigDecimal exact = paid.multiply(rate).setScale(6, RoundingMode.HALF_UP);
+    BigDecimal rounded = Amounts.money(exact);
+    return new Conversion(rounded, rate, exact.subtract(rounded).setScale(6, RoundingMode.HALF_UP));
+  }
+
+  private List<Entry> chosenDebits(UUID customerUid, List<UUID> allocateTo) {
+    List<Entry> open = entries.openDebits(customerUid);
+    if (allocateTo == null || allocateTo.isEmpty()) {
+      return open;
+    }
+    Map<UUID, Entry> byUid = new HashMap<>();
+    open.forEach(entry -> byUid.put(entry.getUid(), entry));
+    List<Entry> chosen = new ArrayList<>();
+    for (int i = 0; i < allocateTo.size(); i++) {
+      Entry debit = byUid.get(allocateTo.get(i));
+      if (debit == null) {
+        throw Refusal.invalid(
+            "charge_not_open", "That charge is not open on this account.", "allocateTo[" + i + "]");
+      }
+      chosen.add(debit);
+    }
+    return chosen;
+  }
+
+  private CreditAccount accountOf(UUID customerUid) {
+    CustomerFacts facts =
+        customers
+            .customer(customerUid)
+            .orElseThrow(
+                () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"));
+    CreditAccount account =
+        accounts
+            .findByCustomerUid(customerUid)
+            .orElseGet(
+                () ->
+                    accounts.save(
+                        new CreditAccount(
+                            customerUid, facts.name(), facts.creditLimit(), facts.termsDays())));
+    account.refresh(facts.name(), facts.creditLimit(), facts.termsDays());
+    return account;
+  }
+
+  private BigDecimal balance(UUID customerUid) {
+    return Amounts.money(entries.balanceBefore(customerUid, LocalDate.of(9999, 12, 31)));
+  }
+
+  private AccountView view(CreditAccount account) {
+    UUID customer = account.getCustomerUid();
+    BigDecimal balance = balance(customer);
+    List<Entry> debits = entries.openDebits(customer);
+    LocalDate today = today();
+    BigDecimal overdue =
+        debits.stream()
+            .filter(e -> e.getDueDate() != null && e.getDueDate().isBefore(today))
+            .map(Entry::getOpenAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    LocalDate oldest = debits.isEmpty() ? null : debits.getFirst().getEntryDate();
+    BigDecimal unallocated =
+        entries.openCredits(customer).stream()
+            .map(Entry::getOpenAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    return new AccountView(
+        customer,
+        account.getCustomerName(),
+        account.getCreditLimit(),
+        balance,
+        Amounts.money(account.getCreditLimit().subtract(balance)),
+        Amounts.money(overdue),
+        oldest,
+        account.isOnHold(),
+        account.getHoldReason(),
+        Amounts.money(unallocated),
+        account.getTermsDays());
+  }
+
+  private Map<Long, List<Allocation>> touching(Collection<Entry> rows) {
+    Map<Long, List<Allocation>> byEntry = new HashMap<>();
+    if (rows.isEmpty()) {
+      return byEntry;
+    }
+    for (Allocation allocation : allocations.touching(rows.stream().map(Entry::getId).toList())) {
+      byEntry
+          .computeIfAbsent(allocation.getCredit().getId(), k -> new ArrayList<>())
+          .add(allocation);
+      byEntry
+          .computeIfAbsent(allocation.getDebit().getId(), k -> new ArrayList<>())
+          .add(allocation);
+    }
+    return byEntry;
+  }
+
+  private static EntryView view(Entry entry, List<Allocation> made) {
+    List<AllocationView> lines =
+        made.stream()
+            .map(
+                allocation -> {
+                  Entry other =
+                      allocation.getCredit() == entry
+                              || allocation.getCredit().getId() != null
+                                  && allocation.getCredit().getId().equals(entry.getId())
+                          ? allocation.getDebit()
+                          : allocation.getCredit();
+                  return new AllocationView(
+                      other.getUid(),
+                      other.getReference(),
+                      other.getSaleUid(),
+                      allocation.getAmount());
+                })
+            .toList();
+    return new EntryView(
+        entry.getUid(),
+        entry.getType(),
+        entry.getReference(),
+        entry.getSaleUid(),
+        entry.getAmount(),
+        entry.getOpenAmount(),
+        entry.getEntryDate(),
+        entry.getDueDate(),
+        entry.getNote(),
+        entry.getCreatedAt(),
+        entry.getCreatedBy(),
+        entry.getMethod(),
+        entry.getCurrency(),
+        entry.getForeignAmount(),
+        entry.getExchangeRate(),
+        lines,
+        null);
+  }
+
+  private static EntryView withRunning(EntryView v, BigDecimal running) {
+    return new EntryView(
+        v.uid(),
+        v.type(),
+        v.reference(),
+        v.saleUid(),
+        v.amount(),
+        v.openAmount(),
+        v.date(),
+        v.dueDate(),
+        v.note(),
+        v.createdAt(),
+        v.createdBy(),
+        v.method(),
+        v.currency(),
+        v.foreignAmount(),
+        v.exchangeRate(),
+        v.allocations(),
+        Amounts.money(running));
+  }
+
+  private static BigDecimal positive(BigDecimal amount, String field) {
+    if (amount == null || amount.signum() <= 0) {
+      throw Refusal.invalid("invalid_" + field, field + " must be more than zero.", field);
+    }
+    return Amounts.money(amount);
+  }
+
+  private LocalDate today() {
+    return LocalDate.now(clock);
+  }
+}

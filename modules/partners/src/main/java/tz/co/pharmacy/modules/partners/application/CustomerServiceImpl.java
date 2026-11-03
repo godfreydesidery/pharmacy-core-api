@@ -1,0 +1,108 @@
+package tz.co.pharmacy.modules.partners.application;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.modules.partners.domain.Customer;
+import tz.co.pharmacy.modules.partners.persistence.CustomerRepository;
+import tz.co.pharmacy.modules.partners.ports.inbound.CustomerCommand;
+import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
+import tz.co.pharmacy.modules.partners.ports.inbound.CustomerType;
+import tz.co.pharmacy.modules.partners.ports.inbound.CustomerView;
+import tz.co.pharmacy.modules.partners.ports.inbound.PaymentTerms;
+import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.DocumentNumbers;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
+
+/** The customers of the current tenant. */
+@Service
+@RequiredArgsConstructor
+class CustomerServiceImpl implements CustomerService {
+
+  private final CustomerRepository customers;
+  private final DocumentNumbers numbers;
+
+  @Override
+  @Transactional(readOnly = true)
+  public Page<CustomerView> search(String q, CustomerType type, PageQuery query) {
+    return Keyset.page(
+        customers,
+        Specs.<Customer>containsAny(q, "name", "phone", "email", "code")
+            .and(Specs.equal("type", type)),
+        query,
+        CustomerServiceImpl::view);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<CustomerView> find(UUID uid) {
+    return customers.findByUid(uid).map(CustomerServiceImpl::view);
+  }
+
+  @Override
+  @Transactional
+  public CustomerView create(CustomerCommand c) {
+    Customer.Details details = details(c, true);
+    return view(customers.save(new Customer(numbers.format("CUS", 6), details)));
+  }
+
+  @Override
+  @Transactional
+  public CustomerView change(UUID uid, CustomerCommand c) {
+    Customer customer =
+        customers
+            .findByUid(uid)
+            .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    customer.change(details(c, customer.isActive()));
+    return view(customer);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public long count() {
+    return customers.count();
+  }
+
+  private static Customer.Details details(CustomerCommand c, boolean currentlyActive) {
+    BigDecimal creditLimit = c.creditLimit() == null ? BigDecimal.ZERO : c.creditLimit();
+    return new Customer.Details(
+        Checks.text(c.name(), "name", 200),
+        Checks.optionalText(c.phone(), "phone", 40),
+        optionalEmail(c.email()),
+        c.type() == null ? CustomerType.RETAIL : c.type(),
+        Checks.optionalText(c.insuranceProvider(), "insuranceProvider", 200),
+        Checks.optionalText(c.insuranceNumber(), "insuranceNumber", 100),
+        Checks.notNegative(creditLimit, "creditLimit"),
+        Checks.optionalText(c.address(), "address", 500),
+        c.active() == null ? currentlyActive : c.active(),
+        c.paymentTerms() == null ? PaymentTerms.NET_30 : c.paymentTerms());
+  }
+
+  private static String optionalEmail(String email) {
+    return email == null || email.isBlank() ? null : Checks.email(email, "email");
+  }
+
+  private static CustomerView view(Customer c) {
+    return new CustomerView(
+        c.getUid(),
+        c.getCode(),
+        c.getName(),
+        c.getPhone(),
+        c.getEmail(),
+        c.getType(),
+        c.getInsuranceProvider(),
+        c.getInsuranceNumber(),
+        c.getCreditLimit(),
+        c.getAddress(),
+        c.isActive(),
+        c.getCreatedAt(),
+        c.getPaymentTerms());
+  }
+}

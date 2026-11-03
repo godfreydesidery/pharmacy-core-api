@@ -1,0 +1,48 @@
+package tz.co.pharmacy.platform.composition;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Component;
+import tz.co.pharmacy.modules.finance.ports.outbound.PayablesDirectory;
+import tz.co.pharmacy.modules.partners.ports.inbound.SupplierService;
+import tz.co.pharmacy.modules.partners.ports.inbound.SupplierView;
+import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptService;
+import tz.co.pharmacy.platform.kernel.Refusal;
+
+/** Binds finance's view of payables to purchasing (receipts as booked) and partners (names). */
+@Component
+class PayablesDirectoryAdapter implements PayablesDirectory {
+
+  private final GoodsReceiptService receipts;
+  private final SupplierService suppliers;
+
+  PayablesDirectoryAdapter(GoodsReceiptService receipts, SupplierService suppliers) {
+    this.receipts = receipts;
+    this.suppliers = suppliers;
+  }
+
+  @Override
+  public List<BookedReceipt> receipts(Collection<UUID> receiptUids) {
+    return receipts.findAll(receiptUids).stream()
+        .map(
+            receipt ->
+                new BookedReceipt(
+                    receipt.uid(),
+                    receipt.number(),
+                    receipt.supplierUid(),
+                    receipt.currency(),
+                    receipt.exchangeRate(),
+                    receipt.total()))
+        .toList();
+  }
+
+  @Override
+  public String supplierName(UUID supplierUid) {
+    return suppliers
+        .find(supplierUid)
+        .map(SupplierView::name)
+        .orElseThrow(
+            () -> Refusal.invalid("supplier_not_found", "No such supplier.", "supplierUid"));
+  }
+}

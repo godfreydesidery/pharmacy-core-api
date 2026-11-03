@@ -1,0 +1,22 @@
+package tz.co.pharmacy.modules.finance.ports.inbound;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.UUID;
+
+public record ReceiptPosting(
+    UUID receiptUid,
+    String number,
+    UUID branchUid,
+    LocalDate date,
+    /* The receipt's total in the base currency. */
+    BigDecimal total,
+    /* The receipt's currency and its total in it, noted on the payable; null for base receipts. */
+    String currency,
+    BigDecimal foreignTotal) {
+
+  public ReceiptPosting(
+      UUID receiptUid, String number, UUID branchUid, LocalDate date, BigDecimal total) {
+    this(receiptUid, number, branchUid, date, total, null, null);
+  }
+}

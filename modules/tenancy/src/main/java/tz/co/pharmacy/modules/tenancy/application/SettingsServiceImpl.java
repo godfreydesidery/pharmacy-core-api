@@ -1,0 +1,128 @@
+package tz.co.pharmacy.modules.tenancy.application;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.modules.tenancy.domain.Tenant;
+import tz.co.pharmacy.modules.tenancy.domain.TenantSettings;
+import tz.co.pharmacy.modules.tenancy.persistence.SettingsRepository;
+import tz.co.pharmacy.modules.tenancy.persistence.TenantRepository;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeSettingsCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsView;
+import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.TenantContext;
+
+@Service
+class SettingsServiceImpl implements SettingsService {
+
+  private final SettingsRepository settings;
+  private final TenantRepository tenants;
+
+  SettingsServiceImpl(SettingsRepository settings, TenantRepository tenants) {
+    this.settings = settings;
+    this.tenants = tenants;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public SettingsView current() {
+    return view(tenant(), row());
+  }
+
+  @Override
+  @Transactional
+  public SettingsView change(ChangeSettingsCommand command) {
+    Checks.required(command, "settings");
+    TenantSettings row = row();
+    String prefix =
+        command.invoicePrefix() == null
+            ? null
+            : Checks.code(command.invoicePrefix(), "invoicePrefix");
+    if (command.expiryAlertDays() != null
+        && (command.expiryAlertDays() < 1 || command.expiryAlertDays() > 730)) {
+      throw Refusal.invalid(
+          "invalid_expiry_alert_days",
+          "expiryAlertDays must be between 1 and 730.",
+          "expiryAlertDays");
+    }
+    String footer =
+        command.receiptFooter() == null || command.receiptFooter().isBlank()
+            ? command.receiptFooter()
+            : Checks.text(command.receiptFooter(), "receiptFooter", 500);
+    row.change(
+        command.defaultTaxRatePercent() == null
+            ? null
+            : Checks.percent(command.defaultTaxRatePercent(), "defaultTaxRatePercent"),
+        prefix,
+        footer,
+        command.maxDiscountPercent() == null
+            ? null
+            : Checks.percent(command.maxDiscountPercent(), "maxDiscountPercent"),
+        command.expiryAlertDays(),
+        command.lowStockAlerts());
+    row.changeSmsReceipts(command.smsReceipts());
+    Tenant tenant = tenant();
+    row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
+    return view(tenant, row);
+  }
+
+  /**
+   * The accepted currencies without the base: valid ISO 4217 codes, upper case, sorted and unique;
+   * null keeps the current ones.
+   */
+  private static java.util.List<String> foreignCurrencies(
+      java.util.List<String> accepted, Tenant tenant) {
+    if (accepted == null) {
+      return null;
+    }
+    java.util.TreeSet<String> codes = new java.util.TreeSet<>();
+    for (int i = 0; i < accepted.size(); i++) {
+      String field = "acceptedCurrencies[" + i + "]";
+      String code = Checks.text(accepted.get(i), field, 3).toUpperCase(java.util.Locale.ROOT);
+      try {
+        java.util.Currency.getInstance(code);
+      } catch (IllegalArgumentException unknown) {
+        throw Refusal.invalid(
+            "invalid_currency", code + " is not an ISO 4217 currency code.", field);
+      }
+      codes.add(code);
+    }
+    codes.remove(tenant.getCurrency());
+    return java.util.List.copyOf(codes);
+  }
+
+  /** The base currency first, then the accepted foreign ones. */
+  private static java.util.List<String> accepted(Tenant tenant, TenantSettings row) {
+    java.util.List<String> all = new java.util.ArrayList<>();
+    all.add(tenant.getCurrency());
+    all.addAll(row.foreignCurrencies());
+    return java.util.List.copyOf(all);
+  }
+
+  private Tenant tenant() {
+    return tenants
+        .findByUid(TenantContext.requireTenant())
+        .orElseThrow(() -> Refusal.notFound("tenant_not_found", "No such tenant."));
+  }
+
+  private TenantSettings row() {
+    return settings
+        .findFirstByOrderByIdAsc()
+        .orElseThrow(() -> Refusal.notFound("settings_not_found", "The tenant has no settings."));
+  }
+
+  private static SettingsView view(Tenant tenant, TenantSettings row) {
+    return new SettingsView(
+        tenant.getCurrency(),
+        tenant.getTimezone(),
+        row.getDefaultTaxRatePercent(),
+        row.getInvoicePrefix(),
+        row.getReceiptFooter(),
+        row.getMaxDiscountPercent(),
+        row.getExpiryAlertDays(),
+        row.isLowStockAlerts(),
+        row.isSmsReceipts(),
+        accepted(tenant, row));
+  }
+}

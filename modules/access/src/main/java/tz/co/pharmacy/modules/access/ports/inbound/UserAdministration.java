@@ -1,0 +1,41 @@
+package tz.co.pharmacy.modules.access.ports.inbound;
+
+import java.util.List;
+import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
+
+/** Members and roles of the current tenant, and the root administrators. */
+public interface UserAdministration {
+
+  /** Newest first; {@code q} matches name or email. */
+  Page<MemberView> members(String q, PageQuery query);
+
+  /** A new email creates the user; an existing one gets a membership (409 already_a_member). */
+  MemberView addMember(AddMemberCommand command);
+
+  MemberView changeMember(UUID membershipUid, ChangeMemberCommand command);
+
+  List<RoleView> roles();
+
+  RoleView createRole(RoleCommand command);
+
+  /** A system role keeps its code and name. */
+  RoleView changeRole(UUID roleUid, RoleCommand command);
+
+  /**
+   * Seeds the default system roles in the current tenant and makes the user, new or existing by
+   * email, its ADMIN for every branch.
+   */
+  MemberView seedTenant(NewUserCommand administrator);
+
+  /** Platform scope. */
+  List<UserView> rootAdmins();
+
+  /** Platform scope; 409 duplicate_email. */
+  UserView createRootAdmin(NewUserCommand command);
+
+  boolean anyRootAdmin();
+
+  long userCount();
+}

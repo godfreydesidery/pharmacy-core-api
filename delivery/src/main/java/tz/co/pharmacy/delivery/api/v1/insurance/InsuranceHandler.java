@@ -1,0 +1,317 @@
+package tz.co.pharmacy.delivery.api.v1.insurance;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+import tz.co.pharmacy.application.checkout.ports.inbound.Checkout;
+import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutLine;
+import tz.co.pharmacy.delivery.api.Access;
+import tz.co.pharmacy.delivery.api.AccessScope;
+import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.modules.insurance.ports.inbound.AdjudicationCommand;
+import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimBatchView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimLineView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimStatus;
+import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimTotals;
+import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.CopayType;
+import tz.co.pharmacy.modules.insurance.ports.inbound.CoverageQuote;
+import tz.co.pharmacy.modules.insurance.ports.inbound.Insurance;
+import tz.co.pharmacy.modules.insurance.ports.inbound.MemberCommand;
+import tz.co.pharmacy.modules.insurance.ports.inbound.MemberView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.PayerCommand;
+import tz.co.pharmacy.modules.insurance.ports.inbound.PayerView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.RejectedTo;
+import tz.co.pharmacy.modules.insurance.ports.inbound.RemittanceCommand;
+import tz.co.pharmacy.modules.insurance.ports.inbound.RemittanceView;
+import tz.co.pharmacy.modules.insurance.ports.inbound.SchemeCommand;
+import tz.co.pharmacy.modules.insurance.ports.inbound.SchemeView;
+import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.Refusal;
+
+/**
+ * Insurance: payers, schemes and members (partners.*), claims, batches and remittances (finance.*),
+ * and the POS coverage quote (sales.sell).
+ */
+@RestController
+@RequestMapping("/api/v1")
+@RequiredArgsConstructor
+public class InsuranceHandler {
+
+  private final Insurance insurance;
+  private final Checkout checkout;
+
+  // ---------------------------------------------------------------- payers and schemes
+
+  @GetMapping("/insurance/payers")
+  @Access(scope = AccessScope.TENANT, permission = "partners.view")
+  public ApiResponse<List<PayerView>> payers() {
+    return ApiResponse.ok(insurance.payers(), "Payers retrieved");
+  }
+
+  @PostMapping("/insurance/payers")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<PayerView> createPayer(@RequestBody PayerCommand body) {
+    return ApiResponse.created(insurance.createPayer(body), "Payer created");
+  }
+
+  @PutMapping("/insurance/payers/{uid}")
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<PayerView> changePayer(
+      @PathVariable UUID uid, @RequestBody PayerCommand body) {
+    return ApiResponse.ok(insurance.changePayer(uid, body), "Payer changed");
+  }
+
+  @GetMapping("/insurance/schemes")
+  @Access(scope = AccessScope.TENANT, permission = "partners.view")
+  public ApiResponse<List<SchemeView>> schemes(@RequestParam(required = false) UUID payerUid) {
+    return ApiResponse.ok(insurance.schemes(payerUid), "Schemes retrieved");
+  }
+
+  @PostMapping("/insurance/schemes")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<SchemeView> createScheme(@RequestBody SchemeRequest body) {
+    return ApiResponse.created(insurance.createScheme(body.command()), "Scheme created");
+  }
+
+  @PutMapping("/insurance/schemes/{uid}")
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<SchemeView> changeScheme(
+      @PathVariable UUID uid, @RequestBody SchemeRequest body) {
+    return ApiResponse.ok(insurance.changeScheme(uid, body.command()), "Scheme changed");
+  }
+
+  // ---------------------------------------------------------------- members
+
+  /** Members by number or name; {@code ?customerUid=} the customer's memberships. */
+  @GetMapping("/insurance/members")
+  @Access(scope = AccessScope.TENANT, permission = "partners.view")
+  public ApiResponse<Page<MemberView>> members(
+      @RequestParam(required = false) String q,
+      @RequestParam(required = false) UUID customerUid,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    if (customerUid != null) {
+      return ApiResponse.ok(Page.of(insurance.membersOf(customerUid), null), "Members retrieved");
+    }
+    return ApiResponse.ok(insurance.members(q, Pages.of(cursor, limit)), "Members retrieved");
+  }
+
+  /** The customer's membership valid today, for the POS; 404 member_not_found when none. */
+  @GetMapping("/insurance/members/current")
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<MemberView> currentMember(@RequestParam UUID customerUid) {
+    return ApiResponse.ok(
+        insurance
+            .memberOf(customerUid, null)
+            .orElseThrow(
+                () ->
+                    Refusal.notFound(
+                        "member_not_found", "The customer has no valid insurance today.")),
+        "Member retrieved");
+  }
+
+  @PostMapping("/insurance/members")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<MemberView> enrol(@RequestBody MemberCommand body) {
+    return ApiResponse.created(insurance.enrol(body), "Member enrolled");
+  }
+
+  @PutMapping("/insurance/members/{uid}")
+  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  public ApiResponse<MemberView> changeMember(
+      @PathVariable UUID uid, @RequestBody MemberCommand body) {
+    return ApiResponse.ok(insurance.changeMember(uid, body), "Member changed");
+  }
+
+  // ---------------------------------------------------------------- POS
+
+  /** The split of a basket between the member's insurer and the patient. */
+  @PostMapping("/pos/coverage-quote")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
+  public ApiResponse<CoverageQuote> coverageQuote(@RequestBody QuoteRequest body) {
+    List<CheckoutLine> lines =
+        Checks.notEmpty(body.lines(), "lines").stream()
+            .map(
+                line ->
+                    new CheckoutLine(
+                        line.productUid(),
+                        line.quantity() == null ? 0 : line.quantity(),
+                        List.of()))
+            .toList();
+    return ApiResponse.ok(
+        checkout.coverageQuote(
+            Checks.required(body.memberUid(), "memberUid"), lines, body.preauthNumber()),
+        "Coverage quoted");
+  }
+
+  // ---------------------------------------------------------------- claims
+
+  @GetMapping("/insurance/claims")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<Page<ClaimView>> claims(
+      @RequestParam(required = false) UUID payerUid,
+      @RequestParam(required = false) String status,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    ClaimStatus filter =
+        status == null || status.isBlank()
+            ? null
+            : Checks.oneOf(ClaimStatus.class, status, "status");
+    return ApiResponse.ok(
+        insurance.claims(payerUid, filter, Pages.of(cursor, limit)), "Claims retrieved");
+  }
+
+  @GetMapping("/insurance/claims/{uid}")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<ClaimView> claim(@PathVariable UUID uid) {
+    return ApiResponse.ok(
+        insurance
+            .claim(uid)
+            .orElseThrow(() -> Refusal.notFound("claim_not_found", "No such claim.")),
+        "Claim retrieved");
+  }
+
+  /** The payer's decision; {@code rejectedTo} WRITE_OFF (default) or PATIENT_ACCOUNT. */
+  @PostMapping("/insurance/claims/{uid}/adjudicate")
+  @Access(scope = AccessScope.TENANT, permission = "finance.manage")
+  public ApiResponse<ClaimView> adjudicate(
+      @PathVariable UUID uid, @RequestBody AdjudicationRequest body) {
+    return ApiResponse.ok(
+        insurance.adjudicate(
+            uid,
+            new AdjudicationCommand(
+                body.status() == null || body.status().isBlank()
+                    ? null
+                    : Checks.oneOf(ClaimStatus.class, body.status(), "status"),
+                body.lines(),
+                body.note(),
+                body.rejectedTo() == null || body.rejectedTo().isBlank()
+                    ? RejectedTo.WRITE_OFF
+                    : Checks.oneOf(RejectedTo.class, body.rejectedTo(), "rejectedTo"))),
+        "Claim adjudicated");
+  }
+
+  @GetMapping("/insurance/claims/totals")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<ClaimTotals> claimTotals() {
+    return ApiResponse.ok(insurance.totals(), "Claim totals retrieved");
+  }
+
+  // ---------------------------------------------------------------- batches and remittances
+
+  @GetMapping("/insurance/batches")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<List<ClaimBatchView>> batches(@RequestParam(required = false) UUID payerUid) {
+    return ApiResponse.ok(insurance.batches(payerUid), "Batches retrieved");
+  }
+
+  /** Gathers the payer's draft claims of the period into a batch and submits them. */
+  @PostMapping("/insurance/batches")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "finance.manage")
+  public ApiResponse<ClaimBatchView> batch(@RequestBody BatchRequest body) {
+    return ApiResponse.created(
+        insurance.batch(body.payerUid(), body.from(), body.to()), "Batch submitted");
+  }
+
+  /** {@code ?format=CSV} or {@code JSON} (a FHIR R4 Bundle of Claim resources). */
+  @GetMapping("/insurance/batches/{uid}/export")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ResponseEntity<byte[]> export(
+      @PathVariable UUID uid, @RequestParam(required = false) String format) {
+    boolean json =
+        format != null && (format.equalsIgnoreCase("JSON") || format.equalsIgnoreCase("FHIR"));
+    byte[] body = insurance.exportBatch(uid, json ? "JSON" : "CSV");
+    return ResponseEntity.ok()
+        .contentType(
+            json
+                ? MediaType.parseMediaType("application/fhir+json")
+                : MediaType.parseMediaType("text/csv"))
+        .header(
+            HttpHeaders.CONTENT_DISPOSITION,
+            "attachment; filename=\"claims-" + uid + (json ? ".fhir.json" : ".csv") + "\"")
+        .body(body);
+  }
+
+  @GetMapping("/insurance/remittances")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<List<RemittanceView>> remittances(
+      @RequestParam(required = false) UUID payerUid) {
+    return ApiResponse.ok(insurance.remittances(payerUid), "Remittances retrieved");
+  }
+
+  /** A payer's payment, spread over claims as given or oldest approved first. */
+  @PostMapping("/insurance/remittances")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "finance.manage")
+  public ApiResponse<List<ClaimView>> remit(@RequestBody RemittanceCommand body) {
+    return ApiResponse.created(insurance.remit(body), "Remittance recorded");
+  }
+
+  // ---------------------------------------------------------------- bodies
+
+  public record SchemeRequest(
+      UUID payerUid,
+      String name,
+      String copayType,
+      BigDecimal copayValue,
+      BigDecimal annualLimit,
+      Set<String> excludedProductTypes,
+      Set<UUID> excludedProductUids,
+      Boolean active) {
+
+    SchemeCommand command() {
+      return new SchemeCommand(
+          payerUid,
+          name,
+          copayType == null || copayType.isBlank()
+              ? CopayType.NONE
+              : Checks.oneOf(CopayType.class, copayType, "copayType"),
+          copayValue,
+          annualLimit,
+          excludedProductTypes == null ? Set.of() : excludedProductTypes,
+          excludedProductUids == null ? Set.of() : excludedProductUids,
+          active);
+    }
+  }
+
+  public record QuoteLine(UUID productUid, Integer quantity) {}
+
+  public record QuoteRequest(UUID memberUid, List<QuoteLine> lines, String preauthNumber) {}
+
+  public record AdjudicationRequest(
+      String status, List<ClaimLineView> lines, String note, String rejectedTo) {}
+
+  public record BatchRequest(UUID payerUid, LocalDate from, LocalDate to) {}
+
+  /** For the OpenAPI document: a remittance body. */
+  public record RemittanceRequest(
+      UUID payerUid,
+      BigDecimal amount,
+      String reference,
+      LocalDate date,
+      Map<UUID, BigDecimal> perClaim) {}
+}

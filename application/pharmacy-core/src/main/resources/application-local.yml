@@ -1,0 +1,12 @@
+# Zero-setup local run:
+#   mvn -pl application/pharmacy-core spring-boot:run -Dspring-boot.run.profiles=local
+# PharmacyApplication starts an embedded PostgreSQL (data in target/local-postgres) with the
+# production roles before Spring starts, creates the root administrator and seeds a demo tenant.
+pharmacy:
+  edge:
+    cors-allowed-origins: http://localhost:4200
+  bootstrap:
+    root-email: root@pharmacy.local
+    root-password: "Root#2026"
+  seed:
+    demo: true
