@@ -80,6 +80,18 @@ class SupplierReturnsImpl implements SupplierReturns {
       } catch (Refusal refusal) {
         throw refusal.about(field + ".productUid");
       }
+      if (receipt != null && !onReceipt(receipt, line)) {
+        throw Refusal.invalid(
+            "batch_not_on_receipt",
+            "Batch "
+                + line.batchNumber()
+                + " of "
+                + name
+                + " was not received on "
+                + receipt.getNumber()
+                + "; choose the goods receipt it came on, or none.",
+            field + ".batchUid");
+      }
       supplierReturn.addLine(
           new SupplierReturnLine(
               line.productUid(),
@@ -103,6 +115,16 @@ class SupplierReturnsImpl implements SupplierReturns {
                 saved.getSupplierName(),
                 saved.getTotal()));
     return view(saved);
+  }
+
+  /** Whether the receipt took in this batch of the product (by its batch number). */
+  private static boolean onReceipt(GoodsReceipt receipt, Line line) {
+    return receipt.getLines().stream()
+        .anyMatch(
+            r ->
+                r.getProductUid().equals(line.productUid())
+                    && r.getBatchNumber() != null
+                    && r.getBatchNumber().equalsIgnoreCase(String.valueOf(line.batchNumber())));
   }
 
   @Override

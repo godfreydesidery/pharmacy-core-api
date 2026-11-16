@@ -85,6 +85,34 @@ class StockOperationsTest extends IntegrationTest {
             .expect(422);
     assertThat(tooMany.string("$.reason")).isEqualTo("insufficient_stock");
     assertThat(tooMany.string("$.field")).isEqualTo("lines[0].quantity");
+    // A receipt that never held batch A cannot be cited for it.
+    String other =
+        admin
+            .post(
+                "/api/v1/products",
+                """
+                {"name":"Cough Syrup 100ml","genericName":"Dextromethorphan","dosageForm":"SYRUP",
+                 "schedule":"OTC","sellingPrice":3000,"costPrice":100}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+    String otherReceipt =
+        hq.post(
+                "/api/v1/goods-receipts",
+                """
+                {"supplierUid":"%s","supplierInvoiceNumber":"OPS-2","lines":[
+                  {"productUid":"%s","batchNumber":"C-1","expiryDate":"%s","quantity":1,"unitCost":100}]}
+                """
+                    .formatted(supplier, other, LocalDate.now().plusMonths(9)))
+            .expect(201)
+            .string("$.data.uid");
+    Response wrongReceipt =
+        hq.post(
+                "/api/v1/supplier-returns",
+                returnBody.formatted(supplier, otherReceipt, product, batchA, 5))
+            .expect(422);
+    assertThat(wrongReceipt.string("$.reason")).isEqualTo("batch_not_on_receipt");
+    assertThat(wrongReceipt.string("$.field")).isEqualTo("lines[0].batchUid");
     Response returned =
         hq.post(
                 "/api/v1/supplier-returns",
@@ -94,7 +122,7 @@ class StockOperationsTest extends IntegrationTest {
     assertThat(returned.read("$.data.total", Double.class)).isEqualTo(2_000.0);
     assertThat(returned.string("$.data.goodsReceiptNumber")).startsWith("GRN");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(15);
-    Api.eventually(() -> payable(admin) == 11_000.0);
+    Api.eventually(() -> payable(admin) == 11_100.0);
     assertThat(
             hq.get("/api/v1/supplier-returns").expect(200).read("$.data.length()", Integer.class))
         .isEqualTo(1);
