@@ -26,4 +26,5 @@ public record SellableProduct(
     ProductType productType,
     TrackingMode trackingMode,
     UnitOfMeasure unitOfMeasure,
-    boolean requiresSerialAtSale) {}
+    boolean requiresSerialAtSale,
+    int openableUnits) {}

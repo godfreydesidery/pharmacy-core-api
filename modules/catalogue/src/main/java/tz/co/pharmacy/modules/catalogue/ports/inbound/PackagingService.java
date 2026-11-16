@@ -20,6 +20,9 @@ public interface PackagingService {
   /** The pack a unit product is broken from, if any. */
   Optional<PackLinkView> packOf(UUID unitProductUid);
 
+  /** The packs the given unit products are broken from, by unit product (names not resolved). */
+  java.util.Map<UUID, PackLinkView> packsOf(java.util.Collection<UUID> unitProductUids);
+
   List<FormulaItemView> formula(UUID productUid);
 
   /** Replaces a product's formula; an empty list removes it. */

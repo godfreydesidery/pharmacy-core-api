@@ -12,4 +12,6 @@ public interface PackLinkRepository extends JpaRepository<PackLink, Long> {
   Optional<PackLink> findByUnitProductUid(UUID unitProductUid);
 
   List<PackLink> findAllByOrderByIdAsc();
+
+  List<PackLink> findAllByUnitProductUidIn(java.util.Collection<UUID> unitProductUids);
 }

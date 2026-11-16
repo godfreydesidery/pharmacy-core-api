@@ -577,8 +577,18 @@ class CheckoutService implements Checkout {
   public Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query) {
     Page<ProductView> page =
         catalogue.products(new ProductFilter(q, categoryUid, true, null), query);
-    Map<UUID, Integer> onHand =
-        stockQueries.onHand(page.items().stream().map(ProductView::uid).toList());
+    List<UUID> uids = page.items().stream().map(ProductView::uid).toList();
+    Map<UUID, Integer> onHand = stockQueries.onHand(uids);
+    // Units a cashier can still sell by opening packs here (break bulk at the till).
+    Map<UUID, PackagingService.PackLinkView> packs = packaging.packsOf(uids);
+    Map<UUID, Integer> packsOnHand =
+        packs.isEmpty()
+            ? Map.of()
+            : stockQueries.onHand(
+                packs.values().stream()
+                    .map(PackagingService.PackLinkView::packProductUid)
+                    .distinct()
+                    .toList());
     return page.map(
         product ->
             new SellableProduct(
@@ -598,6 +608,14 @@ class CheckoutService implements Checkout {
                 product.productType(),
                 product.trackingMode(),
                 product.unitOfMeasure(),
-                product.requiresSerialAtSale()));
+                product.requiresSerialAtSale(),
+                openable(packs.get(product.uid()), packsOnHand)));
+  }
+
+  private static int openable(PackagingService.PackLinkView pack, Map<UUID, Integer> packsOnHand) {
+    if (pack == null) {
+      return 0;
+    }
+    return packsOnHand.getOrDefault(pack.packProductUid(), 0) * pack.unitsPerPack();
   }
 }
