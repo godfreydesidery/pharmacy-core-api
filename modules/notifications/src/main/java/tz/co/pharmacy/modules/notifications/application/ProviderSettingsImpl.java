@@ -30,6 +30,9 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 @Service
 class ProviderSettingsImpl implements ProviderSettings {
 
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(ProviderSettingsImpl.class);
+
   /** The channels a provider sends; IN_APP needs none. */
   static final List<Channel> CHANNELS = List.of(Channel.EMAIL, Channel.SMS, Channel.WHATSAPP);
 
@@ -216,7 +219,9 @@ class ProviderSettingsImpl implements ProviderSettings {
       route.sender().send(address, subject, "<p>" + text + "</p>", text);
     } catch (RuntimeException failure) {
       error =
-          failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+          tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(
+              failure, route.provider());
+      LOG.warn("Provider test via {} failed: {}", route.label(), failure.toString());
     }
     String outcome = error;
     transactions.executeWithoutResult(
