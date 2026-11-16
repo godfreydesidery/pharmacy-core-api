@@ -70,6 +70,28 @@ class UserAdministrationImpl implements UserAdministration {
 
   @Override
   @Transactional(readOnly = true)
+  public java.util.Map<String, String> displayNames(java.util.Collection<String> references) {
+    java.util.Map<String, String> names = new java.util.HashMap<>();
+    if (references == null || references.isEmpty()) {
+      return names;
+    }
+    java.util.Map<String, String> byLower = new java.util.HashMap<>();
+    references.stream()
+        .filter(r -> r != null && !r.isBlank())
+        .forEach(r -> byLower.put(r.trim().toLowerCase(java.util.Locale.ROOT), r));
+    if (byLower.isEmpty()) {
+      return names;
+    }
+    for (User user : users.findAllByEmails(byLower.keySet())) {
+      String reference = byLower.get(user.getEmail().toLowerCase(java.util.Locale.ROOT));
+      String name = user.getName();
+      names.put(reference, name == null || name.isBlank() ? user.getEmail() : name);
+    }
+    return names;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public Page<MemberView> members(String q, PageQuery query) {
     UUID tenant = TenantContext.requireTenant();
     Specification<Membership> filter = Specs.equal("tenantUid", tenant);

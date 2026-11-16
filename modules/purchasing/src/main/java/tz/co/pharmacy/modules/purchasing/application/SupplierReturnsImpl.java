@@ -65,6 +65,7 @@ class SupplierReturnsImpl implements SupplierReturns {
             receipt == null ? null : receipt.getNumber(),
             Checks.text(command.reason(), "reason", 500),
             Checks.optionalText(command.note(), "note", 1000));
+    supplierReturn.recordedBy(ExecutionContext.actor().name());
     Set<UUID> seen = new HashSet<>();
     for (int i = 0; i < lines.size(); i++) {
       Line line = lines.get(i);
@@ -79,6 +80,18 @@ class SupplierReturnsImpl implements SupplierReturns {
         name = directory.productName(line.productUid());
       } catch (Refusal refusal) {
         throw refusal.about(field + ".productUid");
+      }
+      if (receipt != null && !onReceipt(receipt, line)) {
+        throw Refusal.invalid(
+            "batch_not_on_receipt",
+            "Batch "
+                + line.batchNumber()
+                + " of "
+                + name
+                + " was not received on "
+                + receipt.getNumber()
+                + "; choose the goods receipt it came on, or none.",
+            field + ".batchUid");
       }
       supplierReturn.addLine(
           new SupplierReturnLine(
@@ -103,6 +116,16 @@ class SupplierReturnsImpl implements SupplierReturns {
                 saved.getSupplierName(),
                 saved.getTotal()));
     return view(saved);
+  }
+
+  /** Whether the receipt took in this batch of the product (by its batch number). */
+  private static boolean onReceipt(GoodsReceipt receipt, Line line) {
+    return receipt.getLines().stream()
+        .anyMatch(
+            r ->
+                r.getProductUid().equals(line.productUid())
+                    && r.getBatchNumber() != null
+                    && r.getBatchNumber().equalsIgnoreCase(String.valueOf(line.batchNumber())));
   }
 
   @Override
@@ -141,6 +164,7 @@ class SupplierReturnsImpl implements SupplierReturns {
         r.getTotal(),
         r.getCreatedAt(),
         r.getCreatedBy(),
+        r.getCreatedByName() == null ? r.getCreatedBy() : r.getCreatedByName(),
         r.getLines().stream()
             .map(
                 l ->

@@ -121,14 +121,15 @@ class Dispatcher {
                 message.getBody());
       }
     } catch (RuntimeException failure) {
+      // The delivery log gets plain words; the raw failure stays in the server log.
       error =
-          failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+          tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(failure, provider);
       log.warn(
           "Notification {} via {} failed (attempt {}): {}",
           message.getUid(),
           provider,
           message.getAttempts() + 1,
-          error);
+          failure.toString());
     }
     String outcome = error;
     String used = provider == null ? "unresolved" : provider;

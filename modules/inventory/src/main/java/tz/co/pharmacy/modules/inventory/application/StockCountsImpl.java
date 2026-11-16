@@ -50,7 +50,20 @@ class StockCountsImpl implements StockCounts {
         products.findAll().stream()
             .collect(
                 Collectors.toMap(ProductRecord::getProductUid, Function.identity(), (a, b) -> a));
-    for (StockLevel level : levels.allOnHand(branch)) {
+    // The sheet's order, the same in every view: product name, then earliest expiry, then batch.
+    List<StockLevel> onHand = new ArrayList<>(levels.allOnHand(branch));
+    onHand.sort(
+        java.util.Comparator.comparing(
+                (StockLevel l) ->
+                    byUid.containsKey(l.getProductUid())
+                        ? byUid.get(l.getProductUid()).getName()
+                        : "",
+                String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(
+                l -> l.getBatch().getExpiryDate(),
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+            .thenComparing(l -> l.getBatch().getBatchNumber()));
+    for (StockLevel level : onHand) {
       ProductRecord product = byUid.get(level.getProductUid());
       if (product == null || product.serialTracked()) {
         continue;
@@ -148,11 +161,21 @@ class StockCountsImpl implements StockCounts {
     return count;
   }
 
+  /** Product name (any case), then earliest expiry, then batch number. */
+  private static final java.util.Comparator<StockCountLine> SHEET_ORDER =
+      java.util.Comparator.comparing(StockCountLine::getProductName, String.CASE_INSENSITIVE_ORDER)
+          .thenComparing(
+              StockCountLine::getExpiryDate,
+              java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+          .thenComparing(StockCountLine::getBatchNumber);
+
   private static StockCountView view(StockCount c, boolean withLines) {
     BigDecimal value = BigDecimal.ZERO;
     int counted = 0;
     List<LineView> items = new ArrayList<>();
-    for (StockCountLine l : c.getLines()) {
+    List<StockCountLine> ordered = new ArrayList<>(c.getLines());
+    ordered.sort(SHEET_ORDER);
+    for (StockCountLine l : ordered) {
       Integer variance = l.getCounted() == null ? null : l.getCounted() - l.getExpected();
       BigDecimal lineValue =
           variance == null

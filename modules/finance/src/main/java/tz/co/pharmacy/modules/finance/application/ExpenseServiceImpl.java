@@ -2,7 +2,6 @@ package tz.co.pharmacy.modules.finance.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -20,6 +19,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -31,12 +31,15 @@ class ExpenseServiceImpl implements ExpenseService {
   private final JournalWriter writer;
   private final DocumentNumbers numbers;
   private final DomainEventPublisher events;
+  private final TenantCalendar calendar;
 
   ExpenseServiceImpl(
       ExpenseRepository expenses,
       JournalWriter writer,
       DocumentNumbers numbers,
-      DomainEventPublisher events) {
+      DomainEventPublisher events,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.expenses = expenses;
     this.writer = writer;
     this.numbers = numbers;
@@ -53,8 +56,7 @@ class ExpenseServiceImpl implements ExpenseService {
     if (amount.signum() == 0) {
       throw Refusal.invalid("invalid_amount", "amount must be more than zero.", "amount");
     }
-    LocalDate date =
-        command.expenseDate() == null ? LocalDate.now(ZoneOffset.UTC) : command.expenseDate();
+    LocalDate date = command.expenseDate() == null ? calendar.today() : command.expenseDate();
     String method = Checks.optionalText(command.paymentMethod(), "paymentMethod", 40);
     method = method == null ? "CASH" : method.toUpperCase();
     String reference = Checks.optionalText(command.reference(), "reference", 120);

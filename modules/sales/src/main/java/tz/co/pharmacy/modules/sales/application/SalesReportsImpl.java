@@ -47,20 +47,21 @@ class SalesReportsImpl implements SalesReports {
     String branches = branchClause("s.branch_uid", args);
     Map<String, Row> rows = new TreeMap<>();
     jdbc.query(
-        "select coalesce(s.cashier_name, s.created_by) as cashier, count(*) as sales,"
+        "select s.created_by as cashier, max(s.cashier_name) as name, count(*) as sales,"
             + " coalesce(sum(s.total), 0) as total, coalesce(sum(s.change_due), 0) as change"
             + " from sales.sales s where s.created_at >= ? and s.created_at < ?"
             + branches
             + " group by 1",
         r -> {
           Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());
+          row.name = r.getString("name");
           row.sales = r.getLong("sales");
           row.total = r.getBigDecimal("total");
           row.change = r.getBigDecimal("change");
         },
         args.toArray());
     jdbc.query(
-        "select coalesce(s.cashier_name, s.created_by) as cashier, p.method,"
+        "select s.created_by as cashier, p.method,"
             + " coalesce(sum(coalesce(p.base_amount, p.amount)), 0) as amount"
             + " from sales.sale_payments p join sales.sales s on s.id = p.sale_id"
             + " where s.created_at >= ? and s.created_at < ?"
@@ -91,20 +92,23 @@ class SalesReportsImpl implements SalesReports {
         (cashier, r) -> {
           Map<String, BigDecimal> tenders = new LinkedHashMap<>();
           r.tenders.forEach((m, v) -> tenders.put(m, Amounts.money(v)));
-          BigDecimal cash =
-              tenders
-                  .getOrDefault("CASH", Amounts.ZERO)
-                  .subtract(r.change)
-                  .subtract(r.cashRefunded);
+          // Cash is reported as kept: what was tendered less the change handed back.
+          BigDecimal tendered = tenders.getOrDefault("CASH", Amounts.ZERO);
+          if (tenders.containsKey("CASH") || r.change.signum() != 0) {
+            tenders.put("CASH", Amounts.money(tendered.subtract(r.change)));
+          }
+          BigDecimal cash = tendered.subtract(r.change).subtract(r.cashRefunded);
           out.add(
               new CashierSummary(
+                  r.name == null || r.name.isBlank() ? cashier : r.name,
                   cashier,
                   r.sales,
                   Amounts.money(r.total),
                   tenders,
                   r.returns,
                   Amounts.money(r.refunded),
-                  Amounts.money(cash)));
+                  Amounts.money(cash),
+                  Amounts.money(tendered)));
         });
     return out;
   }
@@ -178,6 +182,7 @@ class SalesReportsImpl implements SalesReports {
   }
 
   private static final class Row {
+    String name;
     long sales;
     BigDecimal total = Amounts.ZERO;
     BigDecimal change = Amounts.ZERO;

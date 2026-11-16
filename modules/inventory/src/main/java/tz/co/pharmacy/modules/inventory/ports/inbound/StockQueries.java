@@ -28,6 +28,9 @@ public interface StockQueries {
   /** Sellable (unexpired) quantity on hand at the current branch, 0 for a product with none. */
   Map<UUID, Integer> onHand(Collection<UUID> productUids);
 
+  /** Units at the current branch held in quarantined (recalled) batches, per product. */
+  Map<UUID, Integer> quarantined(Collection<UUID> productUids);
+
   /** Units of the product the tenant holds: at any branch (expired too) or in transit. */
   long unitsHeld(UUID productUid);
 

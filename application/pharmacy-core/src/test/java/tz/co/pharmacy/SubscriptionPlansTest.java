@@ -45,6 +45,8 @@ class SubscriptionPlansTest extends IntegrationTest {
     LocalDate trialEnds = LocalDate.parse(status.string("$.data.trialEnds"));
     assertThat(trialEnds).isEqualTo(LocalDate.now().plusDays(30));
     admin.get("/api/v1/insurance/payers").expect(200);
+    // On the trial it takes Kenyan shillings as well.
+    admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"KES\"]}").expect(200);
 
     // Moved to Starter: one branch, no insurance, one currency, no financial reports.
     root.put(
@@ -56,12 +58,33 @@ class SubscriptionPlansTest extends IntegrationTest {
     assertThat(branch.expect(422).string("$.reason")).isEqualTo("plan_limit_reached");
     assertThat(admin.get("/api/v1/insurance/payers").expect(403).string("$.reason"))
         .isEqualTo("plan_feature_unavailable");
-    assertThat(
-            admin
-                .put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"USD\"]}")
-                .expect(403)
-                .string("$.reason"))
-        .isEqualTo("plan_feature_unavailable");
+    Response addUsd =
+        admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"KES\",\"USD\"]}");
+    assertThat(addUsd.expect(403).string("$.reason")).isEqualTo("plan_feature_unavailable");
+    assertThat(addUsd.string("$.field")).isEqualTo("acceptedCurrencies");
+    assertThat(addUsd.string("$.detail")).contains("only TZS", "Remove KES, USD");
+    // Settings already holding KES still save; removing it does too.
+    admin
+        .put(
+            "/api/v1/settings",
+            "{\"receiptFooter\":\"Asante\",\"acceptedCurrencies\":[\"TZS\",\"KES\"]}")
+        .expect(200);
+    // But the till takes no foreign money on this plan.
+    String hq =
+        admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
+    Response kes =
+        admin
+            .in(tenant, hq)
+            .post(
+                "/api/v1/sales",
+                """
+                {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":1}],
+                 "payments":[{"method":"CASH","amount":100,"currency":"KES"}]}
+                """
+                    .formatted(UUID.randomUUID(), UUID.randomUUID()));
+    assertThat(kes.expect(403).string("$.reason")).isEqualTo("plan_feature_unavailable");
+    assertThat(kes.string("$.field")).isEqualTo("payments[0].currency");
+    admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\"]}").expect(200);
     assertThat(admin.get("/api/v1/reports/trial-balance").expect(403).string("$.reason"))
         .isEqualTo("plan_feature_unavailable");
     // The root administrator is never held back by a plan.

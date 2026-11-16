@@ -31,6 +31,7 @@ public class Destruction extends TenantEntity {
   private String witnessTitle;
   private String certificateNumber;
   private String note;
+  private String createdByName;
   private BigDecimal totalCost = BigDecimal.ZERO;
 
   @OneToMany(mappedBy = "destruction", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -54,6 +55,11 @@ public class Destruction extends TenantEntity {
     this.witnessTitle = witnessTitle;
     this.certificateNumber = certificateNumber;
     this.note = note;
+  }
+
+  /** The recorder's display name, for the certificate. */
+  public void recordedBy(String name) {
+    this.createdByName = name;
   }
 
   public void addLine(DestructionLine line) {

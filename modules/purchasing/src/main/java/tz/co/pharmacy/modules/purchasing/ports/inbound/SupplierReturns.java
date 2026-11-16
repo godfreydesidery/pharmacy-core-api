@@ -49,6 +49,7 @@ public interface SupplierReturns {
       BigDecimal total,
       Instant createdAt,
       String createdBy,
+      String createdByName,
       List<LineView> lines) {}
 
   record LineView(

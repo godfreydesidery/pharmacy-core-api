@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.inventory.application;
 
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +24,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 @Service
@@ -39,14 +39,14 @@ class DestructionsImpl implements Destructions {
   private final StockService stock;
   private final InventoryViews views;
   private final DocumentNumbers documentNumbers;
-  private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
   public DestructionView record(DestructionCommand command) {
     UUID branch = ExecutionContext.requireBranch();
     Checks.required(command, "body");
-    LocalDate today = LocalDate.now(clock);
+    LocalDate today = calendar.today();
     LocalDate on = command.destroyedOn() == null ? today : command.destroyedOn();
     if (on.isAfter(today)) {
       throw Refusal.invalid(
@@ -63,6 +63,7 @@ class DestructionsImpl implements Destructions {
             Checks.optionalText(command.witnessTitle(), "witnessTitle", 200),
             Checks.optionalText(command.certificateNumber(), "certificateNumber", 100),
             Checks.optionalText(command.note(), "note", 500));
+    destruction.recordedBy(ExecutionContext.actor().name());
     Set<UUID> seen = new HashSet<>();
     for (int i = 0; i < lines.size(); i++) {
       LineCommand line = lines.get(i);
@@ -85,6 +86,21 @@ class DestructionsImpl implements Destructions {
                   () -> Refusal.invalid("batch_not_found", "No such batch.", field + ".batchUid"));
       String name =
           products.findByProductUid(batch.getProductUid()).map(ProductRecord::getName).orElse("");
+      // "Expired" only for a batch past its expiry on the day it is destroyed (local date).
+      if ("EXPIRED".equals(reason)
+          && (batch.getExpiryDate() == null || !batch.getExpiryDate().isBefore(on))) {
+        throw Refusal.invalid(
+            "batch_not_expired",
+            "Batch "
+                + batch.getBatchNumber()
+                + " of "
+                + name
+                + (batch.getExpiryDate() == null
+                    ? " has no expiry date"
+                    : " expires on " + batch.getExpiryDate())
+                + "; destroy it as DAMAGED, or wait until it has expired.",
+            field + ".reason");
+      }
       try {
         stock.adjust(
             new AdjustStockCommand(
@@ -149,6 +165,7 @@ class DestructionsImpl implements Destructions {
         d.getTotalCost(),
         d.getCreatedAt(),
         d.getCreatedBy(),
+        d.getCreatedByName() == null ? d.getCreatedBy() : d.getCreatedByName(),
         d.getLines().stream()
             .map(
                 l ->

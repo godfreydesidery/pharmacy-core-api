@@ -48,6 +48,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 /**
@@ -75,6 +76,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   private final DomainEventPublisher events;
   private final InventoryViews views;
   private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -541,6 +543,33 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   }
 
   /**
+   * When the stock is short only because batches are quarantined for a recall, says so (422
+   * batch_quarantined) instead of reporting a plain shortage.
+   */
+  private void refuseQuarantined(UUID branch, ProductRecord product, int available, int quantity) {
+    List<StockLevel> held = levels.quarantinedAt(branch, product.getProductUid());
+    int quarantined = held.stream().mapToInt(StockLevel::getQuantity).sum();
+    if (quarantined == 0 || available + quarantined < quantity) {
+      return;
+    }
+    String batches =
+        held.stream()
+            .map(l -> l.getBatch().getBatchNumber())
+            .distinct()
+            .collect(java.util.stream.Collectors.joining(", "));
+    throw Refusal.invalid(
+        "batch_quarantined",
+        (available == 0 ? "None" : "Only " + available)
+            + " of "
+            + product.getName()
+            + " can be sold or moved here: batch "
+            + batches
+            + " is quarantined for a recall ("
+            + quarantined
+            + " held back).");
+  }
+
+  /**
    * Takes {@code quantity} of the product at the branch, earliest expiry first (or first in, first
    * out without expiry), recording one movement per batch; refuses when the sellable stock is
    * short.
@@ -555,6 +584,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     List<StockLevel> sellable = levels.lockSellable(branch, product.getProductUid(), today());
     int available = sellable.stream().mapToInt(StockLevel::getQuantity).sum();
     if (available < quantity) {
+      refuseQuarantined(branch, product, available, quantity);
       throw Refusal.invalid(
           "insufficient_stock",
           "Only " + available + " of " + product.getName() + " are in stock at this branch.");
@@ -607,6 +637,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
               .limit(quantity)
               .toList();
       if (chosen.size() < quantity) {
+        refuseQuarantined(branch, product, chosen.size(), quantity);
         throw Refusal.invalid(
             "insufficient_stock",
             "Only " + chosen.size() + " of " + product.getName() + " are in stock at this branch.");
@@ -757,6 +788,6 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   }
 
   private LocalDate today() {
-    return LocalDate.now(clock);
+    return calendar.today();
   }
 }

@@ -64,4 +64,18 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
           + " and (b.expiryDate is null or b.expiryDate >= :today) and b.quarantined = false"
           + " group by s.productUid")
   List<Object[]> sellableQuantities(UUID branchUid, Collection<UUID> productUids, LocalDate today);
+
+  /** Each product's quantity at the branch held in quarantined (recalled) batches. */
+  @Query(
+      "select s.productUid, sum(s.quantity) from StockLevel s join s.batch b"
+          + " where s.branchUid = :branchUid and s.productUid in :productUids and s.quantity > 0"
+          + " and b.quarantined = true group by s.productUid")
+  List<Object[]> quarantinedQuantities(UUID branchUid, Collection<UUID> productUids);
+
+  /** The product's stock at the branch in quarantined batches, batch by batch. */
+  @Query(
+      "select s from StockLevel s join fetch s.batch b where s.branchUid = :branchUid"
+          + " and s.productUid = :productUid and s.quantity > 0 and b.quarantined = true"
+          + " order by b.batchNumber")
+  List<StockLevel> quarantinedAt(UUID branchUid, UUID productUid);
 }

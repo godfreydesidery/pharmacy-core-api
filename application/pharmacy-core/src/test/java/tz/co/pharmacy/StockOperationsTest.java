@@ -85,16 +85,74 @@ class StockOperationsTest extends IntegrationTest {
             .expect(422);
     assertThat(tooMany.string("$.reason")).isEqualTo("insufficient_stock");
     assertThat(tooMany.string("$.field")).isEqualTo("lines[0].quantity");
+    // A receipt that never held batch A cannot be cited for it.
+    String other =
+        admin
+            .post(
+                "/api/v1/products",
+                """
+                {"name":"Cough Syrup 100ml","genericName":"Dextromethorphan","dosageForm":"SYRUP",
+                 "schedule":"OTC","sellingPrice":3000,"costPrice":100}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+    String otherReceipt =
+        hq.post(
+                "/api/v1/goods-receipts",
+                """
+                {"supplierUid":"%s","supplierInvoiceNumber":"OPS-2","lines":[
+                  {"productUid":"%s","batchNumber":"C-1","expiryDate":"%s","quantity":1,"unitCost":100}]}
+                """
+                    .formatted(supplier, other, LocalDate.now().plusMonths(9)))
+            .expect(201)
+            .string("$.data.uid");
+    Response wrongReceipt =
+        hq.post(
+                "/api/v1/supplier-returns",
+                returnBody.formatted(supplier, otherReceipt, product, batchA, 5))
+            .expect(422);
+    assertThat(wrongReceipt.string("$.reason")).isEqualTo("batch_not_on_receipt");
+    assertThat(wrongReceipt.string("$.field")).isEqualTo("lines[0].batchUid");
     Response returned =
         hq.post(
                 "/api/v1/supplier-returns",
                 returnBody.formatted(supplier, receipt, product, batchA, 5))
             .expect(201);
     assertThat(returned.string("$.data.number")).startsWith("RTS");
+    // The debit note names who recorded it, not their sign-in email.
+    assertThat(returned.string("$.data.createdByName")).isEqualTo("Admin");
+    assertThat(returned.string("$.data.createdBy")).isEqualTo(email);
     assertThat(returned.read("$.data.total", Double.class)).isEqualTo(2_000.0);
     assertThat(returned.string("$.data.goodsReceiptNumber")).startsWith("GRN");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(15);
-    Api.eventually(() -> payable(admin) == 11_000.0);
+    Api.eventually(() -> payable(admin) == 11_100.0);
+    // What is owed to the supplier: 13,000 + 100 received − 2,000 returned = 11,100.
+    Response balances = admin.get("/api/v1/suppliers/balances").expect(200);
+    assertThat(balances.string("$.data[0].supplierUid")).isEqualTo(supplier);
+    assertThat(balances.read("$.data[0].received", Double.class)).isEqualTo(13_100.0);
+    assertThat(balances.read("$.data[0].returned", Double.class)).isEqualTo(2_000.0);
+    assertThat(balances.read("$.data[0].balance", Double.class)).isEqualTo(11_100.0);
+    assertThat(balances.string("$.data[0].lastActivity")).isNotNull();
+    // A payment of 1,100 brings it to 10,000; the statement runs receipts, return, payment.
+    admin
+        .post(
+            "/api/v1/finance/supplier-payments",
+            """
+            {"supplierUid":"%s","amount":1100,"currency":"TZS","paymentMethod":"BANK_TRANSFER",
+             "reference":"CRDB-778"}
+            """
+                .formatted(supplier))
+        .expect(201);
+    Response statement = admin.get("/api/v1/suppliers/" + supplier + "/statement").expect(200);
+    List<String> types = statement.json().read("$.data.lines[*].type");
+    assertThat(types).containsExactlyInAnyOrder("RECEIPT", "RECEIPT", "RETURN", "PAYMENT");
+    assertThat(statement.read("$.data.balance", Double.class)).isEqualTo(10_000.0);
+    assertThat(
+            admin
+                .get("/api/v1/suppliers/balances")
+                .expect(200)
+                .read("$.data[0].paid", Double.class))
+        .isEqualTo(1_100.0);
     assertThat(
             hq.get("/api/v1/supplier-returns").expect(200).read("$.data.length()", Integer.class))
         .isEqualTo(1);
@@ -129,18 +187,29 @@ class StockOperationsTest extends IntegrationTest {
             .expect(200);
     assertThat(quarantined.read("$.data.batch.quarantined", Boolean.class)).isTrue();
     assertThat(sell(hq, product, 2, null)).isEqualTo("B-1");
-    // B has 8 left; 9 would need the quarantined batch.
+    // B has 8 left; 9 would need the quarantined batch: refused as a recall, not a shortage.
+    String nine =
+        """
+        {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":%d}],
+         "payments":[{"method":"CASH","amount":%d}]}
+        """;
+    Response recalled =
+        hq.post("/api/v1/sales", nine.formatted(UUID.randomUUID(), product, 9, 9000)).expect(422);
+    assertThat(recalled.string("$.reason")).isEqualTo("batch_quarantined");
+    assertThat(recalled.string("$.detail")).contains("Only 8", "batch A-1", "recall");
+    assertThat(recalled.string("$.field")).isEqualTo("lines[0].quantity");
+    // More than all of it, quarantined or not, is still a plain shortage.
     assertThat(
-            hq.post(
-                    "/api/v1/sales",
-                    """
-                    {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":9}],
-                     "payments":[{"method":"CASH","amount":9000}]}
-                    """
-                        .formatted(UUID.randomUUID(), product))
+            hq.post("/api/v1/sales", nine.formatted(UUID.randomUUID(), product, 100, 100000))
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("insufficient_stock");
+    // The till sees the recalled units.
+    assertThat(
+            hq.get("/api/v1/pos/products?q=Ibuprofen")
+                .expect(200)
+                .read("$.data.items[0].quarantinedUnits", Integer.class))
+        .isEqualTo(12);
     hq.post("/api/v1/recalls/batches/" + batchA + "/release", "{}").expect(200);
     assertThat(sell(hq, product, 1, null)).isEqualTo("A-1");
 
@@ -154,14 +223,18 @@ class StockOperationsTest extends IntegrationTest {
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 500)).expect(422);
     assertThat(short_.string("$.reason")).isEqualTo("insufficient_stock");
     assertThat(short_.string("$.field")).isEqualTo("lines[0].quantity");
-    hq.post(
-            "/api/v1/destructions",
-            "{\"method\":\"Incineration\",\"lines\":[{\"batchUid\":\"%s\",\"quantity\":1,\"reason\":\"EXPIRED\"}]}"
-                .formatted(batchA))
-        .expect(422);
+    // Batch A expires in six months: it cannot be destroyed as expired.
+    Response notExpired =
+        hq.post(
+                "/api/v1/destructions",
+                destruction.formatted(batchA, 1).replace("\"DAMAGED\"", "\"EXPIRED\""))
+            .expect(422);
+    assertThat(notExpired.string("$.reason")).isEqualTo("batch_not_expired");
+    assertThat(notExpired.string("$.field")).isEqualTo("lines[0].reason");
     Response destroyed =
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 2)).expect(201);
     assertThat(destroyed.string("$.data.number")).startsWith("DST");
+    assertThat(destroyed.string("$.data.createdByName")).isEqualTo("Admin");
     assertThat(destroyed.read("$.data.totalCost", Double.class)).isEqualTo(800.0);
     assertThat(destroyed.string("$.data.branchName")).isEqualTo("Head Office");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(9);

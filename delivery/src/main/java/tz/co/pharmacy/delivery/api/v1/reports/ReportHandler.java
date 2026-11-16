@@ -17,6 +17,7 @@ import tz.co.pharmacy.modules.reporting.ports.inbound.ProfitLoss;
 import tz.co.pharmacy.modules.reporting.ports.inbound.Reports;
 import tz.co.pharmacy.modules.reporting.ports.inbound.SalesReport;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * The dashboard and the reports. Without X-Branch-Id they cover every branch the caller may use;
@@ -27,8 +28,10 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class ReportHandler {
 
   private final Reports reports;
+  private final TenantCalendar calendar;
 
-  public ReportHandler(Reports reports) {
+  public ReportHandler(Reports reports, TenantCalendar calendar) {
+    this.calendar = calendar;
     this.reports = reports;
   }
 
@@ -47,7 +50,7 @@ public class ReportHandler {
   public ApiResponse<SalesReport> sales(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-    ReportRange range = ReportRange.of(from, to);
+    ReportRange range = ReportRange.of(from, to, calendar.today());
     return ApiResponse.ok(reports.sales(range.from(), range.to()), "Sales report retrieved");
   }
 
@@ -57,7 +60,7 @@ public class ReportHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
       @RequestParam(required = false) Integer limit) {
-    ReportRange range = ReportRange.of(from, to);
+    ReportRange range = ReportRange.of(from, to, calendar.today());
     int rows = limit == null ? 20 : limit;
     if (rows < 1 || rows > 100) {
       throw Refusal.invalid("invalid_limit", "limit must be between 1 and 100.", "limit");
@@ -71,7 +74,7 @@ public class ReportHandler {
   public ApiResponse<ProfitLoss> profitLoss(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-    ReportRange range = ReportRange.of(from, to);
+    ReportRange range = ReportRange.of(from, to, calendar.today());
     return ApiResponse.ok(
         reports.profitLoss(range.from(), range.to()), "Profit and loss retrieved");
   }
@@ -81,7 +84,7 @@ public class ReportHandler {
   public ApiResponse<List<PaymentMix>> payments(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-    ReportRange range = ReportRange.of(from, to);
+    ReportRange range = ReportRange.of(from, to, calendar.today());
     return ApiResponse.ok(reports.payments(range.from(), range.to()), "Payment report retrieved");
   }
 }

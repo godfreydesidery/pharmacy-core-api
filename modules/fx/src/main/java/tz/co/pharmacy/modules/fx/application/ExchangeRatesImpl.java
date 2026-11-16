@@ -26,6 +26,7 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
 
@@ -39,13 +40,16 @@ class ExchangeRatesImpl implements ExchangeRates {
   private final FxTenant tenant;
   private final RateProvider provider;
   private final Clock clock;
+  private final TenantCalendar calendar;
 
   ExchangeRatesImpl(
       ExchangeRateRepository rates,
       Currencies currencies,
       FxTenant tenant,
       RateProvider provider,
-      Clock clock) {
+      Clock clock,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.rates = rates;
     this.currencies = currencies;
     this.tenant = tenant;
@@ -66,7 +70,7 @@ class ExchangeRatesImpl implements ExchangeRates {
   public LatestRateView latest(String base, String quote, LocalDate on) {
     String from = code(base, "base");
     String to = code(quote, "quote");
-    LocalDate day = on == null ? LocalDate.now(clock) : on;
+    LocalDate day = on == null ? calendar.today() : on;
     if (from.equals(to)) {
       return new LatestRateView(from, to, BigDecimal.ONE, day, "IDENTITY", false);
     }
@@ -152,7 +156,7 @@ class ExchangeRatesImpl implements ExchangeRates {
     if (rate.signum() <= 0) {
       throw Refusal.invalid("invalid_rate", "rate must be more than zero.", "rate");
     }
-    LocalDate today = LocalDate.now(clock);
+    LocalDate today = calendar.today();
     LocalDate on = command.effectiveOn() == null ? today : command.effectiveOn();
     if (on.isAfter(today.plusDays(1))) {
       throw Refusal.invalid(
@@ -171,7 +175,7 @@ class ExchangeRatesImpl implements ExchangeRates {
       return List.of();
     }
     Map<String, BigDecimal> latest = provider.latest(base, quotes);
-    LocalDate today = LocalDate.now(clock);
+    LocalDate today = calendar.today();
     List<RateView> saved = new ArrayList<>();
     for (String quote : quotes) {
       BigDecimal perBase = latest.get(quote);

@@ -44,12 +44,18 @@ public interface SalesReports {
       int quantity,
       int returnedQuantity) {}
 
+  /**
+   * One person's till figures, grouped by who did it ({@code cashierReference}, the sign-in email):
+   * {@code cashier} is the name on their sales, else the reference.
+   */
   record CashierSummary(
       String cashier,
+      String cashierReference,
       long sales,
       BigDecimal total,
       Map<String, BigDecimal> tenders,
       long returns,
       BigDecimal refunded,
-      BigDecimal cashToHandOver) {}
+      BigDecimal cashToHandOver,
+      BigDecimal cashTendered) {}
 }

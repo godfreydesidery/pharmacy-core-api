@@ -7,6 +7,7 @@ import org.hibernate.event.service.spi.EventListenerRegistry;
 import org.hibernate.event.spi.EventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,8 +25,8 @@ public class AuditConfiguration {
   private static final Logger log = LoggerFactory.getLogger(AuditConfiguration.class);
 
   @Bean
-  AuditLog auditLog(DataSource dataSource) {
-    return new JdbcAuditLog(new JdbcTemplate(dataSource));
+  AuditLog auditLog(DataSource dataSource, ObjectProvider<AuditLabels> labels) {
+    return new JdbcAuditLog(new JdbcTemplate(dataSource), labels);
   }
 
   @Bean

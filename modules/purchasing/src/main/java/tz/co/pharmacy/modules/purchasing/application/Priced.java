@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.purchasing.application;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingCurrencies;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
@@ -55,7 +54,7 @@ record Priced(String currency, BigDecimal rate) {
     if (followedRate != null) {
       return new Priced(currency, followedRate);
     }
-    return new Priced(currency, currencies.rateToBase(currency, LocalDate.now()));
+    return new Priced(currency, currencies.rateToBase(currency, currencies.today()));
   }
 
   /** How far a typed rate may stray from the recorded one before it is taken for a mistake. */
@@ -69,7 +68,7 @@ record Priced(String currency, BigDecimal rate) {
   static void checkPlausible(PurchasingCurrencies currencies, String currency, BigDecimal rate) {
     BigDecimal recorded;
     try {
-      recorded = currencies.rateToBase(currency, LocalDate.now());
+      recorded = currencies.rateToBase(currency, currencies.today());
     } catch (Refusal noRate) {
       return;
     }

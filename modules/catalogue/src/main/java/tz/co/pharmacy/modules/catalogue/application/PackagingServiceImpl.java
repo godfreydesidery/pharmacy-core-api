@@ -86,6 +86,19 @@ class PackagingServiceImpl implements PackagingService {
 
   @Override
   @Transactional(readOnly = true)
+  public Map<UUID, PackLinkView> packsOf(java.util.Collection<UUID> unitProductUids) {
+    if (unitProductUids == null || unitProductUids.isEmpty()) {
+      return Map.of();
+    }
+    Map<UUID, PackLinkView> packs = new java.util.HashMap<>();
+    for (PackLink l : links.findAllByUnitProductUidIn(unitProductUids)) {
+      packs.put(l.getUnitProductUid(), view(l, Map.of()));
+    }
+    return packs;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public List<FormulaItemView> formula(UUID productUid) {
     List<FormulaItem> items = formulas.findByProductUidOrderByIdAsc(productUid);
     Map<UUID, String> names = names(items.stream().map(FormulaItem::getIngredientUid));

@@ -25,12 +25,15 @@ class MoneyScenariosTest extends IntegrationTest {
 
   private Api admin;
   private Api till;
+  private Api anonymous;
+  private String tenantUid;
+  private String branchUid;
   private String product;
   private String clinic;
 
   @BeforeEach
   void pharmacy() {
-    Api anonymous = api();
+    anonymous = api();
     Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
     String code = "MS" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
     String email = code.toLowerCase() + "@test.local";
@@ -50,6 +53,8 @@ class MoneyScenariosTest extends IntegrationTest {
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
+    tenantUid = tenant;
+    branchUid = branch;
 
     admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"USD\"]}").expect(200);
     admin
@@ -139,6 +144,8 @@ class MoneyScenariosTest extends IntegrationTest {
         sell(
             "\"customerUid\":\"%s\",\"balanceToAccount\":true".formatted(clinic), 6, new String[0]);
     assertThat(overLimit.expect(422).string("$.reason")).isEqualTo("credit_limit_exceeded");
+    // Amounts read as money: currency code and thousands separators.
+    assertThat(overLimit.string("$.detail")).contains("TZS 60,000.00").doesNotContain("60000");
   }
 
   @Test
@@ -343,6 +350,9 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(cashiers.read("$.data[0].sales", Integer.class)).isEqualTo(2);
     // Cash to hand over: 12,000 + USD 5 (13,250) − change (2,000 + 3,250) = 20,000 = two sales.
     assertThat(money(cashiers, "$.data[0].cashToHandOver")).isEqualTo(2 * PRICE);
+    // Taken by method shows cash kept (net of change); what was handed over is kept apart.
+    assertThat(money(cashiers, "$.data[0].tenders.CASH")).isEqualTo(2 * PRICE);
+    assertThat(money(cashiers, "$.data[0].cashTendered")).isEqualTo(12_000.0 + 5 * USD);
 
     Response stock = till.get("/api/v1/reports/stock-valuation").expect(200);
     assertThat(money(stock, "$.data[0].costValue")).isEqualTo(198 * 6_000.0);
@@ -366,6 +376,53 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(money(closed, "$.data.variance")).isEqualTo(-1_000.0);
     assertThat(closed.read("$.data.sales", Integer.class)).isEqualTo(1);
     assertThat(closed.string("$.data.status")).isEqualTo("CLOSED");
+  }
+
+  @Test
+  @DisplayName("a supervisor's cash refund from the cashier's drawer counts in the cashier's shift")
+  void supervisorRefundCountsInTheCashiersShift() {
+    String email = "till." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
+    List<String> roles =
+        admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
+    admin
+        .post(
+            "/api/v1/users",
+            """
+            {"name":"Zawadi","email":"%s","password":"Staff#2026x","roleUid":"%s","allBranches":true}
+            """
+                .formatted(email, roles.getFirst()))
+        .expect(201);
+    Api cashier = anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenantUid, branchUid);
+    cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
+    Response sale =
+        cashier
+            .post(
+                "/api/v1/sales",
+                """
+                {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":1}],
+                 "payments":[{"method":"CASH","amount":10000}]}
+                """
+                    .formatted(UUID.randomUUID(), product))
+            .expect(201);
+    // The admin (no shift of their own) refunds the sale in cash from the cashier's drawer.
+    till.post(
+            "/api/v1/sales/" + sale.string("$.data.uid") + "/returns",
+            returnBody(sale.string("$.data.lines[0].uid"), "CASH", "TZS"))
+        .expect(201);
+    Response closed = cashier.post("/api/v1/shifts/close", "{\"countedCash\":50000}").expect(200);
+    // 50,000 float + 10,000 cash − 10,000 refunded = 50,000 expected; nothing short.
+    assertThat(money(closed, "$.data.cashRefunds")).isEqualTo(10_000.0);
+    assertThat(money(closed, "$.data.expectedCash")).isEqualTo(50_000.0);
+    assertThat(money(closed, "$.data.variance")).isEqualTo(0.0);
+
+    // The cashier report: one row per person, by name, whether they sold or refunded.
+    sell(null, payment("CASH", 10_000, null)).expect(201);
+    Response report = admin.get("/api/v1/reports/cashiers").expect(200);
+    List<String> people = report.json().read("$.data[*].cashier");
+    assertThat(people).containsExactly("Admin", "Zawadi");
+    assertThat(report.read("$.data[0].sales", Integer.class)).isEqualTo(1);
+    assertThat(report.read("$.data[0].returns", Integer.class)).isEqualTo(1);
+    assertThat(report.string("$.data[1].cashierReference")).isEqualTo(email);
   }
 
   private static String returnBody(String saleLine, String method, String currency) {

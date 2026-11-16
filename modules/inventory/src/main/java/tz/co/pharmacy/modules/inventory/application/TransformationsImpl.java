@@ -2,7 +2,6 @@ package tz.co.pharmacy.modules.inventory.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -32,6 +31,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 @Service
@@ -45,7 +45,7 @@ class TransformationsImpl implements Transformations {
   private final TransformationRepository transformations;
   private final ProductCatalogue catalogue;
   private final DocumentNumbers documentNumbers;
-  private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -265,6 +265,6 @@ class TransformationsImpl implements Transformations {
   }
 
   private LocalDate today() {
-    return LocalDate.now(clock);
+    return calendar.today();
   }
 }

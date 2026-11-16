@@ -32,6 +32,7 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +45,7 @@ class PricingServiceImpl implements PricingService {
   private final PromotionRepository promotions;
   private final ProductRepository products;
   private final CategoryRepository categories;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional(readOnly = true)
@@ -197,8 +199,9 @@ class PricingServiceImpl implements PricingService {
           "invalid_percent", "percentOff must be more than 0 and at most 100.", "percentOff");
     }
     LocalDate from = Checks.required(c.validFrom(), "validFrom");
-    LocalDate to = Checks.required(c.validTo(), "validTo");
-    if (to.isBefore(from)) {
+    // No end date: the promotion runs until it is switched off.
+    LocalDate to = c.validTo();
+    if (to != null && to.isBefore(from)) {
       throw Refusal.invalid("invalid_period", "validTo is before validFrom.", "validTo");
     }
     if (c.productUid() != null && products.findByUid(c.productUid()).isEmpty()) {
@@ -253,7 +256,7 @@ class PricingServiceImpl implements PricingService {
     if (lines == null || lines.isEmpty()) {
       return List.of();
     }
-    LocalDate day = on == null ? LocalDate.now() : on;
+    LocalDate day = on == null ? calendar.today() : on;
     Map<UUID, Product> byUid =
         products.findByUidIn(lines.stream().map(PriceRequest::productUid).toList()).stream()
             .collect(Collectors.toMap(Product::getUid, Function.identity()));
