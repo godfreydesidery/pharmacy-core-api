@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.inventory.application;
 
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +24,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 @Service
@@ -39,14 +39,14 @@ class DestructionsImpl implements Destructions {
   private final StockService stock;
   private final InventoryViews views;
   private final DocumentNumbers documentNumbers;
-  private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
   public DestructionView record(DestructionCommand command) {
     UUID branch = ExecutionContext.requireBranch();
     Checks.required(command, "body");
-    LocalDate today = LocalDate.now(clock);
+    LocalDate today = calendar.today();
     LocalDate on = command.destroyedOn() == null ? today : command.destroyedOn();
     if (on.isAfter(today)) {
       throw Refusal.invalid(

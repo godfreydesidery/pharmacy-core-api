@@ -1,8 +1,6 @@
 package tz.co.pharmacy.modules.finance.application;
 
-import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,6 +10,7 @@ import tz.co.pharmacy.modules.finance.domain.PeriodLock;
 import tz.co.pharmacy.modules.finance.persistence.PeriodLockRepository;
 import tz.co.pharmacy.modules.finance.ports.inbound.PeriodLocks;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * The tenant's period lock, and the guard the journal writer applies to every posting date. The
@@ -26,7 +25,7 @@ class PeriodLocksImpl implements PeriodLocks {
       Set.of(LedgerImpl.EXPENSE, LedgerImpl.OPENING_BALANCE, SupplierPaymentsImpl.SUPPLIER_PAYMENT);
 
   private final PeriodLockRepository locks;
-  private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional(readOnly = true)
@@ -40,9 +39,8 @@ class PeriodLocksImpl implements PeriodLocks {
   @Override
   @Transactional
   public PeriodLockView lockThrough(LocalDate lockedThrough) {
-    // UTC today is at most a day behind any tenant's local date, so the local day stays open.
-    if (lockedThrough != null
-        && !lockedThrough.isBefore(LocalDate.now(clock.withZone(ZoneOffset.UTC)))) {
+    // The pharmacy's own today (its time zone) always stays open.
+    if (lockedThrough != null && !lockedThrough.isBefore(calendar.today())) {
       throw Refusal.invalid("invalid_lock_date", "Lock only days before today.", "lockedThrough");
     }
     PeriodLock lock =

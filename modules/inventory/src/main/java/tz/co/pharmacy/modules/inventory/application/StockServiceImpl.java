@@ -48,6 +48,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 /**
@@ -75,6 +76,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   private final DomainEventPublisher events;
   private final InventoryViews views;
   private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -757,6 +759,6 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   }
 
   private LocalDate today() {
-    return LocalDate.now(clock);
+    return calendar.today();
   }
 }

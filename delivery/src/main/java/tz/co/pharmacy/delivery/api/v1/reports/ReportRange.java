@@ -1,7 +1,6 @@
 package tz.co.pharmacy.delivery.api.v1.reports;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
@@ -10,8 +9,8 @@ record ReportRange(LocalDate from, LocalDate to) {
 
   static final int MAX_DAYS = 366;
 
-  static ReportRange of(LocalDate from, LocalDate to) {
-    LocalDate end = to == null ? LocalDate.now(ZoneOffset.UTC) : to;
+  static ReportRange of(LocalDate from, LocalDate to, LocalDate today) {
+    LocalDate end = to == null ? today : to;
     LocalDate start = from == null ? end.minusDays(29) : from;
     if (start.isAfter(end)) {
       throw Refusal.invalid("invalid_range", "from must not be after to.", "from");

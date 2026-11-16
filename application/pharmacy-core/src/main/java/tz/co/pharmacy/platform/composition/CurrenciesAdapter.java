@@ -11,6 +11,7 @@ import tz.co.pharmacy.modules.fx.ports.inbound.ExchangeRates;
 import tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingCurrencies;
 import tz.co.pharmacy.modules.sales.ports.outbound.SalesCurrencies;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Binds the currency needs of purchasing, sales and finance to tenancy (the base and accepted
@@ -23,8 +24,10 @@ class CurrenciesAdapter implements PurchasingCurrencies, SalesCurrencies, Financ
 
   private final FxTenantAdapter tenant;
   private final ExchangeRates rates;
+  private final TenantCalendar calendar;
 
-  CurrenciesAdapter(FxTenantAdapter tenant, ExchangeRates rates) {
+  CurrenciesAdapter(FxTenantAdapter tenant, ExchangeRates rates, TenantCalendar calendar) {
+    this.calendar = calendar;
     this.tenant = tenant;
     this.rates = rates;
   }
@@ -63,5 +66,10 @@ class CurrenciesAdapter implements PurchasingCurrencies, SalesCurrencies, Financ
   @Override
   public BigDecimal round(BigDecimal amount, String currency) {
     return amount.setScale(rates.minorUnits(currency), RoundingMode.HALF_EVEN);
+  }
+
+  @Override
+  public java.time.LocalDate today() {
+    return calendar.today();
   }
 }

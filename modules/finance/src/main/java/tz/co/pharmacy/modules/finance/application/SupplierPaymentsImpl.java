@@ -23,6 +23,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -42,13 +43,16 @@ class SupplierPaymentsImpl implements SupplierPayments {
   private final FinanceCurrencies currencies;
   private final DocumentNumbers numbers;
   private final JournalWriter writer;
+  private final TenantCalendar calendar;
 
   SupplierPaymentsImpl(
       SupplierPaymentRepository payments,
       PayablesDirectory directory,
       FinanceCurrencies currencies,
       DocumentNumbers numbers,
-      JournalWriter writer) {
+      JournalWriter writer,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.payments = payments;
     this.directory = directory;
     this.currencies = currencies;
@@ -70,7 +74,7 @@ class SupplierPaymentsImpl implements SupplierPayments {
         command.currency() == null || command.currency().isBlank()
             ? base
             : currencies.accepted(command.currency());
-    LocalDate paidOn = command.paidOn() == null ? LocalDate.now() : command.paidOn();
+    LocalDate paidOn = command.paidOn() == null ? calendar.today() : command.paidOn();
     BigDecimal rate;
     if (currency.equals(base)) {
       rate = BigDecimal.ONE;

@@ -9,6 +9,7 @@ import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
@@ -26,11 +27,12 @@ class TenantCalendarAdapter implements TenantCalendar {
 
   private record Cached(ZoneId zone, Instant loadedAt) {}
 
-  private final TenantService tenants;
+  // Looked up on use: tenancy itself reaches the ledger, whose period lock needs this calendar.
+  private final ObjectProvider<TenantService> tenants;
   private final Clock clock;
   private final Map<UUID, Cached> zones = new ConcurrentHashMap<>();
 
-  TenantCalendarAdapter(TenantService tenants, Clock clock) {
+  TenantCalendarAdapter(ObjectProvider<TenantService> tenants, Clock clock) {
     this.tenants = tenants;
     this.clock = clock;
   }
@@ -57,6 +59,7 @@ class TenantCalendarAdapter implements TenantCalendar {
 
   private ZoneId load(UUID tenant) {
     return tenants
+        .getObject()
         .find(tenant)
         .map(TenantView::timezone)
         .filter(zone -> zone != null && !zone.isBlank())

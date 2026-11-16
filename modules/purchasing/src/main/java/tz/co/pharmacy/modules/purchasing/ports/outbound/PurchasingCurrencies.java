@@ -16,4 +16,9 @@ public interface PurchasingCurrencies {
 
   /** {@code amount} times {@code rate}, rounded half-even to the base currency's minor units. */
   BigDecimal toBase(BigDecimal amount, BigDecimal rate);
+
+  /** Today in the pharmacy's time zone; the rate of the day is looked up for it. */
+  default java.time.LocalDate today() {
+    return java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+  }
 }

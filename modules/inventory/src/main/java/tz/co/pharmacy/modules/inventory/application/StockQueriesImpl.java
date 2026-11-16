@@ -42,6 +42,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
 
@@ -60,6 +61,7 @@ class StockQueriesImpl implements StockQueries {
   private final SerialUnitRepository units;
   private final InventoryViews views;
   private final Clock clock;
+  private final TenantCalendar calendar;
 
   StockQueriesImpl(
       DataSource dataSource,
@@ -68,7 +70,9 @@ class StockQueriesImpl implements StockQueries {
       TransferRepository transfers,
       SerialUnitRepository units,
       InventoryViews views,
-      Clock clock) {
+      Clock clock,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.jdbc = new JdbcTemplate(dataSource);
     this.levels = levels;
     this.movements = movements;
@@ -367,6 +371,6 @@ class StockQueriesImpl implements StockQueries {
   }
 
   private LocalDate today() {
-    return LocalDate.now(clock);
+    return calendar.today();
   }
 }

@@ -2,8 +2,6 @@ package tz.co.pharmacy.delivery.api.v1.reports;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -27,10 +25,8 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SalesReports;
 import tz.co.pharmacy.modules.sales.ports.inbound.SalesReports.CashierSummary;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
-import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
-import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
-import tz.co.pharmacy.platform.persistence.TenantContext;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Financial statements (trial balance, balance sheet, VAT), stock valuation per branch and the
@@ -47,19 +43,11 @@ public class StatementsHandler {
   private final StockQueries stock;
   private final BranchService branches;
   private final SalesReports salesReports;
-  private final TenantService tenants;
+  private final TenantCalendar calendar;
 
-  /** The pharmacy's time zone: "today" and report days follow it, not the server's UTC clock. */
-  private ZoneId zone() {
-    return tenants
-        .find(TenantContext.requireTenant())
-        .map(TenantView::timezone)
-        .map(ZoneId::of)
-        .orElse(ZoneOffset.UTC);
-  }
-
+  /** The pharmacy's "today": report days follow its time zone, not the server's UTC clock. */
   private LocalDate orToday(LocalDate day) {
-    return day == null ? LocalDate.now(zone()) : day;
+    return day == null ? calendar.today() : day;
   }
 
   @GetMapping("/trial-balance")
@@ -121,6 +109,7 @@ public class StatementsHandler {
   public ApiResponse<List<CashierSummary>> cashiers(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-    return ApiResponse.ok(salesReports.cashiers(from, to, zone()), "Cashier report retrieved");
+    return ApiResponse.ok(
+        salesReports.cashiers(from, to, calendar.zone()), "Cashier report retrieved");
   }
 }

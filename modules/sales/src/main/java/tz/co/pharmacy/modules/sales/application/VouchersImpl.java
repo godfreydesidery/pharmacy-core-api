@@ -1,8 +1,6 @@
 package tz.co.pharmacy.modules.sales.application;
 
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -20,6 +18,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 @Service
 @RequiredArgsConstructor
@@ -35,7 +34,7 @@ class VouchersImpl implements Vouchers {
 
   private final VoucherRepository vouchers;
   private final DomainEventPublisher events;
-  private final Clock clock;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -51,7 +50,7 @@ class VouchersImpl implements Vouchers {
           "A voucher is paid in cash, card, mobile money or bank.",
           "paidBy");
     }
-    if (c.expiresOn() != null && c.expiresOn().isBefore(LocalDate.now(clock))) {
+    if (c.expiresOn() != null && c.expiresOn().isBefore(calendar.today())) {
       throw Refusal.invalid("invalid_expiry", "expiresOn has passed.", "expiresOn");
     }
     String code = Checks.optionalText(c.code(), "code", 24);
@@ -122,7 +121,7 @@ class VouchersImpl implements Vouchers {
           "Voucher " + voucher.getCode() + " is " + voucher.getStatus() + ".",
           field);
     }
-    if (voucher.getExpiresOn() != null && voucher.getExpiresOn().isBefore(LocalDate.now(clock))) {
+    if (voucher.getExpiresOn() != null && voucher.getExpiresOn().isBefore(calendar.today())) {
       throw Refusal.invalid(
           "voucher_expired",
           "Voucher " + voucher.getCode() + " expired on " + voucher.getExpiresOn() + ".",

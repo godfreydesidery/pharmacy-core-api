@@ -12,6 +12,7 @@ import tz.co.pharmacy.modules.finance.ports.inbound.AccountType;
 import tz.co.pharmacy.modules.finance.ports.inbound.FinancialStatements;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Statements as plain SQL over the module's ledger; row-level security keeps them to the current
@@ -22,8 +23,10 @@ class FinancialStatementsImpl implements FinancialStatements {
 
   private final JdbcTemplate jdbc;
   private final ChartOfAccounts chart;
+  private final TenantCalendar calendar;
 
-  FinancialStatementsImpl(DataSource dataSource, ChartOfAccounts chart) {
+  FinancialStatementsImpl(DataSource dataSource, ChartOfAccounts chart, TenantCalendar calendar) {
+    this.calendar = calendar;
     this.jdbc = new JdbcTemplate(dataSource);
     this.chart = chart;
   }
@@ -65,7 +68,7 @@ class FinancialStatementsImpl implements FinancialStatements {
   @Override
   @Transactional
   public VatSummary vat(LocalDate from, LocalDate to) {
-    LocalDate start = from == null ? LocalDate.now().withDayOfMonth(1) : from;
+    LocalDate start = from == null ? calendar.today().withDayOfMonth(1) : from;
     LocalDate end = day(to);
     if (end.isBefore(start)) {
       throw Refusal.invalid("invalid_period", "to is before from.", "to");
@@ -136,7 +139,7 @@ class FinancialStatementsImpl implements FinancialStatements {
             .reduce(BigDecimal.ZERO, BigDecimal::add));
   }
 
-  private static LocalDate day(LocalDate value) {
-    return value == null ? LocalDate.now() : value;
+  private LocalDate day(LocalDate value) {
+    return value == null ? calendar.today() : value;
   }
 }
