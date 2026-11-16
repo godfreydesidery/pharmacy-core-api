@@ -184,18 +184,29 @@ class StockOperationsTest extends IntegrationTest {
             .expect(200);
     assertThat(quarantined.read("$.data.batch.quarantined", Boolean.class)).isTrue();
     assertThat(sell(hq, product, 2, null)).isEqualTo("B-1");
-    // B has 8 left; 9 would need the quarantined batch.
+    // B has 8 left; 9 would need the quarantined batch: refused as a recall, not a shortage.
+    String nine =
+        """
+        {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":%d}],
+         "payments":[{"method":"CASH","amount":%d}]}
+        """;
+    Response recalled =
+        hq.post("/api/v1/sales", nine.formatted(UUID.randomUUID(), product, 9, 9000)).expect(422);
+    assertThat(recalled.string("$.reason")).isEqualTo("batch_quarantined");
+    assertThat(recalled.string("$.detail")).contains("Only 8", "batch A-1", "recall");
+    assertThat(recalled.string("$.field")).isEqualTo("lines[0].quantity");
+    // More than all of it, quarantined or not, is still a plain shortage.
     assertThat(
-            hq.post(
-                    "/api/v1/sales",
-                    """
-                    {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":9}],
-                     "payments":[{"method":"CASH","amount":9000}]}
-                    """
-                        .formatted(UUID.randomUUID(), product))
+            hq.post("/api/v1/sales", nine.formatted(UUID.randomUUID(), product, 100, 100000))
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("insufficient_stock");
+    // The till sees the recalled units.
+    assertThat(
+            hq.get("/api/v1/pos/products?q=Ibuprofen")
+                .expect(200)
+                .read("$.data.items[0].quarantinedUnits", Integer.class))
+        .isEqualTo(12);
     hq.post("/api/v1/recalls/batches/" + batchA + "/release", "{}").expect(200);
     assertThat(sell(hq, product, 1, null)).isEqualTo("A-1");
 

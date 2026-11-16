@@ -316,6 +316,20 @@ class StockQueriesImpl implements StockQueries {
   }
 
   @Override
+  public Map<UUID, Integer> quarantined(Collection<UUID> productUids) {
+    UUID branch = ExecutionContext.requireBranch();
+    Map<UUID, Integer> quantities = new HashMap<>();
+    if (productUids == null || productUids.isEmpty()) {
+      return quantities;
+    }
+    productUids.forEach(uid -> quantities.put(uid, 0));
+    for (Object[] row : levels.quarantinedQuantities(branch, productUids)) {
+      quantities.put((UUID) row[0], ((Number) row[1]).intValue());
+    }
+    return quantities;
+  }
+
+  @Override
   public long unitsHeld(UUID productUid) {
     return levels.quantityEverywhere(productUid) + transfers.quantityInTransit(productUid);
   }

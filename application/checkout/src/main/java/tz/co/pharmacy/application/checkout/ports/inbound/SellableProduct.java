@@ -27,4 +27,5 @@ public record SellableProduct(
     TrackingMode trackingMode,
     UnitOfMeasure unitOfMeasure,
     boolean requiresSerialAtSale,
-    int openableUnits) {}
+    int openableUnits,
+    int quarantinedUnits) {}
