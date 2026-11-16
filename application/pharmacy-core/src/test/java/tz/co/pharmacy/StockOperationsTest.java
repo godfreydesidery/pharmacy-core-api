@@ -123,6 +123,33 @@ class StockOperationsTest extends IntegrationTest {
     assertThat(returned.string("$.data.goodsReceiptNumber")).startsWith("GRN");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(15);
     Api.eventually(() -> payable(admin) == 11_100.0);
+    // What is owed to the supplier: 13,000 + 100 received − 2,000 returned = 11,100.
+    Response balances = admin.get("/api/v1/suppliers/balances").expect(200);
+    assertThat(balances.string("$.data[0].supplierUid")).isEqualTo(supplier);
+    assertThat(balances.read("$.data[0].received", Double.class)).isEqualTo(13_100.0);
+    assertThat(balances.read("$.data[0].returned", Double.class)).isEqualTo(2_000.0);
+    assertThat(balances.read("$.data[0].balance", Double.class)).isEqualTo(11_100.0);
+    assertThat(balances.string("$.data[0].lastActivity")).isNotNull();
+    // A payment of 1,100 brings it to 10,000; the statement runs receipts, return, payment.
+    admin
+        .post(
+            "/api/v1/finance/supplier-payments",
+            """
+            {"supplierUid":"%s","amount":1100,"currency":"TZS","paymentMethod":"BANK_TRANSFER",
+             "reference":"CRDB-778"}
+            """
+                .formatted(supplier))
+        .expect(201);
+    Response statement = admin.get("/api/v1/suppliers/" + supplier + "/statement").expect(200);
+    List<String> types = statement.json().read("$.data.lines[*].type");
+    assertThat(types).containsExactlyInAnyOrder("RECEIPT", "RECEIPT", "RETURN", "PAYMENT");
+    assertThat(statement.read("$.data.balance", Double.class)).isEqualTo(10_000.0);
+    assertThat(
+            admin
+                .get("/api/v1/suppliers/balances")
+                .expect(200)
+                .read("$.data[0].paid", Double.class))
+        .isEqualTo(1_100.0);
     assertThat(
             hq.get("/api/v1/supplier-returns").expect(200).read("$.data.length()", Integer.class))
         .isEqualTo(1);
