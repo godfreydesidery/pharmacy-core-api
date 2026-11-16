@@ -51,6 +51,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Each use case runs in the one transaction it opens; the modules' write methods join it, so a
@@ -71,6 +72,7 @@ class CheckoutService implements Checkout {
   private final PricingService pricing;
   private final PackagingService packaging;
   private final Transformations transformations;
+  private final TenantCalendar calendar;
 
   /** The permission to sell on account: credit sales and balances put on account. */
   static final String CREDIT_PERMISSION = "sales.credit";
@@ -121,7 +123,7 @@ class CheckoutService implements Checkout {
                     .filter(e -> products.containsKey(e.getKey()))
                     .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
                     .toList(),
-                java.time.LocalDate.now())
+                calendar.today())
             .stream()
             .collect(
                 Collectors.toMap(

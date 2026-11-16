@@ -103,6 +103,22 @@ class PricingTest extends IntegrationTest {
     assertThat(promo.string("$.data[0].source")).isEqualTo("PROMOTION");
     assertThat(quote(hq, null, b, 1).read("$.data[0].unitPrice", Double.class)).isEqualTo(440.0);
 
+    // A promotion with no end date runs until switched off.
+    String c = product(admin, "Zinc tablets", 2000, 1000);
+    Response open =
+        admin
+            .post(
+                "/api/v1/promotions",
+                """
+                {"name":"Zinc always","percentOff":10,"productUid":"%s","validFrom":"%s"}
+                """
+                    .formatted(c, LocalDate.now().minusDays(1)))
+            .expect(201);
+    assertThat(open.json().read("$.data.validTo", Object.class)).isNull();
+    Response zinc = quote(hq, null, c, 1);
+    assertThat(zinc.read("$.data[0].unitPrice", Double.class)).isEqualTo(1800.0);
+    assertThat(zinc.string("$.data[0].source")).isEqualTo("PROMOTION");
+
     // Checkout charges what was quoted: 12 × 800.
     Response sale =
         hq.post(

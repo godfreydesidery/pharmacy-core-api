@@ -1,7 +1,6 @@
 package tz.co.pharmacy.delivery.api.v1.catalogue;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +29,7 @@ import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /** Price lists, branch prices, promotions, and the price of a basket for a customer at the till. */
 @RestController
@@ -39,6 +39,7 @@ public class PricingHandler {
 
   private final PricingService pricing;
   private final CustomerService customers;
+  private final TenantCalendar calendar;
 
   @GetMapping("/price-lists")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
@@ -152,7 +153,7 @@ public class PricingHandler {
                             Checks.required(l.productUid(), "lines.productUid"),
                             l.quantity() == null ? 1 : l.quantity()))
                 .toList(),
-            LocalDate.now()),
+            calendar.today()),
         "Prices retrieved");
   }
 
