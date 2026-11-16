@@ -116,6 +116,30 @@ class TransformationsTest extends IntegrationTest {
     assertThat(compounded.read("$.data.outputUnitCost", Double.class)).isEqualTo(2300.0);
     assertThat(compounded.string("$.data.outputExpiryDate"))
         .isEqualTo(LocalDate.now().plusMonths(9).toString());
+
+    // Inputs left out come from the formula, scaled by the quantity made: 2 bottles need 4 + 6.
+    Response scaled =
+        hq.post(
+                "/api/v1/stock/transformations",
+                """
+                {"type":"COMPOUND","output":{"productUid":"%s","quantity":2}}
+                """
+                    .formatted(lotion))
+            .expect(201);
+    assertThat(
+            scaled.read("$.data.inputs[?(@.productName == 'Zinc oxide 10g')].quantity", List.class))
+        .containsExactly(4);
+    assertThat(scaled.read("$.data.outputUnitCost", Double.class)).isEqualTo(2300.0);
+    // Inputs given must cover the formula: 1 zinc oxide for 2 bottles is too little.
+    Response short_ =
+        hq.post(
+            "/api/v1/stock/transformations",
+            """
+            {"type":"COMPOUND","inputs":[{"productUid":"%s","quantity":1},
+             {"productUid":"%s","quantity":6}],"output":{"productUid":"%s","quantity":2}}
+            """
+                .formatted(zinc, calamine, lotion));
+    assertThat(short_.expect(422).string("$.reason")).isEqualTo("inputs_below_formula");
   }
 
   @Test
