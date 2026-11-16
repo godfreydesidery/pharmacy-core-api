@@ -12,8 +12,11 @@ import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeSettingsCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.Entitlements;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsView;
+import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 @RestController
@@ -21,9 +24,11 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class SettingsHandler {
 
   private final SettingsService settings;
+  private final Entitlements entitlements;
 
-  public SettingsHandler(SettingsService settings) {
+  public SettingsHandler(SettingsService settings, Entitlements entitlements) {
     this.settings = settings;
+    this.entitlements = entitlements;
   }
 
   /** The tenant's settings, for any member: currency and receipt texts are needed everywhere. */
@@ -40,6 +45,7 @@ public class SettingsHandler {
     if (body == null) {
       throw Refusal.malformed("Settings are required.");
     }
+    requireMultiCurrencyFor(body.acceptedCurrencies());
     return ApiResponse.ok(
         settings.change(
             new ChangeSettingsCommand(
@@ -52,6 +58,21 @@ public class SettingsHandler {
                 body.smsReceipts(),
                 body.acceptedCurrencies())),
         "Settings changed");
+  }
+
+  /** Accepting a currency besides the base one needs the plan's multi-currency module. */
+  private void requireMultiCurrencyFor(java.util.List<String> accepted) {
+    if (accepted == null || ExecutionContext.current().map(f -> f.rootAdmin()).orElse(false)) {
+      return;
+    }
+    String base = settings.current().currency();
+    boolean foreign =
+        accepted.stream()
+            .filter(c -> c != null && !c.isBlank())
+            .anyMatch(c -> !c.trim().equalsIgnoreCase(base));
+    if (foreign) {
+      entitlements.requireFeature(ExecutionContext.requireTenant(), PlanFeature.MULTI_CURRENCY);
+    }
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)

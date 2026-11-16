@@ -7,6 +7,9 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
+import tz.co.pharmacy.delivery.api.CountsAgainst;
+import tz.co.pharmacy.delivery.api.RequiresFeature;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.Entitlements;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.ExecutionContext.Frame;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -20,6 +23,12 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class AccessInterceptor implements HandlerInterceptor {
 
   private static final String OWN_PACKAGE = "tz.co.pharmacy.";
+
+  private final Entitlements entitlements;
+
+  public AccessInterceptor(Entitlements entitlements) {
+    this.entitlements = entitlements;
+  }
 
   @Override
   public boolean preHandle(
@@ -67,7 +76,29 @@ public class AccessInterceptor implements HandlerInterceptor {
       throw Refusal.forbidden(
           "forbidden", "Your role does not include the permission " + access.permission() + ".");
     }
+    checkPlan(method, frame);
     return true;
+  }
+
+  /**
+   * The tenant's subscription plan: the module a handler needs, and room under the cap of what it
+   * adds. A root administrator is never held back by a plan.
+   */
+  private void checkPlan(HandlerMethod method, Frame frame) {
+    if (frame.rootAdmin() || frame.tenantUid() == null) {
+      return;
+    }
+    RequiresFeature feature = method.getMethodAnnotation(RequiresFeature.class);
+    if (feature == null) {
+      feature = method.getBeanType().getAnnotation(RequiresFeature.class);
+    }
+    if (feature != null) {
+      entitlements.requireFeature(frame.tenantUid(), feature.value());
+    }
+    CountsAgainst limit = method.getMethodAnnotation(CountsAgainst.class);
+    if (limit != null) {
+      entitlements.requireRoom(frame.tenantUid(), limit.value());
+    }
   }
 
   private static void requireTenant(Frame frame) {

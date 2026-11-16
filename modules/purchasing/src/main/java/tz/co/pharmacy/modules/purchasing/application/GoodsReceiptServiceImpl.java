@@ -65,6 +65,16 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
       Checks.positive(line.quantity(), "lines[" + i + "].quantity");
       Checks.notNegative(line.unitCost(), "lines[" + i + "].unitCost");
     }
+    String invoice =
+        Checks.optionalText(command.supplierInvoiceNumber(), "supplierInvoiceNumber", 64);
+    if (invoice != null
+        && receipts.existsBySupplierUidAndSupplierInvoiceNumberIgnoreCase(supplierUid, invoice)) {
+      // The same delivery booked twice doubles stock and what is owed.
+      throw Refusal.invalid(
+          "duplicate_supplier_invoice",
+          "Invoice " + invoice + " from this supplier is already received.",
+          "supplierInvoiceNumber");
+    }
     PurchaseOrder order = null;
     if (command.purchaseOrderUid() != null) {
       order = orderToReceive(command.purchaseOrderUid(), branch, supplierUid);
@@ -77,7 +87,7 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
             order,
             supplierUid,
             directory.supplierName(supplierUid),
-            Checks.optionalText(command.supplierInvoiceNumber(), "supplierInvoiceNumber", 64),
+            invoice,
             Checks.optionalText(command.note(), "note", 1000));
     for (int i = 0; i < lines.size(); i++) {
       ReceiptLineCommand line = lines.get(i);

@@ -10,5 +10,11 @@ public enum PaymentMethod {
   MOBILE_MONEY,
   INSURANCE,
   CREDIT,
-  ACCOUNT_CREDIT
+  ACCOUNT_CREDIT,
+  /** A bank transfer or deposit, by reference; posted to the bank account. */
+  BANK_TRANSFER,
+  /** A cheque, by number; posted to the bank account (cleared later). */
+  CHEQUE,
+  /** A prepaid voucher or gift card, by its code; spends its balance. */
+  VOUCHER
 }

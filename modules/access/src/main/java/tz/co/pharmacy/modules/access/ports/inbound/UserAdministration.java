@@ -35,6 +35,21 @@ public interface UserAdministration {
   /** Platform scope; 409 duplicate_email. */
   UserView createRootAdmin(NewUserCommand command);
 
+  /**
+   * Platform scope. Deactivating signs the person out everywhere. Never yourself, never the last
+   * active root administrator: 422 last_root_admin / cannot_change_self.
+   */
+  UserView setRootAdminActive(UUID userUid, boolean active);
+
+  /** Platform scope: takes away root rights (the account stays for any memberships). */
+  void removeRootAdmin(UUID userUid);
+
+  /** The signed-in person's own name and phone (E.164; 422 invalid_phone). */
+  UserView changeOwnProfile(String name, String phone);
+
+  /** The signed-in person. */
+  UserView me();
+
   boolean anyRootAdmin();
 
   long userCount();

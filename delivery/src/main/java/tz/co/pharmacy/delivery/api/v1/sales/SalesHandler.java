@@ -96,7 +96,8 @@ public class SalesHandler {
                 payment.amount(),
                 payment.reference(),
                 payment.currency(),
-                payment.exchangeRate()));
+                payment.exchangeRate(),
+                payment.channel()));
       }
     }
     return ApiResponse.created(
@@ -206,7 +207,8 @@ public class SalesHandler {
       BigDecimal amount,
       String reference,
       String currency,
-      BigDecimal exchangeRate) {}
+      BigDecimal exchangeRate,
+      String channel) {}
 
   /** {@code refundCurrency}: a foreign currency the sale was tendered in; omitted for the base. */
   public record ReturnRequest(

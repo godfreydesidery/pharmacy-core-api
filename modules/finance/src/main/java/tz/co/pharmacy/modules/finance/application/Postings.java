@@ -28,7 +28,10 @@ final class Postings {
   static final String SALES_REVENUE = "4000";
   static final String SALES_RETURNS = "4100";
   static final String COST_OF_GOODS = "5000";
+  static final String STOCK_ADJUSTMENTS = "5100";
   static final String FX_GAINS_LOSSES = "7000";
+  static final String VOUCHERS = "2300";
+  static final String OWNERS_EQUITY = "3000";
 
   private Postings() {}
 
@@ -141,6 +144,68 @@ final class Postings {
     return balanced(notedLines);
   }
 
+  /**
+   * Opening balances: Dr cash, bank, mobile money, inventory and receivables / Cr payables; owner's
+   * equity takes the difference (Cr when positive, Dr when the pharmacy owes more than it holds).
+   */
+  static List<Line> opening(
+      BigDecimal cash,
+      BigDecimal bank,
+      BigDecimal mobileMoney,
+      BigDecimal inventory,
+      BigDecimal receivables,
+      BigDecimal payables) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, CASH, cash);
+    debit(lines, BANK, bank);
+    debit(lines, MOBILE_MONEY, mobileMoney);
+    debit(lines, INVENTORY, inventory);
+    debit(lines, RECEIVABLE, receivables);
+    credit(lines, PAYABLE, payables);
+    BigDecimal equity =
+        money(cash)
+            .add(money(bank))
+            .add(money(mobileMoney))
+            .add(money(inventory))
+            .add(money(receivables))
+            .subtract(money(payables));
+    credit(lines, OWNERS_EQUITY, equity);
+    return balanced(lines);
+  }
+
+  /**
+   * A stock adjustment at cost. A loss (negative value): Dr 5100 stock losses / Cr 1200 inventory;
+   * a gain (stock found): Dr 1200 inventory / Cr 5100.
+   */
+  static List<Line> stockAdjustment(BigDecimal value) {
+    List<Line> lines = new ArrayList<>();
+    BigDecimal amount = value.abs();
+    if (value.signum() < 0) {
+      debit(lines, STOCK_ADJUSTMENTS, amount);
+      credit(lines, INVENTORY, amount);
+    } else {
+      debit(lines, INVENTORY, amount);
+      credit(lines, STOCK_ADJUSTMENTS, amount);
+    }
+    return balanced(lines);
+  }
+
+  /** Stock back to the supplier at cost: Dr accounts payable / Cr inventory. */
+  static List<Line> supplierReturn(BigDecimal value) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, PAYABLE, value);
+    credit(lines, INVENTORY, value);
+    return balanced(lines);
+  }
+
+  /** A voucher sold: Dr the account the money came into / Cr 2300 Vouchers outstanding. */
+  static List<Line> voucherIssued(BigDecimal value, String paidBy) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, paymentAccount(paidBy), value);
+    credit(lines, VOUCHERS, value);
+    return balanced(lines);
+  }
+
   /** Dr the expense account / Cr the account it was paid from. */
   static List<Line> expense(ExpenseCategory category, BigDecimal amount, String paymentMethod) {
     List<Line> lines = new ArrayList<>();
@@ -151,7 +216,7 @@ final class Postings {
 
   /**
    * The account money of a payment method sits in: CASH 1000, CARD or BANK 1010, MOBILE_MONEY 1020,
-   * INSURANCE 1110, CREDIT 1100; anything else is cash.
+   * INSURANCE 1110, CREDIT 1100, VOUCHER 2300 (spending prepaid value); anything else is cash.
    */
   static String paymentAccount(String method) {
     if (method == null) {
@@ -162,6 +227,7 @@ final class Postings {
       case "MOBILE_MONEY" -> MOBILE_MONEY;
       case "INSURANCE" -> INSURANCE_RECEIVABLE;
       case "CREDIT", "ACCOUNT_CREDIT" -> RECEIVABLE;
+      case "VOUCHER" -> VOUCHERS;
       default -> CASH;
     };
   }

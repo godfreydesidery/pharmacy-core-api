@@ -1,12 +1,15 @@
 package tz.co.pharmacy.delivery.api.v1.platform;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,11 +21,14 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.delivery.edge.EdgeFilter;
 import tz.co.pharmacy.modules.access.ports.inbound.NewUserCommand;
+import tz.co.pharmacy.modules.access.ports.inbound.PasswordResetService;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.modules.access.ports.inbound.UserView;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlatformCounts;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.RegisterTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
@@ -38,12 +44,17 @@ public class PlatformHandler {
   private final TenantService tenants;
   private final TenantOnboarding onboarding;
   private final UserAdministration users;
+  private final PasswordResetService passwordResets;
 
   public PlatformHandler(
-      TenantService tenants, TenantOnboarding onboarding, UserAdministration users) {
+      TenantService tenants,
+      TenantOnboarding onboarding,
+      UserAdministration users,
+      PasswordResetService passwordResets) {
     this.tenants = tenants;
     this.onboarding = onboarding;
     this.users = users;
+    this.passwordResets = passwordResets;
   }
 
   @GetMapping("/tenants")
@@ -90,6 +101,30 @@ public class PlatformHandler {
         "Tenant retrieved");
   }
 
+  /** The code never changes; the currency only until the pharmacy has posted anything. */
+  @PutMapping("/tenants/{tenantUid}")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<TenantView> change(
+      @PathVariable UUID tenantUid, @RequestBody ChangeTenantRequest body) {
+    if (body == null) {
+      throw Refusal.malformed("A tenant is required.");
+    }
+    return ApiResponse.ok(
+        tenants.change(
+            tenantUid,
+            new ChangeTenantCommand(
+                body.name(),
+                body.legalName(),
+                body.country(),
+                body.currency(),
+                body.timezone(),
+                body.contactName(),
+                body.contactEmail(),
+                body.contactPhone(),
+                body.address())),
+        "Tenant changed");
+  }
+
   @PostMapping("/tenants/{tenantUid}/suspend")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> suspend(
@@ -118,6 +153,43 @@ public class PlatformHandler {
         users.createRootAdmin(
             body == null ? null : new NewUserCommand(body.name(), body.email(), body.password())),
         "Root administrator created");
+  }
+
+  @PostMapping("/root-admins/{userUid}/deactivate")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<UserView> deactivateRootAdmin(@PathVariable UUID userUid) {
+    return ApiResponse.ok(
+        users.setRootAdminActive(userUid, false), "Root administrator deactivated");
+  }
+
+  @PostMapping("/root-admins/{userUid}/reactivate")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<UserView> reactivateRootAdmin(@PathVariable UUID userUid) {
+    return ApiResponse.ok(
+        users.setRootAdminActive(userUid, true), "Root administrator reactivated");
+  }
+
+  /** Takes away root rights; the account stays for any pharmacy memberships. */
+  @DeleteMapping("/root-admins/{userUid}")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<Void> removeRootAdmin(@PathVariable UUID userUid) {
+    users.removeRootAdmin(userUid);
+    return ApiResponse.ok("Root administrator removed");
+  }
+
+  /** Emails the root administrator a password-reset link. */
+  @PostMapping("/root-admins/{userUid}/password-reset")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<Void> resetRootAdminPassword(
+      @PathVariable UUID userUid, HttpServletRequest request) {
+    UserView admin =
+        users.rootAdmins().stream()
+            .filter(candidate -> candidate.uid().equals(userUid))
+            .findFirst()
+            .orElseThrow(
+                () -> Refusal.notFound("root_admin_not_found", "No such root administrator."));
+    passwordResets.request(admin.email(), EdgeFilter.client(request));
+    return ApiResponse.ok("Password reset email sent");
   }
 
   @GetMapping("/overview")
@@ -150,6 +222,18 @@ public class PlatformHandler {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ReasonRequest(String reason) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record ChangeTenantRequest(
+      String name,
+      String legalName,
+      String country,
+      String currency,
+      String timezone,
+      String contactName,
+      String contactEmail,
+      String contactPhone,
+      String address) {}
 
   public record OverviewResponse(
       long tenants, long activeTenants, long suspendedTenants, long branches, long users) {}

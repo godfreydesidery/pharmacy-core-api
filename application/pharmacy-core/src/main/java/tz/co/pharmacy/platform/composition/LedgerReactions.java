@@ -19,9 +19,12 @@ import tz.co.pharmacy.modules.finance.ports.inbound.Ledger;
 import tz.co.pharmacy.modules.finance.ports.inbound.ReceiptPosting;
 import tz.co.pharmacy.modules.finance.ports.inbound.ReturnPosting;
 import tz.co.pharmacy.modules.finance.ports.inbound.SalePosting;
+import tz.co.pharmacy.modules.inventory.events.StockAdjusted;
 import tz.co.pharmacy.modules.purchasing.events.GoodsReceived;
+import tz.co.pharmacy.modules.purchasing.events.SupplierReturned;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
 import tz.co.pharmacy.modules.sales.events.SaleReturned;
+import tz.co.pharmacy.modules.sales.events.VoucherIssued;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.platform.bus.EventScopes;
 
@@ -68,6 +71,24 @@ public class LedgerReactions {
 
   @Async
   @TransactionalEventListener
+  public void on(VoucherIssued event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postVoucherIssued(
+                        event.voucherUid(),
+                        event.code(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.value(),
+                        event.paidBy())));
+  }
+
+  @Async
+  @TransactionalEventListener
   public void on(SaleReturned event) {
     EventScopes.run(
         event.metadata(),
@@ -108,6 +129,43 @@ public class LedgerReactions {
                             baseTotal(event),
                             foreign(event) ? event.currency() : null,
                             foreign(event) ? event.total() : null))));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(SupplierReturned event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSupplierReturn(
+                        event.returnUid(),
+                        event.number(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.total())));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(StockAdjusted event) {
+    if (event.value() == null || event.value().signum() == 0) {
+      return;
+    }
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postStockAdjustment(
+                        event.movementUid(),
+                        event.productName() + " (" + event.reasonCode() + ")",
+                        event.metadata().branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.value())));
   }
 
   private static void once(Runnable posting) {

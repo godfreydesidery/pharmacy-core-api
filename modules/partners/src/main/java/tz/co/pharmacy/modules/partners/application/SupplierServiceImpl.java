@@ -46,7 +46,7 @@ class SupplierServiceImpl implements SupplierService {
   @Override
   @Transactional
   public SupplierView create(SupplierCommand c) {
-    Supplier.Details details = details(c, true);
+    Supplier.Details details = details(c, true, 7);
     return view(suppliers.save(new Supplier(numbers.format("SUP", 6), details)));
   }
 
@@ -57,11 +57,12 @@ class SupplierServiceImpl implements SupplierService {
         suppliers
             .findByUid(uid)
             .orElseThrow(() -> Refusal.notFound("supplier_not_found", "No such supplier."));
-    supplier.change(details(c, supplier.isActive()));
+    supplier.change(details(c, supplier.isActive(), supplier.getLeadTimeDays()));
     return view(supplier);
   }
 
-  private static Supplier.Details details(SupplierCommand c, boolean currentlyActive) {
+  private static Supplier.Details details(
+      SupplierCommand c, boolean currentlyActive, int currentLeadTime) {
     return new Supplier.Details(
         Checks.text(c.name(), "name", 200),
         Checks.optionalText(c.contactPerson(), "contactPerson", 200),
@@ -70,7 +71,18 @@ class SupplierServiceImpl implements SupplierService {
         Checks.optionalText(c.tin(), "tin", 50),
         c.paymentTerms() == null ? PaymentTerms.COD : c.paymentTerms(),
         Checks.optionalText(c.address(), "address", 500),
-        c.active() == null ? currentlyActive : c.active());
+        c.active() == null ? currentlyActive : c.active(),
+        leadTime(c.leadTimeDays(), currentLeadTime));
+  }
+
+  private static int leadTime(Integer days, int current) {
+    if (days == null) {
+      return current;
+    }
+    if (days < 0 || days > 365) {
+      throw Refusal.invalid("invalid_lead_time", "Lead time is 0 to 365 days.", "leadTimeDays");
+    }
+    return days;
   }
 
   private static String optionalEmail(String email) {
@@ -89,6 +101,7 @@ class SupplierServiceImpl implements SupplierService {
         s.getPaymentTerms(),
         s.getAddress(),
         s.isActive(),
-        s.getCreatedAt());
+        s.getCreatedAt(),
+        s.getLeadTimeDays());
   }
 }

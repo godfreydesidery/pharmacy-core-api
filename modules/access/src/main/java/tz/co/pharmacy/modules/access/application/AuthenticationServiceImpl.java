@@ -274,6 +274,23 @@ class AuthenticationServiceImpl implements AuthenticationService {
   }
 
   @Override
+  public int revokeOtherSessions(UUID userUid, String currentToken) {
+    if (currentToken == null || currentToken.isBlank()) {
+      throw Refusal.invalid("session_required", "Sign in with a session token first.");
+    }
+    Integer revoked =
+        writes.execute(
+            status -> {
+              int count =
+                  sessions.revokeAll(userUid, Instant.now(), Tokens.hash(currentToken.trim()));
+              audit.record(
+                  "OTHER_SESSIONS_REVOKED", "User", userUid, null, Map.of("revoked", count));
+              return count;
+            });
+    return revoked == null ? 0 : revoked;
+  }
+
+  @Override
   public List<MembershipGrant> memberships(UUID userUid) {
     List<MembershipGrant> grants =
         TenantContext.callAsUser(

@@ -44,6 +44,7 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferView;
 import tz.co.pharmacy.modules.inventory.ports.outbound.ProductCatalogue;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
+import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -182,6 +183,68 @@ class StockServiceImpl implements StockService, ProductSnapshots {
 
   @Override
   @Transactional
+  public Allocation returnToSupplier(UUID batchUid, int quantity, String reference) {
+    UUID branch = ExecutionContext.requireBranch();
+    Checks.positive(quantity, "quantity");
+    Batch batch = batch(Checks.required(batchUid, "batchUid"));
+    ProductRecord product = product(batch.getProductUid());
+    int before = (int) levels.quantityAt(branch, batch.getProductUid());
+    StockLevel level = levels.lockAt(branch, batch).orElse(null);
+    int held = level == null ? 0 : level.getQuantity();
+    if (held < quantity) {
+      throw Refusal.invalid(
+              "insufficient_stock",
+              "Only "
+                  + held
+                  + " of "
+                  + product.getName()
+                  + " batch "
+                  + batch.getBatchNumber()
+                  + " are in stock at this branch.")
+          .about("quantity");
+    }
+    List<String> serials = List.of();
+    if (product.serialTracked()) {
+      List<SerialUnit> chosen =
+          units.lockAt(branch, product.getProductUid(), SerialStatus.IN_STOCK).stream()
+              .filter(unit -> unit.getBatch().getUid().equals(batch.getUid()))
+              .limit(quantity)
+              .toList();
+      if (chosen.size() < quantity) {
+        throw Refusal.invalid(
+                "insufficient_stock",
+                "Only " + chosen.size() + " units of " + product.getName() + " are in stock here.")
+            .about("quantity");
+      }
+      chosen.forEach(SerialUnit::writeOff);
+      serials = chosen.stream().map(SerialUnit::getSerialNumber).toList();
+    }
+    level.change(-quantity);
+    int after = before - quantity;
+    movements.save(
+        new Movement(
+            branch,
+            product.getName(),
+            batch,
+            MovementType.SUPPLIER_RETURN,
+            -quantity,
+            after,
+            reference,
+            null,
+            null,
+            serials));
+    signalLow(product, before, after);
+    return new Allocation(
+        batch.getUid(),
+        batch.getBatchNumber(),
+        batch.getExpiryDate(),
+        quantity,
+        batch.getUnitCost(),
+        serials);
+  }
+
+  @Override
+  @Transactional
   public MovementView adjust(AdjustStockCommand command) {
     UUID branch = ExecutionContext.requireBranch();
     UUID productUid = Checks.required(command.productUid(), "productUid");
@@ -236,7 +299,15 @@ class StockServiceImpl implements StockService, ProductSnapshots {
         "stock.adjusted",
         meta ->
             new StockAdjusted(
-                meta, productUid, product.getName(), batch.getUid(), change, reason.name(), after));
+                meta,
+                productUid,
+                product.getName(),
+                batch.getUid(),
+                change,
+                reason.name(),
+                after,
+                movement.getUid(),
+                Amounts.money(batch.getUnitCost().multiply(BigDecimal.valueOf(change)))));
     signalLow(product, before, after);
     return views.movement(movement);
   }
@@ -532,6 +603,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     if (serials.isEmpty()) {
       chosen =
           units.lockAt(branch, product.getProductUid(), SerialStatus.IN_STOCK).stream()
+              .filter(unit -> !unit.getBatch().isQuarantined())
               .limit(quantity)
               .toList();
       if (chosen.size() < quantity) {
@@ -542,6 +614,14 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     } else {
       SerialRules.requireCount(serials, quantity, "serialNumbers");
       chosen = inStockAt(branch, product, serials);
+      for (SerialUnit unit : chosen) {
+        if (unit.getBatch().isQuarantined()) {
+          throw Refusal.invalid(
+              "batch_quarantined",
+              "Serial " + unit.getSerialNumber() + " is in a recalled batch.",
+              "serialNumbers");
+        }
+      }
     }
     Map<Batch, List<SerialUnit>> byBatch = new LinkedHashMap<>();
     chosen.forEach(

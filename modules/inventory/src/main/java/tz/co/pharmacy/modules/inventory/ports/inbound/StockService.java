@@ -32,6 +32,13 @@ public interface StockService {
   /** As {@link #restore(UUID, int, String)}, naming the units back of a SERIAL product. */
   void restore(UUID batchUid, int quantity, String reference, List<String> serialNumbers);
 
+  /**
+   * Sends {@code quantity} of the batch at the current branch back to its supplier (a
+   * SUPPLIER_RETURN movement); a quarantined or expired batch may be returned. For a SERIAL product
+   * the batch's oldest units in stock leave. 422 insufficient_stock, batch_not_found.
+   */
+  Allocation returnToSupplier(UUID batchUid, int quantity, String reference);
+
   /** 422 insufficient_stock if it would go below zero; publishes stock.adjusted. */
   MovementView adjust(AdjustStockCommand command);
 

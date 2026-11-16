@@ -9,4 +9,6 @@ public interface JournalEntryRepository
     extends JpaRepository<JournalEntry, Long>, JpaSpecificationExecutor<JournalEntry> {
 
   boolean existsBySourceTypeAndSourceUid(String sourceType, UUID sourceUid);
+
+  java.util.Optional<JournalEntry> findBySourceTypeAndSourceUid(String sourceType, UUID sourceUid);
 }

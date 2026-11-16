@@ -198,7 +198,15 @@ class TwoFactorServiceImpl implements TwoFactorService {
     }
     if (user.getTotpSecret() != null && code.replaceAll("\\s", "").matches("\\d{6}")) {
       long step = Totp.match(secrets.open(user.getTotpSecret()), code, Instant.now());
-      return step >= 0 && user.acceptTotpStep(step);
+      if (step < 0) {
+        return false;
+      }
+      if (!user.acceptTotpStep(step)) {
+        // A code is single-use (RFC 6238 §5.2): someone who saw it cannot sign in with it again.
+        throw Refusal.unauthenticated(
+            "code_already_used", "That code was already used; wait for the next one.");
+      }
+      return true;
     }
     if (RecoveryCodes.looksLikeRecoveryCode(code)) {
       return recoveryCodes

@@ -63,7 +63,14 @@ public class EntityAuditListener
     if (after.isEmpty()) {
       return;
     }
-    writer.insert("UPDATE", type(event.getPersister()), uid(event.getEntity()), before, after);
+    Map<String, Object> current = values(event.getPersister(), now, null);
+    writer.insert(
+        "UPDATE",
+        type(event.getPersister()),
+        uid(event.getEntity()),
+        before,
+        after,
+        AuditValues.label(current, before));
   }
 
   @Override

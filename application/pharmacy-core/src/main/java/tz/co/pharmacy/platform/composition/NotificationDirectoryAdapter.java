@@ -19,8 +19,8 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
  * Binds notifications' directory to access: the current tenant's active members and their roles'
- * permissions, or the root administrators at platform scope. Users carry no phone number yet, so
- * staff are reached by email and in-app.
+ * permissions, or the root administrators at platform scope. A person's phone (from their profile)
+ * lets SMS and WhatsApp reach them.
  */
 @Component
 class NotificationDirectoryAdapter implements NotificationDirectory {
@@ -62,7 +62,9 @@ class NotificationDirectoryAdapter implements NotificationDirectory {
       return users.rootAdmins().stream()
           .filter(admin -> admin.uid().equals(userUid))
           .findFirst()
-          .map(admin -> new Recipient(admin.uid(), admin.name(), admin.email(), null, null));
+          .map(
+              admin ->
+                  new Recipient(admin.uid(), admin.name(), admin.email(), admin.phone(), null));
     }
     return members().stream()
         .filter(member -> member.userUid().equals(userUid))
@@ -84,6 +86,6 @@ class NotificationDirectoryAdapter implements NotificationDirectory {
   }
 
   private static Recipient recipient(MemberView member) {
-    return new Recipient(member.userUid(), member.name(), member.email(), null, null);
+    return new Recipient(member.userUid(), member.name(), member.email(), member.phone(), null);
   }
 }

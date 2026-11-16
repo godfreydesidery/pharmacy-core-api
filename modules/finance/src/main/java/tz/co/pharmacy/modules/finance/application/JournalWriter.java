@@ -26,16 +26,19 @@ class JournalWriter {
   private final ChartOfAccounts chart;
   private final DocumentNumbers numbers;
   private final JdbcTemplate jdbc;
+  private final PeriodLocksImpl periods;
 
   JournalWriter(
       JournalEntryRepository entries,
       ChartOfAccounts chart,
       DocumentNumbers numbers,
-      DataSource dataSource) {
+      DataSource dataSource,
+      PeriodLocksImpl periods) {
     this.entries = entries;
     this.chart = chart;
     this.numbers = numbers;
     this.jdbc = new JdbcTemplate(dataSource);
+    this.periods = periods;
   }
 
   /** Posts the lines unless this source was posted already; returns whether it posted. */
@@ -52,6 +55,7 @@ class JournalWriter {
       return false;
     }
     Postings.balanced(lines);
+    LocalDate bookedOn = periods.bookingDate(sourceType, date);
     String key = TenantContext.requireTenant() + ":" + sourceType + ":" + sourceUid;
     jdbc.queryForObject(
         "select 1 from (select pg_advisory_xact_lock(hashtext(?))) as locked", Integer.class, key);
@@ -63,7 +67,7 @@ class JournalWriter {
     JournalEntry entry =
         new JournalEntry(
             numbers.format("JV", 6),
-            date,
+            bookedOn,
             sourceType,
             sourceUid,
             sourceReference,

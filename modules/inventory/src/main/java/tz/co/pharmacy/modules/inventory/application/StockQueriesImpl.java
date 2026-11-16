@@ -221,7 +221,8 @@ class StockQueriesImpl implements StockQueries {
                     level.getBatch().getExpiryDate() == null
                         ? null
                         : ChronoUnit.DAYS.between(today, level.getBatch().getExpiryDate()),
-                    level.getBatch().expiredOn(today)))
+                    level.getBatch().expiredOn(today),
+                    level.getBatch().isQuarantined()))
         .toList();
   }
 

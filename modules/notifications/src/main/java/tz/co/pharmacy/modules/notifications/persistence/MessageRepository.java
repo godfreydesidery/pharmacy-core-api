@@ -51,4 +51,17 @@ public interface MessageRepository
           + " and m.nextAttemptAt is not null"
           + " and m.status <> tz.co.pharmacy.modules.notifications.domain.MessageStatus.SENT")
   Instant earliestDue(@Param("maxAttempts") int maxAttempts);
+
+  /** The latest message of the channel in the given status, for a channel's health. */
+  Optional<Message> findFirstByChannelAndStatusOrderByUpdatedAtDesc(
+      Channel channel, tz.co.pharmacy.modules.notifications.domain.MessageStatus status);
+
+  Optional<Message> findFirstByChannelAndStatusOrderBySentAtDesc(
+      Channel channel, tz.co.pharmacy.modules.notifications.domain.MessageStatus status);
+
+  long countByChannelAndStatusAndSentAtGreaterThanEqualAndSentAtLessThan(
+      Channel channel,
+      tz.co.pharmacy.modules.notifications.domain.MessageStatus status,
+      Instant from,
+      Instant to);
 }

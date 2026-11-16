@@ -15,6 +15,8 @@ public final class TemplateKeys {
   public static final String ACCESS_NEW_SIGN_IN = "access.new_sign_in";
   public static final String ACCESS_TWO_FACTOR_CODE = "access.two_factor_code";
   public static final String TENANT_WELCOME = "tenant.welcome";
+  public static final String SUBSCRIPTION_DUE = "tenant.subscription_due";
+  public static final String SUBSCRIPTION_PAST_DUE = "tenant.subscription_past_due";
 
   public static final List<String> ALL =
       List.of(
@@ -27,7 +29,9 @@ public final class TemplateKeys {
           ACCESS_PASSWORD_RESET,
           ACCESS_NEW_SIGN_IN,
           ACCESS_TWO_FACTOR_CODE,
-          TENANT_WELCOME);
+          TENANT_WELCOME,
+          SUBSCRIPTION_DUE,
+          SUBSCRIPTION_PAST_DUE);
 
   /** Preference categories; {@code access} messages are always sent. */
   public static final List<String> CATEGORIES =
@@ -42,7 +46,7 @@ public final class TemplateKeys {
       case SALE_RECEIPT -> "sales";
       case DAILY_SUMMARY -> "reports";
       case CUSTOMER_OVERDUE -> "customers";
-      case TENANT_WELCOME -> "tenant";
+      case TENANT_WELCOME, SUBSCRIPTION_DUE, SUBSCRIPTION_PAST_DUE -> "tenant";
       default -> "access";
     };
   }

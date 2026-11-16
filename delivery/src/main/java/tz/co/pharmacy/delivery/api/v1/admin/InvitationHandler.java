@@ -15,9 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationService;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationView;
 import tz.co.pharmacy.modules.access.ports.inbound.InviteCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 
 /** Inviting people to the tenant by email, with a role and branch access. */
 @RestController
@@ -36,6 +38,7 @@ public class InvitationHandler {
     return ApiResponse.ok(invitations.list(), "Invitations retrieved");
   }
 
+  @CountsAgainst(PlanLimit.USERS)
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "users.manage")

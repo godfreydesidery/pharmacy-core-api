@@ -17,11 +17,13 @@ import tz.co.pharmacy.modules.tenancy.persistence.BranchRepository;
 import tz.co.pharmacy.modules.tenancy.persistence.SettingsRepository;
 import tz.co.pharmacy.modules.tenancy.persistence.TenantRepository;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlatformCounts;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.RegisterTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantStatus;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
+import tz.co.pharmacy.modules.tenancy.ports.outbound.TenantActivity;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -40,6 +42,8 @@ class TenantServiceImpl implements TenantService {
   private final TenantSwitch tenantSwitch;
   private final DomainEventPublisher events;
   private final JdbcTemplate jdbc;
+  private final TenantActivity activity;
+  private final SubscriptionsImpl subscriptions;
 
   TenantServiceImpl(
       TenantRepository tenants,
@@ -47,13 +51,17 @@ class TenantServiceImpl implements TenantService {
       SettingsRepository settings,
       TenantSwitch tenantSwitch,
       DomainEventPublisher events,
-      DataSource dataSource) {
+      DataSource dataSource,
+      TenantActivity activity,
+      SubscriptionsImpl subscriptions) {
     this.tenants = tenants;
     this.branches = branches;
     this.settings = settings;
     this.tenantSwitch = tenantSwitch;
     this.events = events;
     this.jdbc = new JdbcTemplate(dataSource);
+    this.activity = activity;
+    this.subscriptions = subscriptions;
   }
 
   @Override
@@ -76,6 +84,7 @@ class TenantServiceImpl implements TenantService {
       throw Refusal.conflict("duplicate_code", "A tenant with code " + code + " exists.");
     }
     Tenant tenant = tenants.save(new Tenant(code, name, legalName, country, currency, timezone));
+    subscriptions.startTrial(tenant.getUid());
     tenantSwitch.within(
         tenant.getUid(),
         () -> {
@@ -103,6 +112,41 @@ class TenantServiceImpl implements TenantService {
   public Page<TenantView> list(String q, PageQuery query) {
     return Keyset.page(
         tenants, Specs.containsAny(q, "code", "name", "legalName"), query, this::view);
+  }
+
+  @Override
+  @Transactional
+  public TenantView change(UUID tenantUid, ChangeTenantCommand command) {
+    Checks.required(command, "tenant");
+    Tenant tenant = required(tenantUid);
+    String name = Checks.text(command.name(), "name", 120);
+    String legalName = Checks.optionalText(command.legalName(), "legalName", 200);
+    String country = country(command.country());
+    String timezone = timezone(command.timezone());
+    String contactName = Checks.optionalText(command.contactName(), "contactName", 120);
+    String contactEmail =
+        command.contactEmail() == null || command.contactEmail().isBlank()
+            ? null
+            : Checks.email(command.contactEmail(), "contactEmail");
+    String contactPhone = Checks.optionalText(command.contactPhone(), "contactPhone", 40);
+    String address = Checks.optionalText(command.address(), "address", 300);
+    if (command.currency() != null && !command.currency().isBlank()) {
+      String currency = currency(command.currency());
+      if (!currency.equals(tenant.getCurrency())) {
+        boolean traded = tenantSwitch.within(tenant.getUid(), activity::hasPostedTransactions);
+        if (traded) {
+          throw Refusal.invalid(
+              "currency_locked",
+              "The base currency cannot change once the pharmacy has posted transactions.",
+              "currency");
+        }
+        tenant.changeCurrency(currency);
+      }
+    }
+    tenant.change(
+        name, legalName, country, timezone, contactName, contactEmail, contactPhone, address);
+    tenants.flush();
+    return view(tenant);
   }
 
   @Override
@@ -162,7 +206,11 @@ class TenantServiceImpl implements TenantService {
         tenant.getStatus(),
         tenant.getStatusReason(),
         branchCount,
-        tenant.getCreatedAt());
+        tenant.getCreatedAt(),
+        tenant.getContactName(),
+        tenant.getContactEmail(),
+        tenant.getContactPhone(),
+        tenant.getAddress());
   }
 
   private static String country(String value) {

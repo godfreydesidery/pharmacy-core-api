@@ -14,4 +14,8 @@ public record TenantView(
     TenantStatus status,
     String statusReason,
     int branchCount,
-    Instant createdAt) {}
+    Instant createdAt,
+    String contactName,
+    String contactEmail,
+    String contactPhone,
+    String address) {}

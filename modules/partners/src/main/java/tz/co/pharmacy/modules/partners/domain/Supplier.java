@@ -31,6 +31,7 @@ public class Supplier extends TenantEntity {
 
   private String address;
   private boolean active = true;
+  private int leadTimeDays = 7;
 
   public Supplier(String code, Details details) {
     this.code = code;
@@ -46,6 +47,7 @@ public class Supplier extends TenantEntity {
     this.paymentTerms = d.paymentTerms();
     this.address = d.address();
     this.active = d.active();
+    this.leadTimeDays = d.leadTimeDays();
   }
 
   public record Details(
@@ -56,5 +58,6 @@ public class Supplier extends TenantEntity {
       String tin,
       PaymentTerms paymentTerms,
       String address,
-      boolean active) {}
+      boolean active,
+      int leadTimeDays) {}
 }

@@ -215,7 +215,8 @@ class CatalogueServiceImpl implements CatalogueService {
                     ? Specs.<Product>all()
                     : Specs.<Product>in("category.uid", withDescendants(f.categoryUid())))
             .and(Specs.equal("active", f.active()))
-            .and(Specs.equal("productType", f.productType()));
+            .and(Specs.equal("productType", f.productType()))
+            .and(Specs.equal("schedule", f.schedule()));
     CriteriaBuilder cb = entityManager.getCriteriaBuilder();
     CriteriaQuery<Product> cq = cb.createQuery(Product.class);
     Root<Product> root = cq.from(Product.class);

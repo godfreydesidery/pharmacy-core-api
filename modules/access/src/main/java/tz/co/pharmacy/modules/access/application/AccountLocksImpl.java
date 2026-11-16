@@ -1,0 +1,70 @@
+package tz.co.pharmacy.modules.access.application;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.modules.access.domain.Membership;
+import tz.co.pharmacy.modules.access.domain.User;
+import tz.co.pharmacy.modules.access.persistence.MembershipRepository;
+import tz.co.pharmacy.modules.access.persistence.UserRepository;
+import tz.co.pharmacy.modules.access.ports.inbound.AccountLocks;
+import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.Specs;
+import tz.co.pharmacy.platform.persistence.TenantContext;
+import tz.co.pharmacy.platform.persistence.audit.AuditLog;
+
+@Service
+class AccountLocksImpl implements AccountLocks {
+
+  private final MembershipRepository memberships;
+  private final UserRepository users;
+  private final AuditLog audit;
+  private final Clock clock;
+
+  AccountLocksImpl(
+      MembershipRepository memberships, UserRepository users, AuditLog audit, Clock clock) {
+    this.memberships = memberships;
+    this.users = users;
+    this.audit = audit;
+    this.clock = clock;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<LockedMember> locked() {
+    UUID tenant = TenantContext.requireTenant();
+    Map<UUID, Membership> byUser =
+        memberships.findAll(Specs.<Membership>equal("tenantUid", tenant)).stream()
+            .collect(Collectors.toMap(Membership::getUserUid, Function.identity(), (a, b) -> a));
+    Instant now = clock.instant();
+    return users.findAllByUidIn(byUser.keySet()).stream()
+        .filter(user -> user.lockedAt(now))
+        .map(
+            user ->
+                new LockedMember(
+                    byUser.get(user.getUid()).getUid(), user.getUid(), user.getLockedUntil()))
+        .toList();
+  }
+
+  @Override
+  @Transactional
+  public void unlock(UUID membershipUid) {
+    Membership membership =
+        memberships
+            .findByUidAndTenantUid(membershipUid, TenantContext.requireTenant())
+            .orElseThrow(() -> Refusal.notFound("membership_not_found", "No such member."));
+    User user =
+        users
+            .findByUid(membership.getUserUid())
+            .orElseThrow(() -> Refusal.notFound("membership_not_found", "No such member."));
+    boolean wasLocked = user.lockedAt(clock.instant());
+    user.unlock();
+    audit.record("ACCOUNT_UNLOCKED", "User", user.getUid(), null, Map.of("wasLocked", wasLocked));
+  }
+}

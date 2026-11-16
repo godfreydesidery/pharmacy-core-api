@@ -47,6 +47,9 @@ public class SalePayment extends TenantEntity {
   @Column(nullable = false, precision = 14, scale = 2)
   private BigDecimal baseAmount;
 
+  /** The registered payment method used (MPESA, CRDB, …), for reconciliation; null for none. */
+  private String channel;
+
   public SalePayment(
       PaymentMethod method,
       BigDecimal amount,
@@ -60,6 +63,11 @@ public class SalePayment extends TenantEntity {
     this.currency = currency;
     this.exchangeRate = exchangeRate;
     this.baseAmount = baseAmount;
+  }
+
+  public SalePayment through(String channel) {
+    this.channel = channel;
+    return this;
   }
 
   void attachTo(Sale sale) {

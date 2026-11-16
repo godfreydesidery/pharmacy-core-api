@@ -152,7 +152,8 @@ public class PartnerHandler {
       String tin,
       String paymentTerms,
       String address,
-      Boolean active) {
+      Boolean active,
+      Integer leadTimeDays) {
 
     SupplierCommand toCommand() {
       return new SupplierCommand(
@@ -165,7 +166,8 @@ public class PartnerHandler {
               ? null
               : Checks.oneOf(PaymentTerms.class, paymentTerms, "paymentTerms"),
           address,
-          active);
+          active,
+          leadTimeDays);
     }
   }
 }

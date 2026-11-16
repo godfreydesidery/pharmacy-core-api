@@ -3,6 +3,7 @@ package tz.co.pharmacy.modules.inventory.domain;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 import lombok.AccessLevel;
@@ -25,12 +26,31 @@ public class Batch extends TenantEntity {
   private String batchNumber;
   private LocalDate expiryDate;
   private BigDecimal unitCost;
+  private boolean quarantined;
+  private String quarantineReason;
+  private Instant quarantinedAt;
+  private String quarantinedBy;
 
   public Batch(UUID productUid, String batchNumber, LocalDate expiryDate, BigDecimal unitCost) {
     this.productUid = productUid;
     this.batchNumber = batchNumber;
     this.expiryDate = expiryDate;
     this.unitCost = Amounts.money(unitCost);
+  }
+
+  /** Recalled: kept on hand but never sold, transferred or transformed until released. */
+  public void quarantine(String reason, Instant at, String by) {
+    this.quarantined = true;
+    this.quarantineReason = reason;
+    this.quarantinedAt = at;
+    this.quarantinedBy = by;
+  }
+
+  public void release() {
+    this.quarantined = false;
+    this.quarantineReason = null;
+    this.quarantinedAt = null;
+    this.quarantinedBy = null;
   }
 
   public boolean expiredOn(LocalDate day) {

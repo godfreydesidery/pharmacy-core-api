@@ -8,5 +8,11 @@ public enum MovementType {
   SALE_RETURN,
   ADJUSTMENT,
   TRANSFER_OUT,
-  TRANSFER_IN
+  TRANSFER_IN,
+  /** An input of a transformation (break bulk, repack, compounding). */
+  TRANSFORM_OUT,
+  /** The output of a transformation. */
+  TRANSFORM_IN,
+  /** Stock sent back to its supplier. */
+  SUPPLIER_RETURN
 }

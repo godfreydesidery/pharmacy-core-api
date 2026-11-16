@@ -6,5 +6,4 @@ local-postgres/
 .vscode/
 .DS_Store
 .env
-target-mvn/
-target-verify/
+target-*/
