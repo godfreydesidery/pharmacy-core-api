@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -316,5 +317,14 @@ class AdminDataTest extends IntegrationTest {
             .json()
             .read("$.data.items[*].label");
     assertThat(platform).contains("Admin " + code);
+    // Sign-ins are written without a label; they read with the user's name, not an id.
+    List<Map<String, Object>> signIns =
+        root.get("/api/v1/platform/audit?entityType=User&limit=50")
+            .expect(200)
+            .json()
+            .read("$.data.items[?(@.action == 'SIGN_IN')]");
+    assertThat(signIns)
+        .isNotEmpty()
+        .allSatisfy(entry -> assertThat(entry.get("label")).isNotNull());
   }
 }

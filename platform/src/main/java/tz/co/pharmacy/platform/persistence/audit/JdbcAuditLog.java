@@ -6,9 +6,13 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
@@ -22,10 +26,13 @@ public class JdbcAuditLog implements AuditLog {
 
   private final JdbcTemplate jdbc;
   private final AuditWriter writer;
+  // Looked up on use: the modules that name records depend on this log themselves.
+  private final ObjectProvider<AuditLabels> labels;
 
-  public JdbcAuditLog(JdbcTemplate jdbc) {
+  public JdbcAuditLog(JdbcTemplate jdbc, ObjectProvider<AuditLabels> labels) {
     this.jdbc = jdbc;
     this.writer = new AuditWriter(jdbc);
+    this.labels = labels;
   }
 
   @Override
@@ -83,7 +90,55 @@ public class JdbcAuditLog implements AuditLog {
     sql.append(" order by uid desc limit ?");
     arguments.add(query.limit() + 1);
     List<AuditEntryView> rows = jdbc.query(sql.toString(), this::row, arguments.toArray());
-    return Page.keyset(rows, query, AuditEntryView::uid);
+    return Page.keyset(labelled(rows), query, AuditEntryView::uid);
+  }
+
+  /** Fills in the label of entries written without one, from the module owning the record. */
+  private List<AuditEntryView> labelled(List<AuditEntryView> rows) {
+    Map<String, Set<UUID>> missing = new HashMap<>();
+    for (AuditEntryView row : rows) {
+      if (row.label() == null && row.entityType() != null && row.entityUid() != null) {
+        missing.computeIfAbsent(row.entityType(), type -> new HashSet<>()).add(row.entityUid());
+      }
+    }
+    if (missing.isEmpty()) {
+      return rows;
+    }
+    Map<String, Map<UUID, String>> found = new HashMap<>();
+    labels.forEach(
+        source -> {
+          Set<UUID> uids = missing.get(source.entityType());
+          if (uids != null) {
+            found.put(source.entityType(), source.labels(uids));
+          }
+        });
+    if (found.isEmpty()) {
+      return rows;
+    }
+    List<AuditEntryView> result = new ArrayList<>(rows.size());
+    for (AuditEntryView row : rows) {
+      String label =
+          row.label() != null || row.entityType() == null
+              ? null
+              : found.getOrDefault(row.entityType(), Map.of()).get(row.entityUid());
+      result.add(
+          label == null
+              ? row
+              : new AuditEntryView(
+                  row.uid(),
+                  row.at(),
+                  row.actor(),
+                  row.action(),
+                  row.entityType(),
+                  row.entityUid(),
+                  row.tenantUid(),
+                  row.branchUid(),
+                  row.before(),
+                  row.after(),
+                  row.correlationId(),
+                  label));
+    }
+    return result;
   }
 
   private AuditEntryView row(ResultSet rs, int index) throws SQLException {
