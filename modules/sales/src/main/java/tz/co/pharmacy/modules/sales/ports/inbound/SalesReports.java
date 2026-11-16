@@ -51,5 +51,6 @@ public interface SalesReports {
       Map<String, BigDecimal> tenders,
       long returns,
       BigDecimal refunded,
-      BigDecimal cashToHandOver) {}
+      BigDecimal cashToHandOver,
+      BigDecimal cashTendered) {}
 }

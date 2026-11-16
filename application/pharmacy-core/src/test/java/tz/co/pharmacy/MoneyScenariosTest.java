@@ -350,6 +350,9 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(cashiers.read("$.data[0].sales", Integer.class)).isEqualTo(2);
     // Cash to hand over: 12,000 + USD 5 (13,250) − change (2,000 + 3,250) = 20,000 = two sales.
     assertThat(money(cashiers, "$.data[0].cashToHandOver")).isEqualTo(2 * PRICE);
+    // Taken by method shows cash kept (net of change); what was handed over is kept apart.
+    assertThat(money(cashiers, "$.data[0].tenders.CASH")).isEqualTo(2 * PRICE);
+    assertThat(money(cashiers, "$.data[0].cashTendered")).isEqualTo(12_000.0 + 5 * USD);
 
     Response stock = till.get("/api/v1/reports/stock-valuation").expect(200);
     assertThat(money(stock, "$.data[0].costValue")).isEqualTo(198 * 6_000.0);

@@ -91,11 +91,12 @@ class SalesReportsImpl implements SalesReports {
         (cashier, r) -> {
           Map<String, BigDecimal> tenders = new LinkedHashMap<>();
           r.tenders.forEach((m, v) -> tenders.put(m, Amounts.money(v)));
-          BigDecimal cash =
-              tenders
-                  .getOrDefault("CASH", Amounts.ZERO)
-                  .subtract(r.change)
-                  .subtract(r.cashRefunded);
+          // Cash is reported as kept: what was tendered less the change handed back.
+          BigDecimal tendered = tenders.getOrDefault("CASH", Amounts.ZERO);
+          if (tenders.containsKey("CASH") || r.change.signum() != 0) {
+            tenders.put("CASH", Amounts.money(tendered.subtract(r.change)));
+          }
+          BigDecimal cash = tendered.subtract(r.change).subtract(r.cashRefunded);
           out.add(
               new CashierSummary(
                   cashier,
@@ -104,7 +105,8 @@ class SalesReportsImpl implements SalesReports {
                   tenders,
                   r.returns,
                   Amounts.money(r.refunded),
-                  Amounts.money(cash)));
+                  Amounts.money(cash),
+                  Amounts.money(tendered)));
         });
     return out;
   }
