@@ -30,6 +30,7 @@ public class SupplierReturn extends TenantEntity {
   private String goodsReceiptNumber;
   private String reason;
   private String note;
+  private String createdByName;
   private BigDecimal total = BigDecimal.ZERO;
 
   @OneToMany(mappedBy = "supplierReturn", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -53,6 +54,11 @@ public class SupplierReturn extends TenantEntity {
     this.goodsReceiptNumber = goodsReceiptNumber;
     this.reason = reason;
     this.note = note;
+  }
+
+  /** The recorder's display name, for the debit note. */
+  public void recordedBy(String name) {
+    this.createdByName = name;
   }
 
   public void addLine(SupplierReturnLine line) {

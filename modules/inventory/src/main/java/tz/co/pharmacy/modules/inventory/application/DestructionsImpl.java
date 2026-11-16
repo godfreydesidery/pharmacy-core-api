@@ -63,6 +63,7 @@ class DestructionsImpl implements Destructions {
             Checks.optionalText(command.witnessTitle(), "witnessTitle", 200),
             Checks.optionalText(command.certificateNumber(), "certificateNumber", 100),
             Checks.optionalText(command.note(), "note", 500));
+    destruction.recordedBy(ExecutionContext.actor().name());
     Set<UUID> seen = new HashSet<>();
     for (int i = 0; i < lines.size(); i++) {
       LineCommand line = lines.get(i);
@@ -164,6 +165,7 @@ class DestructionsImpl implements Destructions {
         d.getTotalCost(),
         d.getCreatedAt(),
         d.getCreatedBy(),
+        d.getCreatedByName() == null ? d.getCreatedBy() : d.getCreatedByName(),
         d.getLines().stream()
             .map(
                 l ->

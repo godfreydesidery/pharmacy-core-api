@@ -119,6 +119,9 @@ class StockOperationsTest extends IntegrationTest {
                 returnBody.formatted(supplier, receipt, product, batchA, 5))
             .expect(201);
     assertThat(returned.string("$.data.number")).startsWith("RTS");
+    // The debit note names who recorded it, not their sign-in email.
+    assertThat(returned.string("$.data.createdByName")).isEqualTo("Admin");
+    assertThat(returned.string("$.data.createdBy")).isEqualTo(email);
     assertThat(returned.read("$.data.total", Double.class)).isEqualTo(2_000.0);
     assertThat(returned.string("$.data.goodsReceiptNumber")).startsWith("GRN");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(15);
@@ -231,6 +234,7 @@ class StockOperationsTest extends IntegrationTest {
     Response destroyed =
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 2)).expect(201);
     assertThat(destroyed.string("$.data.number")).startsWith("DST");
+    assertThat(destroyed.string("$.data.createdByName")).isEqualTo("Admin");
     assertThat(destroyed.read("$.data.totalCost", Double.class)).isEqualTo(800.0);
     assertThat(destroyed.string("$.data.branchName")).isEqualTo("Head Office");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(9);

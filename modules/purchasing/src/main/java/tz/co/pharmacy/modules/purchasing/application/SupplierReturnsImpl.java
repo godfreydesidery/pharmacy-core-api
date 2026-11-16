@@ -65,6 +65,7 @@ class SupplierReturnsImpl implements SupplierReturns {
             receipt == null ? null : receipt.getNumber(),
             Checks.text(command.reason(), "reason", 500),
             Checks.optionalText(command.note(), "note", 1000));
+    supplierReturn.recordedBy(ExecutionContext.actor().name());
     Set<UUID> seen = new HashSet<>();
     for (int i = 0; i < lines.size(); i++) {
       Line line = lines.get(i);
@@ -163,6 +164,7 @@ class SupplierReturnsImpl implements SupplierReturns {
         r.getTotal(),
         r.getCreatedAt(),
         r.getCreatedBy(),
+        r.getCreatedByName() == null ? r.getCreatedBy() : r.getCreatedByName(),
         r.getLines().stream()
             .map(
                 l ->
