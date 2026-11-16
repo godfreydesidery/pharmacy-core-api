@@ -24,7 +24,8 @@ final class AccessViews {
         user.isRootAdmin(),
         user.isActive(),
         user.getLastSignInAt(),
-        user.getCreatedAt());
+        user.getCreatedAt(),
+        user.getPhone());
   }
 
   static RoleView role(Role role) {
@@ -65,7 +66,8 @@ final class AccessViews {
         List.copyOf(membership.getBranchUids()),
         membership.isActive(),
         user == null ? null : user.getLastSignInAt(),
-        membership.getCreatedAt());
+        membership.getCreatedAt(),
+        user == null ? null : user.getPhone());
   }
 
   /** Permissions in catalogue order. */

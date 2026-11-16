@@ -12,4 +12,6 @@ public record BatchView(
     int quantity,
     BigDecimal unitCost,
     Long daysLeft,
-    boolean expired) {}
+    boolean expired,
+    /* Recalled: on hand but not sold or moved until released. */
+    boolean quarantined) {}

@@ -3,6 +3,8 @@ package tz.co.pharmacy.delivery.api.v1.notifications;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -10,12 +12,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
+import tz.co.pharmacy.modules.notifications.ports.inbound.DeliveryDetail;
 import tz.co.pharmacy.modules.notifications.ports.inbound.DeliveryLog;
 import tz.co.pharmacy.modules.notifications.ports.inbound.DeliveryView;
 import tz.co.pharmacy.modules.notifications.ports.inbound.PreferenceView;
@@ -138,5 +142,20 @@ public class NotificationAdminHandler {
             : Checks.oneOf(Channel.class, channel, "channel");
     return ApiResponse.ok(
         deliveries.list(wanted, status, Pages.of(cursor, limit)), "Deliveries retrieved");
+  }
+
+  /** One message as sent, with secrets in links masked. */
+  @GetMapping("/api/v1/notification-deliveries/{messageUid}")
+  @Access(scope = AccessScope.TENANT, permission = "settings.manage")
+  public ApiResponse<DeliveryDetail> delivery(@PathVariable UUID messageUid) {
+    return ApiResponse.ok(deliveries.detail(messageUid), "Delivery retrieved");
+  }
+
+  /** Sends the same message again as a new delivery. */
+  @PostMapping("/api/v1/notification-deliveries/{messageUid}/resend")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Access(scope = AccessScope.TENANT, permission = "settings.manage")
+  public ApiResponse<DeliveryView> resend(@PathVariable UUID messageUid) {
+    return ApiResponse.created(deliveries.resend(messageUid), "Message queued again");
   }
 }

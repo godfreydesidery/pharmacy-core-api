@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.CatalogueService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.CategoryCommand;
@@ -33,6 +34,7 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Storage;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.TrackingMode;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.UnitOfMeasure;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -163,6 +165,7 @@ public class CatalogueHandler {
         "Products retrieved");
   }
 
+  @CountsAgainst(PlanLimit.PRODUCTS)
   @PostMapping("/products")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")

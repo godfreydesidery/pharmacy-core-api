@@ -296,6 +296,78 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(Double.parseDouble(fx.getFirst().toString())).isEqualTo(556.0);
   }
 
+  @Test
+  @DisplayName("a typed rate far from the recorded one is refused; a plausible one stands")
+  void implausibleRateRefused() {
+    String supplier =
+        admin
+            .post(
+                "/api/v1/suppliers", "{\"name\":\"Rate Check Supplier\",\"paymentTerms\":\"COD\"}")
+            .expect(201)
+            .string("$.data.uid");
+    String order =
+        """
+        {"supplierUid":"%s","currency":"USD","exchangeRate":%s,
+         "lines":[{"productUid":"%s","quantity":10,"unitCost":2}]}
+        """;
+    // USD is recorded at 2,650; a typed 1 (the old "TZS at rate 1" slip, the other way round).
+    Response wrong = till.post("/api/v1/purchase-orders", order.formatted(supplier, 1, product));
+    assertThat(wrong.expect(422).string("$.reason")).isEqualTo("rate_out_of_range");
+    till.post("/api/v1/purchase-orders", order.formatted(supplier, 2700, product)).expect(201);
+
+    // The POS asks for a customer's insurance; "none" is a normal answer, not a 404.
+    Response none =
+        admin.get("/api/v1/insurance/members/current?customerUid=" + clinic).expect(200);
+    assertThat(none.json().read("$.data", Object.class)).isNull();
+  }
+
+  @Test
+  @DisplayName("statements balance; cashier and stock-valuation reports reflect the trading")
+  void statements() {
+    sell(null, payment("CASH", 12_000, null)).expect(201);
+    sell(null, payment("CASH", 5, "USD")).expect(201);
+    Api.eventually(
+        () ->
+            admin
+                    .get("/api/v1/reports/trial-balance")
+                    .expect(200)
+                    .read("$.data.totalDebit", Double.class)
+                > 0);
+    Response trial = admin.get("/api/v1/reports/trial-balance").expect(200);
+    assertThat(money(trial, "$.data.totalDebit")).isEqualTo(money(trial, "$.data.totalCredit"));
+    Response sheet = admin.get("/api/v1/reports/balance-sheet").expect(200);
+    assertThat(sheet.read("$.data.balanced", Boolean.class)).isTrue();
+    admin.get("/api/v1/reports/vat").expect(200);
+
+    Response cashiers = till.get("/api/v1/reports/cashiers").expect(200);
+    assertThat(cashiers.read("$.data[0].sales", Integer.class)).isEqualTo(2);
+    // Cash to hand over: 12,000 + USD 5 (13,250) − change (2,000 + 3,250) = 20,000 = two sales.
+    assertThat(money(cashiers, "$.data[0].cashToHandOver")).isEqualTo(2 * PRICE);
+
+    Response stock = till.get("/api/v1/reports/stock-valuation").expect(200);
+    assertThat(money(stock, "$.data[0].costValue")).isEqualTo(198 * 6_000.0);
+  }
+
+  @Test
+  @DisplayName("a till shift: float, cash sale with change, close with a shortfall")
+  void shift() {
+    assertThat(till.get("/api/v1/shifts/current").expect(200).json().read("$.data", Object.class))
+        .isNull();
+    till.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
+    assertThat(
+            till.post("/api/v1/shifts/open", "{\"openingFloat\":1}").expect(409).string("$.reason"))
+        .isEqualTo("shift_open");
+    sell(null, payment("CASH", 12_000, null)).expect(201);
+    Response closed =
+        till.post("/api/v1/shifts/close", "{\"countedCash\":59000,\"note\":\"Short 1,000\"}")
+            .expect(200);
+    // 50,000 float + 12,000 cash − 2,000 change = 60,000 expected; 59,000 counted.
+    assertThat(money(closed, "$.data.expectedCash")).isEqualTo(60_000.0);
+    assertThat(money(closed, "$.data.variance")).isEqualTo(-1_000.0);
+    assertThat(closed.read("$.data.sales", Integer.class)).isEqualTo(1);
+    assertThat(closed.string("$.data.status")).isEqualTo("CLOSED");
+  }
+
   private static String returnBody(String saleLine, String method, String currency) {
     return """
         {"reason":"Changed mind","refundMethod":"%s","refundCurrency":"%s",

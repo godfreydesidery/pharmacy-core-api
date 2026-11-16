@@ -14,6 +14,15 @@ public enum DosageForm {
   DROPS,
   SACHET,
   SUPPOSITORY,
+  ORAL_SOLUTION,
+  SPRAY,
+  PATCH,
+  POWDER,
+  LOTION,
+  PESSARY,
+  LOZENGE,
+  EYE_OINTMENT,
+  INFUSION,
   DEVICE,
   OTHER
 }

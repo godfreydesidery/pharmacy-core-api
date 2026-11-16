@@ -71,6 +71,7 @@ class SaleServiceImpl implements SaleService {
   private final DocumentNumbers documentNumbers;
   private final DomainEventPublisher events;
   private final tz.co.pharmacy.modules.sales.ports.outbound.SalesCurrencies currencies;
+  private final VouchersImpl vouchers;
 
   @Override
   @Transactional
@@ -228,9 +229,12 @@ class SaleServiceImpl implements SaleService {
           Checks.optionalText(payment.reference(), "payments[" + i + "].reference", 200);
       tz.co.pharmacy.modules.sales.domain.Tender.Line tenderLine = tenders.get(i);
       BigDecimal amount = tenderLine.amount();
-      if (payment.method() != PaymentMethod.CASH) {
+      if (payment.method() == PaymentMethod.VOUCHER) {
+        vouchers.spend(reference, amount, "payments[" + i + "].reference");
+      } else if (payment.method() != PaymentMethod.CASH) {
         PaymentAuthorization authorization =
-            paymentAuthorizations.authorize(payment.method(), amount, reference, number);
+            paymentAuthorizations.authorize(
+                payment.method(), payment.channel(), amount, reference, number);
         if (authorization == null || !authorization.approved()) {
           throw Refusal.invalid(
               "payment_declined",
@@ -243,12 +247,13 @@ class SaleServiceImpl implements SaleService {
       }
       sale.addPayment(
           new SalePayment(
-              payment.method(),
-              amount,
-              reference,
-              tenderLine.currency(),
-              tenderLine.exchangeRate(),
-              tenderLine.baseAmount()));
+                  payment.method(),
+                  amount,
+                  reference,
+                  tenderLine.currency(),
+                  tenderLine.exchangeRate(),
+                  tenderLine.baseAmount())
+              .through(Checks.optionalText(payment.channel(), "payments[" + i + "].channel", 40)));
     }
 
     sale.totals(totals, Amounts.money(paid), changeDue);
@@ -542,7 +547,8 @@ class SaleServiceImpl implements SaleService {
                         p.getReference(),
                         p.getCurrency(),
                         p.getExchangeRate().stripTrailingZeros(),
-                        p.getBaseAmount()))
+                        p.getBaseAmount(),
+                        p.getChannel()))
             .toList(),
         prescription,
         sale.getFiscalReference(),

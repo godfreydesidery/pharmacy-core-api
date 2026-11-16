@@ -52,6 +52,9 @@ public interface AuthenticationService {
   /** Revokes one of the user's own sessions; 404 session_not_found. */
   void revokeSession(UUID userUid, UUID sessionUid);
 
+  /** Signs the user out everywhere but the session with {@code currentToken}; how many ended. */
+  int revokeOtherSessions(UUID userUid, String currentToken);
+
   /**
    * The user's memberships in every tenant. Call it outside a transaction: it reads them as the
    * user, in its own transaction.

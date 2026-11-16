@@ -21,6 +21,12 @@ public interface TenantService {
   /** Platform scope, newest first; {@code q} matches code, name or legal name. */
   Page<TenantView> list(String q, PageQuery query);
 
+  /**
+   * Platform scope: edits the registry row. The currency changes only while the tenant has posted
+   * nothing to its books (422 currency_locked); the settings' accepted currencies follow it.
+   */
+  TenantView change(UUID tenantUid, ChangeTenantCommand command);
+
   TenantView suspend(UUID tenantUid, String reason);
 
   TenantView reactivate(UUID tenantUid);

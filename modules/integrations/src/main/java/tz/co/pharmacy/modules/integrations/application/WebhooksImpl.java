@@ -1,6 +1,5 @@
 package tz.co.pharmacy.modules.integrations.application;
 
-import java.net.URI;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -54,6 +53,7 @@ class WebhooksImpl implements Webhooks {
   private final WebhookRepository webhooks;
   private final WebhookDeliveryRepository deliveries;
   private final WebhookSender sender;
+  private final WebhookTargets targets;
   private final TransactionTemplate transactions;
   private final JsonMapper json = JsonMapper.builder().build();
 
@@ -61,10 +61,12 @@ class WebhooksImpl implements Webhooks {
       WebhookRepository webhooks,
       WebhookDeliveryRepository deliveries,
       WebhookSender sender,
+      WebhookTargets targets,
       PlatformTransactionManager transactionManager) {
     this.webhooks = webhooks;
     this.deliveries = deliveries;
     this.sender = sender;
+    this.targets = targets;
     this.transactions = new TransactionTemplate(transactionManager);
   }
 
@@ -186,22 +188,14 @@ class WebhooksImpl implements Webhooks {
         .orElseThrow(() -> Refusal.notFound("webhook_not_found", "No such webhook."));
   }
 
-  /** An https URL, or plain http to this machine for development. */
-  private static String url(String value) {
-    String url = Checks.text(value, "url", 2000);
-    try {
-      URI uri = URI.create(url);
-      String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
-      String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-      boolean local = host.equals("localhost") || host.equals("127.0.0.1");
-      if (scheme.equals("https") && !host.isEmpty() || scheme.equals("http") && local) {
-        return url;
-      }
-    } catch (IllegalArgumentException notAUri) {
-      // refused below
+  /** An https URL to a public host; see {@link WebhookTargets}. */
+  private String url(String value) {
+    String url = Checks.text(value, "url", 2000).trim();
+    WebhookTargets.Verdict verdict = targets.check(url);
+    if (!verdict.allowed()) {
+      throw Refusal.invalid("webhook_url_not_allowed", verdict.problem(), "url");
     }
-    throw Refusal.invalid(
-        "invalid_url", "url must be an https URL (or http://localhost for development).", "url");
+    return url;
   }
 
   private List<String> eventTypes(List<String> values) {

@@ -14,4 +14,5 @@ public record SupplierView(
     PaymentTerms paymentTerms,
     String address,
     boolean active,
-    Instant createdAt) {}
+    Instant createdAt,
+    int leadTimeDays) {}

@@ -101,15 +101,19 @@ class CustomerCreditImpl implements CustomerCredit {
     BigDecimal balance = balance(customerUid);
     BigDecimal after = balance.add(Amounts.money(amount));
     if (after.compareTo(account.getCreditLimit()) > 0) {
+      String code = currency.baseCurrency() + " ";
       throw Refusal.invalid(
           "credit_limit_exceeded",
           "This would take "
               + account.getCustomerName()
               + " to "
+              + code
               + after.toPlainString()
               + ", over the credit limit of "
+              + code
               + account.getCreditLimit().toPlainString()
               + " (available "
+              + code
               + account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO).toPlainString()
               + ").",
           "payments");

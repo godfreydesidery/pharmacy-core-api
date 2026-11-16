@@ -53,6 +53,10 @@ public final class Api {
     return send("PUT", path, json);
   }
 
+  public Response delete(String path) {
+    return send("DELETE", path, null);
+  }
+
   /** Signs in and returns the session token. */
   public String signIn(String email, String password) {
     Response response =

@@ -21,6 +21,14 @@ class RowLevelSecurityTest extends IntegrationTest {
 
   @Autowired DataSource dataSource;
 
+  /**
+   * Platform records that name a tenant but belong to the platform, like the tenant registry: the
+   * root administrator and the daily subscription lifecycle read them across tenants, and every
+   * query names its tenant. A tenant's own data never goes here.
+   */
+  private static final String PLATFORM_TABLES =
+      "('tenancy', 'subscriptions'), ('tenancy', 'subscription_invoices')";
+
   @Test
   @DisplayName("every table with tenant_uid has forced row-level security")
   void everyTenantTableIsProtected() {
@@ -34,7 +42,9 @@ class RowLevelSecurityTest extends IntegrationTest {
               join pg_namespace n on n.oid = t.relnamespace and n.nspname = c.table_schema
              where c.column_name = 'tenant_uid'
                and (not t.relrowsecurity or not t.relforcerowsecurity)
-            """);
+               and (c.table_schema, c.table_name) not in (%s)
+            """
+                .formatted(PLATFORM_TABLES));
     assertThat(unprotected).isEmpty();
   }
 

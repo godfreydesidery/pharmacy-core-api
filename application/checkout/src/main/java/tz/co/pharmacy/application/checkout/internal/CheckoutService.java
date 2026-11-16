@@ -15,6 +15,8 @@ import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutCommand;
 import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutLine;
 import tz.co.pharmacy.application.checkout.ports.inbound.SellableProduct;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.CatalogueService;
+import tz.co.pharmacy.modules.catalogue.ports.inbound.PackagingService;
+import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductFilter;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
@@ -27,11 +29,14 @@ import tz.co.pharmacy.modules.insurance.ports.inbound.Insurance;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Allocation;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockQueries;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
+import tz.co.pharmacy.modules.inventory.ports.inbound.TransformationType;
+import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
 import tz.co.pharmacy.modules.receivables.ports.inbound.CustomerCredit;
 import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivePaymentCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
+import tz.co.pharmacy.modules.sales.ports.inbound.PrescriptionDetails;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordReturnCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordSaleCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleLineCommand;
@@ -63,6 +68,9 @@ class CheckoutService implements Checkout {
   private final SaleService sales;
   private final Insurance insurance;
   private final CustomerCredit credit;
+  private final PricingService pricing;
+  private final PackagingService packaging;
+  private final Transformations transformations;
 
   /** The permission to sell on account: credit sales and balances put on account. */
   static final String CREDIT_PERMISSION = "sales.credit";
@@ -89,14 +97,35 @@ class CheckoutService implements Checkout {
             .collect(Collectors.toMap(ProductView::uid, Function.identity()));
 
     String customerName = null;
+    String customerType = null;
     if (command.customerUid() != null) {
-      customerName =
+      var customer =
           customers
               .find(command.customerUid())
               .orElseThrow(
-                  () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"))
-              .name();
+                  () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"));
+      customerName = customer.name();
+      customerType = customer.type() == null ? null : customer.type().name();
     }
+    // The price of each line for this customer here and now: branch price, the customer's or their
+    // type's price list (with quantity breaks), then the best running promotion.
+    Map<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
+    lines.forEach(l -> quantities.merge(l.productUid(), l.quantity(), Integer::sum));
+    Map<UUID, BigDecimal> prices =
+        pricing
+            .price(
+                ExecutionContext.requireBranch(),
+                customerType,
+                command.customerUid(),
+                quantities.entrySet().stream()
+                    .filter(e -> products.containsKey(e.getKey()))
+                    .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
+                    .toList(),
+                java.time.LocalDate.now())
+            .stream()
+            .collect(
+                Collectors.toMap(
+                    PricingService.PricedLine::productUid, PricingService.PricedLine::unitPrice));
 
     String number = sales.nextSaleNumber();
     List<SaleLineCommand> saleLines = new ArrayList<>();
@@ -124,6 +153,9 @@ class CheckoutService implements Checkout {
             "Scan or enter the serial number of each " + product.name() + " sold.",
             field + ".serialNumbers");
       }
+      if (serials.isEmpty()) {
+        openPacksFor(product.uid(), line.quantity(), number);
+      }
       List<Allocation> allocations;
       try {
         allocations = stock.allocate(product.uid(), line.quantity(), number, serials);
@@ -146,14 +178,74 @@ class CheckoutService implements Checkout {
                 allocation.batchNumber(),
                 allocation.expiryDate(),
                 allocation.quantity(),
-                product.sellingPrice(),
+                prices.getOrDefault(product.uid(), product.sellingPrice()),
                 allocation.unitCost(),
                 taxRate,
                 allocation.serialNumbers(),
                 product.warrantyMonths()));
       }
     }
+    requireControlledPrescription(command, products);
     return settle(command, number, key, customerName, saleLines, products);
+  }
+
+  /**
+   * A CONTROLLED item is entered in the controlled-drugs register against a full prescription: the
+   * prescriber's registration number, the prescription reference and the patient, not only the
+   * prescriber's name that a PRESCRIPTION item needs.
+   */
+  private static void requireControlledPrescription(
+      CheckoutCommand command, Map<UUID, ProductView> products) {
+    boolean controlled =
+        products.values().stream().anyMatch(p -> p.schedule() == Schedule.CONTROLLED);
+    if (!controlled) {
+      return;
+    }
+    PrescriptionDetails rx = command.prescription();
+    if (rx == null
+        || blank(rx.prescriberName())
+        || blank(rx.prescriberRegistration())
+        || blank(rx.reference())
+        || blank(rx.patientName())) {
+      throw Refusal.invalid(
+          "controlled_prescription_incomplete",
+          "A controlled drug needs the prescriber's name and registration number, the"
+              + " prescription reference and the patient's name.",
+          "prescription");
+    }
+  }
+
+  /**
+   * Break bulk at the till: when too few loose units are on hand and the product comes in a pack (a
+   * strip from a box), opens just enough packs first. If even the packs fall short the sale reports
+   * the unit's shortage as usual.
+   */
+  private void openPacksFor(UUID productUid, int quantity, String saleNumber) {
+    packaging
+        .packOf(productUid)
+        .ifPresent(
+            link -> {
+              int onHand = stockQueries.onHand(List.of(productUid)).getOrDefault(productUid, 0);
+              if (onHand >= quantity) {
+                return;
+              }
+              int packs = (quantity - onHand + link.unitsPerPack() - 1) / link.unitsPerPack();
+              try {
+                transformations.transform(
+                    new Transformations.TransformCommand(
+                        TransformationType.BREAK_BULK,
+                        List.of(new Transformations.InputCommand(link.packProductUid(), packs)),
+                        new Transformations.OutputCommand(
+                            productUid, packs * link.unitsPerPack(), null, null),
+                        "Opened at the till for " + saleNumber));
+              } catch (Refusal notEnoughPacks) {
+                // Fall through: allocation below refuses with the unit's own shortage.
+              }
+            });
+  }
+
+  private static boolean blank(String value) {
+    return value == null || value.isBlank();
   }
 
   /**
@@ -266,7 +358,8 @@ class CheckoutService implements Checkout {
               Amounts.money(trimmed.amount().subtract(overNonCash)),
               trimmed.reference(),
               trimmed.currency(),
-              trimmed.exchangeRate()));
+              trimmed.exchangeRate(),
+              trimmed.channel()));
     }
 
     SaleView sale =

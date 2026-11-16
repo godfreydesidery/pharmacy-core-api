@@ -24,6 +24,7 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
       "select s from StockLevel s join fetch s.batch b"
           + " where s.branchUid = :branchUid and s.productUid = :productUid"
           + " and s.quantity > 0 and (b.expiryDate is null or b.expiryDate >= :today)"
+          + " and b.quarantined = false"
           + " order by b.expiryDate asc nulls last, b.id")
   List<StockLevel> lockSellable(UUID branchUid, UUID productUid, LocalDate today);
 
@@ -35,6 +36,16 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
       "select coalesce(sum(s.quantity), 0) from StockLevel s"
           + " where s.branchUid = :branchUid and s.productUid = :productUid")
   long quantityAt(UUID branchUid, UUID productUid);
+
+  /** Every batch on hand at the branch, for a count sheet. */
+  @Query(
+      "select s from StockLevel s join fetch s.batch b where s.branchUid = :branchUid"
+          + " and s.quantity > 0 order by s.productUid, b.batchNumber")
+  List<StockLevel> allOnHand(UUID branchUid);
+
+  /** The batch's quantity at every branch of the tenant. */
+  @Query("select coalesce(sum(s.quantity), 0) from StockLevel s where s.batch = :batch")
+  long quantityOfBatch(Batch batch);
 
   /** The product's quantity at every branch of the tenant, expired batches included. */
   @Query("select coalesce(sum(s.quantity), 0) from StockLevel s where s.productUid = :productUid")
@@ -50,6 +61,7 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
   @Query(
       "select s.productUid, sum(s.quantity) from StockLevel s join s.batch b"
           + " where s.branchUid = :branchUid and s.productUid in :productUids"
-          + " and (b.expiryDate is null or b.expiryDate >= :today) group by s.productUid")
+          + " and (b.expiryDate is null or b.expiryDate >= :today) and b.quarantined = false"
+          + " group by s.productUid")
   List<Object[]> sellableQuantities(UUID branchUid, Collection<UUID> productUids, LocalDate today);
 }

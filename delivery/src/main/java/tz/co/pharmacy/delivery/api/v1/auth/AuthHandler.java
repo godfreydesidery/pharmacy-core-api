@@ -130,6 +130,18 @@ public class AuthHandler {
     return ApiResponse.ok("Session signed out");
   }
 
+  /** Signs out of every other device; the current session stays. */
+  @PostMapping("/sessions/revoke-others")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<RevokedResponse> revokeOtherSessions(
+      @RequestHeader(name = "Authorization", required = false) String authorization) {
+    int revoked =
+        authentication.revokeOtherSessions(ExecutionContext.actor().uid(), bearer(authorization));
+    return ApiResponse.ok(new RevokedResponse(revoked), "Signed out of other devices");
+  }
+
+  public record RevokedResponse(int revoked) {}
+
   private static String bearer(String authorization) {
     if (authorization != null && authorization.startsWith("Bearer ")) {
       return authorization.substring("Bearer ".length()).trim();

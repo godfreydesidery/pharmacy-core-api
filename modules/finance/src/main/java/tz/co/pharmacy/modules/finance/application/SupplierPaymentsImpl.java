@@ -80,6 +80,7 @@ class SupplierPaymentsImpl implements SupplierPayments {
             "invalid_exchange_rate", "exchangeRate must be more than zero.", "exchangeRate");
       }
       rate = command.exchangeRate();
+      checkPlausible(currency, rate, paidOn);
     } else {
       rate = currencies.rateToBase(currency, paidOn);
     }
@@ -190,5 +191,35 @@ class SupplierPaymentsImpl implements SupplierPayments {
         payment.getPaidOn(),
         payment.getCreatedAt(),
         payment.getCreatedBy());
+  }
+
+  /**
+   * A typed rate more than 25% away from the recorded rate of the day is refused as a likely
+   * mistake (rate 1 for TZS in a USD pharmacy); with no recorded rate the typed one stands.
+   */
+  private void checkPlausible(String currency, BigDecimal rate, LocalDate on) {
+    BigDecimal recorded;
+    try {
+      recorded = currencies.rateToBase(currency, on);
+    } catch (Refusal noRate) {
+      return;
+    }
+    if (recorded == null || recorded.signum() <= 0) {
+      return;
+    }
+    BigDecimal deviation =
+        rate.subtract(recorded).abs().divide(recorded, 6, java.math.RoundingMode.HALF_EVEN);
+    if (deviation.compareTo(new BigDecimal("0.25")) > 0) {
+      throw Refusal.invalid(
+          "rate_out_of_range",
+          "The rate "
+              + rate.stripTrailingZeros().toPlainString()
+              + " is more than 25% away from the recorded "
+              + currency
+              + " rate of "
+              + recorded.stripTrailingZeros().toPlainString()
+              + ". Check it, or record the new rate under Finance → Exchange rates first.",
+          "exchangeRate");
+    }
   }
 }

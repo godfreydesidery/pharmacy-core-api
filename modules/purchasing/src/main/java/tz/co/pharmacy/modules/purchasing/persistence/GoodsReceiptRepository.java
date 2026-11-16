@@ -26,4 +26,8 @@ public interface GoodsReceiptRepository
   BigDecimal totalBetween(Collection<UUID> branchUids, Instant from, Instant to);
 
   java.util.List<GoodsReceipt> findAllByUidIn(java.util.Collection<UUID> uids);
+
+  /** Whether the tenant already booked this supplier's invoice, at any branch. */
+  boolean existsBySupplierUidAndSupplierInvoiceNumberIgnoreCase(
+      UUID supplierUid, String supplierInvoiceNumber);
 }

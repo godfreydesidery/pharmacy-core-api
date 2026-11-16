@@ -52,7 +52,7 @@ public class JdbcAuditLog implements AuditLog {
     StringBuilder sql =
         new StringBuilder(
             "select uid, at, actor, action, entity_type, entity_uid, tenant_uid, branch_uid,"
-                + " before::text as before_json, after::text as after_json, correlation_id"
+                + " before::text as before_json, after::text as after_json, correlation_id, label"
                 + " from audit.entries where true");
     List<Object> arguments = new ArrayList<>();
     if (entityType != null && !entityType.isBlank()) {
@@ -98,7 +98,8 @@ public class JdbcAuditLog implements AuditLog {
         rs.getObject("branch_uid", UUID.class),
         map(rs.getString("before_json")),
         map(rs.getString("after_json")),
-        rs.getString("correlation_id"));
+        rs.getString("correlation_id"),
+        rs.getString("label"));
   }
 
   private static Map<String, Object> map(String json) {

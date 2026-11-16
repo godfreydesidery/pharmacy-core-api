@@ -28,5 +28,21 @@
             <groupId>tz.co.pharmacy</groupId>
             <artifactId>pharmacy-access</artifactId>
         </dependency>
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-finance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-receivables</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-partners</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-inventory</artifactId>
+        </dependency>
     </dependencies>
 </project>

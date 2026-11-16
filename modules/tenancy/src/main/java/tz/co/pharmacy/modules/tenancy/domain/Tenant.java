@@ -32,6 +32,14 @@ public class Tenant extends MutableEntity {
 
   private String statusReason;
 
+  private String contactName;
+
+  private String contactEmail;
+
+  private String contactPhone;
+
+  private String address;
+
   public Tenant(
       String code,
       String name,
@@ -46,6 +54,30 @@ public class Tenant extends MutableEntity {
     this.currency = currency;
     this.timezone = timezone;
     this.status = TenantStatus.ACTIVE;
+  }
+
+  /** The editable registry fields; the code never changes. */
+  public void change(
+      String name,
+      String legalName,
+      String country,
+      String timezone,
+      String contactName,
+      String contactEmail,
+      String contactPhone,
+      String address) {
+    this.name = name;
+    this.legalName = legalName;
+    this.country = country;
+    this.timezone = timezone;
+    this.contactName = contactName;
+    this.contactEmail = contactEmail;
+    this.contactPhone = contactPhone;
+    this.address = address;
+  }
+
+  public void changeCurrency(String currency) {
+    this.currency = currency;
   }
 
   public void suspend(String reason) {

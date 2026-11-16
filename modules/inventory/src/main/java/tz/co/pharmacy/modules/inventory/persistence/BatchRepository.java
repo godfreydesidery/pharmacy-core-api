@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.inventory.persistence;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,4 +11,6 @@ public interface BatchRepository extends JpaRepository<Batch, Long> {
   Optional<Batch> findByUid(UUID uid);
 
   Optional<Batch> findByProductUidAndBatchNumber(UUID productUid, String batchNumber);
+
+  List<Batch> findByProductUidOrderByExpiryDateDescIdDesc(UUID productUid);
 }

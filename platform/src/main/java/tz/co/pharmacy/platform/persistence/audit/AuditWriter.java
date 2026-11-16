@@ -31,10 +31,21 @@ final class AuditWriter {
       UUID entityUid,
       Map<String, Object> before,
       Map<String, Object> after) {
+    insert(action, entityType, entityUid, before, after, AuditValues.label(after, before));
+  }
+
+  /** {@code label}: a human name for the record (document number, name, email, code), or null. */
+  void insert(
+      String action,
+      String entityType,
+      UUID entityUid,
+      Map<String, Object> before,
+      Map<String, Object> after,
+      String label) {
     jdbc.update(
         "insert into audit.entries (uid, at, tenant_uid, branch_uid, actor, action, entity_type,"
-            + " entity_uid, before, after, correlation_id)"
-            + " values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)",
+            + " entity_uid, before, after, correlation_id, label)"
+            + " values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)",
         Uids.newUid(),
         Timestamp.from(Instant.now()),
         TenantContext.tenantUid().orElse(null),
@@ -45,7 +56,8 @@ final class AuditWriter {
         entityUid,
         json(before),
         json(after),
-        ExecutionContext.correlationId().orElse(null));
+        ExecutionContext.correlationId().orElse(null),
+        label);
   }
 
   static String actor() {

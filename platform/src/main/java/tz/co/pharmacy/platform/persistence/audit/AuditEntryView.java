@@ -21,4 +21,5 @@ public record AuditEntryView(
     UUID branchUid,
     Map<String, Object> before,
     Map<String, Object> after,
-    String correlationId) {}
+    String correlationId,
+    String label) {}

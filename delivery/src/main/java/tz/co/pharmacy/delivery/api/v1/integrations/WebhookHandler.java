@@ -17,15 +17,18 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.delivery.api.RequiresFeature;
 import tz.co.pharmacy.modules.integrations.ports.inbound.DeliveryView;
 import tz.co.pharmacy.modules.integrations.ports.inbound.WebhookCommand;
 import tz.co.pharmacy.modules.integrations.ports.inbound.WebhookView;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Webhooks;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
 import tz.co.pharmacy.platform.kernel.Page;
 
 /** Outbound webhooks: external systems that receive the tenant's events as CloudEvents. */
 @RestController
 @RequestMapping("/api/v1/webhooks")
+@RequiresFeature(PlanFeature.INTEGRATIONS)
 public class WebhookHandler {
 
   private final Webhooks webhooks;

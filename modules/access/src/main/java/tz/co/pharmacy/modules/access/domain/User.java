@@ -25,6 +25,10 @@ public class User extends MutableEntity {
   private String passwordHash;
   private boolean rootAdmin;
   private boolean active;
+
+  /** E.164, such as +255754000111; null when not given. */
+  private String phone;
+
   private Instant lastSignInAt;
 
   private boolean twoFactorEnabled;
@@ -56,6 +60,21 @@ public class User extends MutableEntity {
     failedSignIns = 0;
     firstFailedAt = null;
     lockedUntil = null;
+  }
+
+  /** The person's own name and phone. */
+  public void changeProfile(String name, String phone) {
+    this.name = name;
+    this.phone = phone;
+  }
+
+  public void activate(boolean active) {
+    this.active = active;
+  }
+
+  /** No longer a root administrator; the account itself remains for any memberships. */
+  public void revokeRoot() {
+    this.rootAdmin = false;
   }
 
   public void changePassword(String passwordHash) {

@@ -10,4 +10,5 @@ public record UserView(
     boolean rootAdmin,
     boolean active,
     Instant lastSignInAt,
-    Instant createdAt) {}
+    Instant createdAt,
+    String phone) {}

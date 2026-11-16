@@ -30,12 +30,23 @@ class WebhookSender {
           .followRedirects(HttpClient.Redirect.NEVER)
           .build();
 
+  private final WebhookTargets targets;
+
+  WebhookSender(WebhookTargets targets) {
+    this.targets = targets;
+  }
+
   record Outcome(boolean delivered, int attempts, Integer responseStatus, String error) {}
 
   Outcome send(String url, String secret, String eventType, String body) {
     Integer status = null;
     String error = null;
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // Checked again before every attempt: the host may now resolve to a private address.
+      WebhookTargets.Verdict verdict = targets.check(url);
+      if (!verdict.allowed()) {
+        return new Outcome(false, attempt, null, "Refused: " + verdict.problem());
+      }
       try {
         HttpRequest request =
             HttpRequest.newBuilder(URI.create(url))

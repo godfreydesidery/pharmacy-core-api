@@ -3,6 +3,7 @@ package tz.co.pharmacy.platform.persistence.audit;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,28 @@ import tz.co.pharmacy.platform.persistence.RecordedEntity;
  * password, secret, token, hash, recovery, credential or key material (publicKey, privateKey).
  */
 public final class AuditValues {
+
+  /** Properties that name a record, best first. */
+  private static final List<String> LABELS =
+      List.of(
+          "number", "name", "email", "code", "memberNumber", "reference", "templateKey", "title");
+
+  /** A human label from the record's values (e.g. its number or name), or null. */
+  static String label(Map<String, Object> values, Map<String, Object> fallback) {
+    for (Map<String, Object> source : java.util.Arrays.asList(values, fallback)) {
+      if (source == null) {
+        continue;
+      }
+      for (String key : LABELS) {
+        Object value = source.get(key);
+        if (value != null && !String.valueOf(value).isBlank() && !MASK.equals(value)) {
+          String text = String.valueOf(value);
+          return text.length() > 120 ? text.substring(0, 120) : text;
+        }
+      }
+    }
+    return null;
+  }
 
   public static final String MASK = "***";
 

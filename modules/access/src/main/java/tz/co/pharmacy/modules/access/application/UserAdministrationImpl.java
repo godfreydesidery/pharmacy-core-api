@@ -17,6 +17,7 @@ import tz.co.pharmacy.modules.access.domain.Role;
 import tz.co.pharmacy.modules.access.domain.User;
 import tz.co.pharmacy.modules.access.persistence.MembershipRepository;
 import tz.co.pharmacy.modules.access.persistence.RoleRepository;
+import tz.co.pharmacy.modules.access.persistence.SessionRepository;
 import tz.co.pharmacy.modules.access.persistence.UserRepository;
 import tz.co.pharmacy.modules.access.ports.inbound.AddMemberCommand;
 import tz.co.pharmacy.modules.access.ports.inbound.ChangeMemberCommand;
@@ -47,17 +48,23 @@ class UserAdministrationImpl implements UserAdministration {
   private final MembershipRepository memberships;
   private final Passwords passwords;
   private final AuditLog audit;
+  private final SessionRepository sessions;
+  private final java.time.Clock clock;
 
   UserAdministrationImpl(
       UserRepository users,
       RoleRepository roles,
       MembershipRepository memberships,
       Passwords passwords,
-      AuditLog audit) {
+      AuditLog audit,
+      SessionRepository sessions,
+      java.time.Clock clock) {
     this.users = users;
     this.roles = roles;
     this.memberships = memberships;
     this.passwords = passwords;
+    this.sessions = sessions;
+    this.clock = clock;
     this.audit = audit;
   }
 
@@ -103,6 +110,10 @@ class UserAdministrationImpl implements UserAdministration {
     }
     Membership membership =
         memberships.save(new Membership(user.getUid(), role, command.allBranches(), branches));
+    String phone = phone(command.phone());
+    if (phone != null && user.getPhone() == null) {
+      user.changeProfile(user.getName(), phone);
+    }
     return AccessViews.member(membership, user);
   }
 
@@ -122,7 +133,12 @@ class UserAdministrationImpl implements UserAdministration {
           "cannot_deactivate_self", "You cannot deactivate your own membership.", "active");
     }
     membership.change(role, command.allBranches(), branches, command.active());
-    return AccessViews.member(membership, users.findByUid(membership.getUserUid()).orElse(null));
+    User user = users.findByUid(membership.getUserUid()).orElse(null);
+    String phone = phone(command.phone());
+    if (user != null && phone != null && user.getPhone() == null) {
+      user.changeProfile(user.getName(), phone);
+    }
+    return AccessViews.member(membership, user);
   }
 
   @Override
@@ -239,6 +255,97 @@ class UserAdministrationImpl implements UserAdministration {
                 passwords.hash(command.password(), "password"),
                 true));
     return AccessViews.user(user);
+  }
+
+  @Override
+  @Transactional
+  public UserView setRootAdminActive(UUID userUid, boolean active) {
+    User user = rootAdmin(userUid);
+    if (!active) {
+      guardRootChange(user);
+      sessions.revokeAll(user.getUid(), clock.instant(), null);
+    }
+    user.activate(active);
+    return AccessViews.user(user);
+  }
+
+  @Override
+  @Transactional
+  public void removeRootAdmin(UUID userUid) {
+    User user = rootAdmin(userUid);
+    guardRootChange(user);
+    user.revokeRoot();
+    if (memberships.findAllByUserUid(user.getUid()).isEmpty()) {
+      // Nothing left to sign in to: the account is closed and its sessions end.
+      user.activate(false);
+      sessions.revokeAll(user.getUid(), clock.instant(), null);
+    }
+  }
+
+  @Override
+  @Transactional
+  public UserView changeOwnProfile(String name, String phone) {
+    User user = self();
+    user.changeProfile(Checks.text(name, "name", 120), phone(phone));
+    return AccessViews.user(user);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public UserView me() {
+    return AccessViews.user(self());
+  }
+
+  private User self() {
+    UUID uid =
+        ExecutionContext.current()
+            .map(frame -> frame.actor().uid())
+            .orElseThrow(() -> Refusal.unauthenticated("unauthenticated", "Sign in first."));
+    return users
+        .findByUid(uid)
+        .orElseThrow(() -> Refusal.notFound("user_not_found", "No such user."));
+  }
+
+  private User rootAdmin(UUID userUid) {
+    return users
+        .findByUid(Checks.required(userUid, "userUid"))
+        .filter(User::isRootAdmin)
+        .orElseThrow(() -> Refusal.notFound("root_admin_not_found", "No such root administrator."));
+  }
+
+  /** Never yourself, never the last active root administrator. */
+  private void guardRootChange(User user) {
+    UUID self = ExecutionContext.current().map(frame -> frame.actor().uid()).orElse(null);
+    if (user.getUid().equals(self)) {
+      throw Refusal.invalid(
+          "cannot_change_self", "You cannot deactivate or remove yourself.", "userUid");
+    }
+    long othersActive =
+        users.findAllByRootAdminTrueOrderByNameAsc().stream()
+            .filter(User::isActive)
+            .filter(other -> !other.getUid().equals(user.getUid()))
+            .count();
+    if (user.isActive() && othersActive == 0) {
+      throw Refusal.invalid(
+          "last_root_admin",
+          "The platform needs at least one active root administrator.",
+          "userUid");
+    }
+  }
+
+  /** E.164 (+ then 8 to 15 digits); blank is none. Spaces and dashes are ignored. */
+  static String phone(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    String phone = value.replaceAll("[\\s-]", "");
+    if (!phone.matches("^\\+[1-9][0-9]{7,14}$")) {
+      throw Refusal.invalid(
+          "invalid_phone",
+          "Enter the phone in international form, such as +255754000111.",
+          "phone");
+    }
+    return phone;
   }
 
   @Override

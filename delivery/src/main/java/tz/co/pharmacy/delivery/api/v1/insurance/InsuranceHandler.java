@@ -26,6 +26,7 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.delivery.api.RequiresFeature;
 import tz.co.pharmacy.modules.insurance.ports.inbound.AdjudicationCommand;
 import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimBatchView;
 import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimLineView;
@@ -44,6 +45,7 @@ import tz.co.pharmacy.modules.insurance.ports.inbound.RemittanceCommand;
 import tz.co.pharmacy.modules.insurance.ports.inbound.RemittanceView;
 import tz.co.pharmacy.modules.insurance.ports.inbound.SchemeCommand;
 import tz.co.pharmacy.modules.insurance.ports.inbound.SchemeView;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -62,12 +64,14 @@ public class InsuranceHandler {
 
   // ---------------------------------------------------------------- payers and schemes
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/payers")
   @Access(scope = AccessScope.TENANT, permission = "partners.view")
   public ApiResponse<List<PayerView>> payers() {
     return ApiResponse.ok(insurance.payers(), "Payers retrieved");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/payers")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
@@ -75,6 +79,7 @@ public class InsuranceHandler {
     return ApiResponse.created(insurance.createPayer(body), "Payer created");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PutMapping("/insurance/payers/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
   public ApiResponse<PayerView> changePayer(
@@ -82,12 +87,14 @@ public class InsuranceHandler {
     return ApiResponse.ok(insurance.changePayer(uid, body), "Payer changed");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/schemes")
   @Access(scope = AccessScope.TENANT, permission = "partners.view")
   public ApiResponse<List<SchemeView>> schemes(@RequestParam(required = false) UUID payerUid) {
     return ApiResponse.ok(insurance.schemes(payerUid), "Schemes retrieved");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/schemes")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
@@ -95,6 +102,7 @@ public class InsuranceHandler {
     return ApiResponse.created(insurance.createScheme(body.command()), "Scheme created");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PutMapping("/insurance/schemes/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
   public ApiResponse<SchemeView> changeScheme(
@@ -105,6 +113,7 @@ public class InsuranceHandler {
   // ---------------------------------------------------------------- members
 
   /** Members by number or name; {@code ?customerUid=} the customer's memberships. */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/members")
   @Access(scope = AccessScope.TENANT, permission = "partners.view")
   public ApiResponse<Page<MemberView>> members(
@@ -118,20 +127,20 @@ public class InsuranceHandler {
     return ApiResponse.ok(insurance.members(q, Pages.of(cursor, limit)), "Members retrieved");
   }
 
-  /** The customer's membership valid today, for the POS; 404 member_not_found when none. */
+  /**
+   * The customer's membership valid today, for the POS; {@code data} is null when there is none.
+   * Most customers are not insured, so "none" is an ordinary answer, not a 404.
+   */
   @GetMapping("/insurance/members/current")
   @Access(scope = AccessScope.TENANT)
   public ApiResponse<MemberView> currentMember(@RequestParam UUID customerUid) {
-    return ApiResponse.ok(
-        insurance
-            .memberOf(customerUid, null)
-            .orElseThrow(
-                () ->
-                    Refusal.notFound(
-                        "member_not_found", "The customer has no valid insurance today.")),
-        "Member retrieved");
+    return insurance
+        .memberOf(customerUid, null)
+        .map(member -> ApiResponse.ok(member, "Member retrieved"))
+        .orElseGet(() -> ApiResponse.ok(null, "No valid insurance today"));
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/members")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
@@ -139,6 +148,7 @@ public class InsuranceHandler {
     return ApiResponse.created(insurance.enrol(body), "Member enrolled");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PutMapping("/insurance/members/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
   public ApiResponse<MemberView> changeMember(
@@ -149,6 +159,7 @@ public class InsuranceHandler {
   // ---------------------------------------------------------------- POS
 
   /** The split of a basket between the member's insurer and the patient. */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/pos/coverage-quote")
   @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
   public ApiResponse<CoverageQuote> coverageQuote(@RequestBody QuoteRequest body) {
@@ -169,6 +180,7 @@ public class InsuranceHandler {
 
   // ---------------------------------------------------------------- claims
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/claims")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ApiResponse<Page<ClaimView>> claims(
@@ -184,6 +196,7 @@ public class InsuranceHandler {
         insurance.claims(payerUid, filter, Pages.of(cursor, limit)), "Claims retrieved");
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/claims/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ApiResponse<ClaimView> claim(@PathVariable UUID uid) {
@@ -195,6 +208,7 @@ public class InsuranceHandler {
   }
 
   /** The payer's decision; {@code rejectedTo} WRITE_OFF (default) or PATIENT_ACCOUNT. */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/claims/{uid}/adjudicate")
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")
   public ApiResponse<ClaimView> adjudicate(
@@ -222,6 +236,7 @@ public class InsuranceHandler {
 
   // ---------------------------------------------------------------- batches and remittances
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/batches")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ApiResponse<List<ClaimBatchView>> batches(@RequestParam(required = false) UUID payerUid) {
@@ -229,6 +244,7 @@ public class InsuranceHandler {
   }
 
   /** Gathers the payer's draft claims of the period into a batch and submits them. */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/batches")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")
@@ -238,6 +254,7 @@ public class InsuranceHandler {
   }
 
   /** {@code ?format=CSV} or {@code JSON} (a FHIR R4 Bundle of Claim resources). */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/batches/{uid}/export")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ResponseEntity<byte[]> export(
@@ -256,6 +273,7 @@ public class InsuranceHandler {
         .body(body);
   }
 
+  @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/remittances")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ApiResponse<List<RemittanceView>> remittances(
@@ -264,6 +282,7 @@ public class InsuranceHandler {
   }
 
   /** A payer's payment, spread over claims as given or oldest approved first. */
+  @RequiresFeature(PlanFeature.INSURANCE)
   @PostMapping("/insurance/remittances")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")

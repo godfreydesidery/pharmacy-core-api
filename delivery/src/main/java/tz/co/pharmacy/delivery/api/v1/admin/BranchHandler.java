@@ -15,10 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 @RestController
@@ -38,6 +40,7 @@ public class BranchHandler {
     return ApiResponse.ok(branches.list(), "Branches retrieved");
   }
 
+  @CountsAgainst(PlanLimit.BRANCHES)
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = Permissions.BRANCHES_MANAGE)

@@ -10,8 +10,12 @@ import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
  */
 public interface PaymentAuthorizations {
 
+  /**
+   * {@code channel} is the registered payment method the cashier picked (null for none); a push
+   * channel's {@code reference} is the confirmed payment request it was paid through.
+   */
   PaymentAuthorization authorize(
-      PaymentMethod method, BigDecimal amount, String reference, String saleNumber);
+      PaymentMethod method, String channel, BigDecimal amount, String reference, String saleNumber);
 
   record PaymentAuthorization(boolean approved, String reference, String declineReason) {}
 }

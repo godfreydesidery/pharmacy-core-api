@@ -9,4 +9,5 @@ public record PaymentView(
     String reference,
     String currency,
     BigDecimal exchangeRate,
-    BigDecimal baseAmount) {}
+    BigDecimal baseAmount,
+    String channel) {}

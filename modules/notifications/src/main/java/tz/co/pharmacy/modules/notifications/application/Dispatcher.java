@@ -18,10 +18,9 @@ import tz.co.pharmacy.modules.notifications.domain.Message;
 import tz.co.pharmacy.modules.notifications.events.InAppDelivered;
 import tz.co.pharmacy.modules.notifications.persistence.InboxRepository;
 import tz.co.pharmacy.modules.notifications.persistence.MessageRepository;
+import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
 import tz.co.pharmacy.modules.notifications.ports.inbound.InAppView;
-import tz.co.pharmacy.modules.notifications.ports.outbound.EmailSender;
-import tz.co.pharmacy.modules.notifications.ports.outbound.SmsSender;
-import tz.co.pharmacy.modules.notifications.ports.outbound.WhatsAppSender;
+import tz.co.pharmacy.modules.notifications.providers.ProviderRouter;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 
@@ -38,9 +37,7 @@ class Dispatcher {
 
   private final MessageRepository messages;
   private final InboxRepository inbox;
-  private final EmailSender email;
-  private final SmsSender sms;
-  private final WhatsAppSender whatsApp;
+  private final ProviderRouter router;
   private final PendingScopes pending;
   private final ApplicationEventPublisher events;
   private final ExecutorService senders;
@@ -50,18 +47,14 @@ class Dispatcher {
   Dispatcher(
       MessageRepository messages,
       InboxRepository inbox,
-      EmailSender email,
-      SmsSender sms,
-      WhatsAppSender whatsApp,
+      ProviderRouter router,
       PendingScopes pending,
       ApplicationEventPublisher events,
       @Qualifier("notificationSenders") ExecutorService senders,
       PlatformTransactionManager transactionManager) {
     this.messages = messages;
     this.inbox = inbox;
-    this.email = email;
-    this.sms = sms;
-    this.whatsApp = whatsApp;
+    this.router = router;
     this.pending = pending;
     this.events = events;
     this.senders = senders;
@@ -112,10 +105,21 @@ class Dispatcher {
       return;
     }
     Message message = found.get();
-    String provider = providerName(message);
+    String provider = message.getChannel() == Channel.IN_APP ? "in-app" : null;
     String error = null;
     try {
-      send(message);
+      if (message.getChannel() != Channel.IN_APP) {
+        // The pharmacy's own account, else the platform's, else the environment's provider.
+        ProviderRouter.Route route = router.route(message.getChannel());
+        provider = route.label();
+        route
+            .sender()
+            .send(
+                message.getToAddress(),
+                message.getSubject(),
+                message.getHtmlBody(),
+                message.getBody());
+      }
     } catch (RuntimeException failure) {
       error =
           failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
@@ -127,6 +131,7 @@ class Dispatcher {
           error);
     }
     String outcome = error;
+    String used = provider == null ? "unresolved" : provider;
     transactions.executeWithoutResult(
         status ->
             messages
@@ -134,10 +139,10 @@ class Dispatcher {
                 .ifPresent(
                     row -> {
                       if (outcome == null) {
-                        row.sent(provider);
+                        row.sent(used);
                       } else {
                         row.failed(
-                            provider,
+                            used,
                             outcome,
                             Instant.now().plus(Backoff.after(row.getAttempts() + 1)));
                       }
@@ -176,30 +181,5 @@ class Dispatcher {
         item.getSeverity(),
         item.getReadAt() != null,
         item.getCreatedAt());
-  }
-
-  private void send(Message message) {
-    switch (message.getChannel()) {
-      case EMAIL ->
-          email.send(
-              message.getToAddress(),
-              message.getSubject(),
-              message.getHtmlBody(),
-              message.getBody());
-      case SMS -> sms.send(message.getToAddress(), message.getBody());
-      case WHATSAPP -> whatsApp.send(message.getToAddress(), message.getBody());
-      case IN_APP -> {
-        // Written to the inbox when it was queued; nothing to send.
-      }
-    }
-  }
-
-  private String providerName(Message message) {
-    return switch (message.getChannel()) {
-      case EMAIL -> email.name();
-      case SMS -> sms.name();
-      case WHATSAPP -> whatsApp.name();
-      case IN_APP -> "in-app";
-    };
   }
 }

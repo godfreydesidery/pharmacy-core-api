@@ -197,6 +197,48 @@ final class TemplateCatalog {
             "Afya Pharmacy",
             "link",
             "http://localhost:4300"));
+    define(
+        TemplateKeys.SUBSCRIPTION_DUE,
+        new Default(
+            "{{pharmacyName}}: subscription invoice {{number}} due {{dueDate}}",
+            "Hello {{name}}, invoice {{number}} for the {{planName}} plan, {{amount}}, is due on"
+                + " {{dueDate}}. Pay it on time to keep {{pharmacyName}} running without interruption.",
+            "{{pharmacyName}}: Pharmacy Core invoice {{number}} ({{amount}}) is due {{dueDate}}."),
+        new Default(
+            "{{pharmacyName}}: ankara ya usajili {{number}} inadaiwa {{dueDate}}",
+            "Habari {{name}}, ankara {{number}} ya mpango wa {{planName}}, {{amount}}, inapaswa"
+                + " kulipwa tarehe {{dueDate}}. Lipa kwa wakati ili {{pharmacyName}} iendelee bila"
+                + " kukatizwa.",
+            "{{pharmacyName}}: ankara ya Pharmacy Core {{number}} ({{amount}}) inadaiwa {{dueDate}}."),
+        Map.of(
+            "name", "Amina Hassan",
+            "pharmacyName", "Afya Pharmacy",
+            "planName", "Standard",
+            "number", "SUB-000001",
+            "amount", "TZS 120,000.00",
+            "dueDate", "2026-12-01"));
+    define(
+        TemplateKeys.SUBSCRIPTION_PAST_DUE,
+        new Default(
+            "{{pharmacyName}}: subscription invoice {{number}} is overdue",
+            "Hello {{name}}, invoice {{number}} ({{amount}}) was due on {{dueDate}} and is unpaid."
+                + " Pay by {{graceEnds}}, or {{pharmacyName}} will be suspended until it is paid.",
+            "{{pharmacyName}}: invoice {{number}} ({{amount}}) is overdue. Pay by {{graceEnds}} to"
+                + " avoid suspension."),
+        new Default(
+            "{{pharmacyName}}: ankara ya usajili {{number}} imepitwa na muda",
+            "Habari {{name}}, ankara {{number}} ({{amount}}) ilipaswa kulipwa tarehe {{dueDate}} na"
+                + " bado haijalipwa. Lipa kabla ya {{graceEnds}}, la sivyo {{pharmacyName}} itasimamishwa"
+                + " hadi ilipwe.",
+            "{{pharmacyName}}: ankara {{number}} ({{amount}}) imepitwa na muda. Lipa kabla ya"
+                + " {{graceEnds}} kuepuka kusimamishwa."),
+        Map.of(
+            "name", "Amina Hassan",
+            "pharmacyName", "Afya Pharmacy",
+            "number", "SUB-000001",
+            "amount", "TZS 120,000.00",
+            "dueDate", "2026-12-01",
+            "graceEnds", "2026-12-08"));
   }
 
   private TemplateCatalog() {}
