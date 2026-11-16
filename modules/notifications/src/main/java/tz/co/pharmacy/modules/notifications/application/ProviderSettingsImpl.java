@@ -287,8 +287,7 @@ class ProviderSettingsImpl implements ProviderSettings {
             .orElse(row.isEmpty());
     Optional<Message> lastSent =
         messages.findFirstByChannelAndStatusOrderBySentAtDesc(channel, MessageStatus.SENT);
-    Optional<Message> lastFailed =
-        messages.findFirstByChannelAndStatusOrderByUpdatedAtDesc(channel, MessageStatus.FAILED);
+    Optional<Message> lastFailed = messages.latestByStatus(channel, MessageStatus.FAILED);
     return new ProviderSettingView(
         channel,
         row.map(ProviderSetting::getMode).orElse(defaultMode),
