@@ -3,6 +3,7 @@ package tz.co.pharmacy.delivery.api.v1.reports;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.RequiresFeature;
+import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.modules.finance.ports.inbound.FinancialStatements;
 import tz.co.pharmacy.modules.finance.ports.inbound.FinancialStatements.BalanceSheet;
 import tz.co.pharmacy.modules.finance.ports.inbound.FinancialStatements.TrialBalance;
@@ -44,6 +46,7 @@ public class StatementsHandler {
   private final BranchService branches;
   private final SalesReports salesReports;
   private final TenantCalendar calendar;
+  private final UserAdministration people;
 
   /** The pharmacy's "today": report days follow its time zone, not the server's UTC clock. */
   private LocalDate orToday(LocalDate day) {
@@ -109,7 +112,28 @@ public class StatementsHandler {
   public ApiResponse<List<CashierSummary>> cashiers(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+    List<CashierSummary> rows = salesReports.cashiers(from, to, calendar.zone());
+    // One row per person, named as they are in the pharmacy (refunds carry no name of their own).
+    Map<String, String> names =
+        people.displayNames(rows.stream().map(CashierSummary::cashierReference).toList());
     return ApiResponse.ok(
-        salesReports.cashiers(from, to, calendar.zone()), "Cashier report retrieved");
+        rows.stream()
+            .map(
+                r ->
+                    names.containsKey(r.cashierReference())
+                        ? new CashierSummary(
+                            names.get(r.cashierReference()),
+                            r.cashierReference(),
+                            r.sales(),
+                            r.total(),
+                            r.tenders(),
+                            r.returns(),
+                            r.refunded(),
+                            r.cashToHandOver(),
+                            r.cashTendered())
+                        : r)
+            .sorted(java.util.Comparator.comparing(CashierSummary::cashier))
+            .toList(),
+        "Cashier report retrieved");
   }
 }

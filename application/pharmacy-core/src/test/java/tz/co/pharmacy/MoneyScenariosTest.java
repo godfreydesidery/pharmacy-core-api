@@ -414,6 +414,15 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(money(closed, "$.data.cashRefunds")).isEqualTo(10_000.0);
     assertThat(money(closed, "$.data.expectedCash")).isEqualTo(50_000.0);
     assertThat(money(closed, "$.data.variance")).isEqualTo(0.0);
+
+    // The cashier report: one row per person, by name, whether they sold or refunded.
+    sell(null, payment("CASH", 10_000, null)).expect(201);
+    Response report = admin.get("/api/v1/reports/cashiers").expect(200);
+    List<String> people = report.json().read("$.data[*].cashier");
+    assertThat(people).containsExactly("Admin", "Zawadi");
+    assertThat(report.read("$.data[0].sales", Integer.class)).isEqualTo(1);
+    assertThat(report.read("$.data[0].returns", Integer.class)).isEqualTo(1);
+    assertThat(report.string("$.data[1].cashierReference")).isEqualTo(email);
   }
 
   private static String returnBody(String saleLine, String method, String currency) {
