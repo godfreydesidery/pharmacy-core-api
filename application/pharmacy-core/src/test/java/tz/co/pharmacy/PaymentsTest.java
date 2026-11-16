@@ -137,15 +137,15 @@ class PaymentsTest extends IntegrationTest {
     List<String> statuses =
         admin.get("/api/v1/vouchers").expect(200).json().read("$.data[*].status");
     assertThat(statuses).containsExactly("SPENT");
-    assertThat(
-            sell(
-                    till,
-                    product,
-                    payment("VOUCHER", 1000, "VOUCHER", voucher),
-                    "{\"method\":\"CASH\",\"amount\":9000}")
-                .expect(422)
-                .string("$.reason"))
-        .isEqualTo("voucher_not_active");
+    Response spent =
+        sell(
+                till,
+                product,
+                payment("VOUCHER", 1000, "VOUCHER", voucher),
+                "{\"method\":\"CASH\",\"amount\":9000}")
+            .expect(422);
+    assertThat(spent.string("$.reason")).isEqualTo("voucher_not_active");
+    assertThat(spent.string("$.detail")).endsWith("has been used up. It can no longer be spent.");
     Api.eventually(
         () -> admin.get("/api/v1/journal?limit=100").expect(200).body().contains("\"2300\""));
   }

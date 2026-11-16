@@ -144,6 +144,8 @@ class MoneyScenariosTest extends IntegrationTest {
         sell(
             "\"customerUid\":\"%s\",\"balanceToAccount\":true".formatted(clinic), 6, new String[0]);
     assertThat(overLimit.expect(422).string("$.reason")).isEqualTo("credit_limit_exceeded");
+    // Amounts read as money: currency code and thousands separators.
+    assertThat(overLimit.string("$.detail")).contains("TZS 60,000.00").doesNotContain("60000");
   }
 
   @Test
