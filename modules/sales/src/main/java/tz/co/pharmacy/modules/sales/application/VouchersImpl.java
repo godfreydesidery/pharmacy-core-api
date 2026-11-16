@@ -1,10 +1,9 @@
 package tz.co.pharmacy.modules.sales.application;
 
 import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -15,11 +14,13 @@ import tz.co.pharmacy.modules.sales.events.VoucherIssued;
 import tz.co.pharmacy.modules.sales.persistence.VoucherRepository;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
 import tz.co.pharmacy.modules.sales.ports.inbound.Vouchers;
+import tz.co.pharmacy.modules.sales.ports.outbound.SalesCurrencies;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 @Service
 @RequiredArgsConstructor
@@ -35,7 +36,8 @@ class VouchersImpl implements Vouchers {
 
   private final VoucherRepository vouchers;
   private final DomainEventPublisher events;
-  private final Clock clock;
+  private final TenantCalendar calendar;
+  private final SalesCurrencies currencies;
 
   @Override
   @Transactional
@@ -51,7 +53,7 @@ class VouchersImpl implements Vouchers {
           "A voucher is paid in cash, card, mobile money or bank.",
           "paidBy");
     }
-    if (c.expiresOn() != null && c.expiresOn().isBefore(LocalDate.now(clock))) {
+    if (c.expiresOn() != null && c.expiresOn().isBefore(calendar.today())) {
       throw Refusal.invalid("invalid_expiry", "expiresOn has passed.", "expiresOn");
     }
     String code = Checks.optionalText(c.code(), "code", 24);
@@ -119,19 +121,33 @@ class VouchersImpl implements Vouchers {
     if (!"ACTIVE".equals(voucher.getStatus())) {
       throw Refusal.invalid(
           "voucher_not_active",
-          "Voucher " + voucher.getCode() + " is " + voucher.getStatus() + ".",
+          "Voucher "
+              + voucher.getCode()
+              + ("VOID".equals(voucher.getStatus()) ? " has been voided." : " has been used up.")
+              + " It can no longer be spent.",
           field);
     }
-    if (voucher.getExpiresOn() != null && voucher.getExpiresOn().isBefore(LocalDate.now(clock))) {
+    if (voucher.getExpiresOn() != null && voucher.getExpiresOn().isBefore(calendar.today())) {
       throw Refusal.invalid(
           "voucher_expired",
-          "Voucher " + voucher.getCode() + " expired on " + voucher.getExpiresOn() + ".",
+          "Voucher "
+              + voucher.getCode()
+              + " expired on "
+              + voucher
+                  .getExpiresOn()
+                  .format(
+                      java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH))
+              + ".",
           field);
     }
     if (voucher.getBalance().compareTo(Amounts.money(amount)) < 0) {
       throw Refusal.invalid(
           "voucher_short",
-          "Voucher " + voucher.getCode() + " has " + voucher.getBalance() + " left.",
+          "Voucher "
+              + voucher.getCode()
+              + " has only "
+              + Amounts.display(currencies.baseCurrency(), voucher.getBalance())
+              + " left.",
           field);
     }
     voucher.spend(Amounts.money(amount));

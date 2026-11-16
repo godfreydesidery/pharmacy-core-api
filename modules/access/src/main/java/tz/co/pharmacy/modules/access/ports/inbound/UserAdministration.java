@@ -8,6 +8,12 @@ import tz.co.pharmacy.platform.kernel.PageQuery;
 /** Members and roles of the current tenant, and the root administrators. */
 public interface UserAdministration {
 
+  /**
+   * Display names of people by their actor reference (the sign-in email recorded as created_by):
+   * name, else the email; references with no user are left out.
+   */
+  java.util.Map<String, String> displayNames(java.util.Collection<String> references);
+
   /** Newest first; {@code q} matches name or email. */
   Page<MemberView> members(String q, PageQuery query);
 

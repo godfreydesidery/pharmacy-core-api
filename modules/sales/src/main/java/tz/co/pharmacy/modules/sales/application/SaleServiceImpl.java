@@ -50,6 +50,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -72,6 +73,7 @@ class SaleServiceImpl implements SaleService {
   private final DomainEventPublisher events;
   private final tz.co.pharmacy.modules.sales.ports.outbound.SalesCurrencies currencies;
   private final VouchersImpl vouchers;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -171,14 +173,14 @@ class SaleServiceImpl implements SaleService {
           line.serialNumbers(),
           line.warrantyMonths() == null || line.warrantyMonths() <= 0
               ? null
-              : java.time.LocalDate.now().plusMonths(line.warrantyMonths()).minusDays(1));
+              : calendar.today().plusMonths(line.warrantyMonths()).minusDays(1));
       sale.addLine(saleLine);
     }
     SaleTotals.Totals totals = SaleTotals.of(amounts);
 
     List<PaymentCommand> payments = command.payments() == null ? List.of() : command.payments();
     String base = currencies.baseCurrency();
-    java.time.LocalDate today = java.time.LocalDate.now();
+    java.time.LocalDate today = calendar.today();
     List<tz.co.pharmacy.modules.sales.domain.Tender.Line> tenders = new java.util.ArrayList<>();
     for (int i = 0; i < payments.size(); i++) {
       PaymentCommand payment = payments.get(i);
@@ -475,7 +477,7 @@ class SaleServiceImpl implements SaleService {
     BigDecimal foreign =
         currencies.round(
             saleReturn.getRefundTotal().divide(saleRate, 8, RoundingMode.HALF_EVEN), currency);
-    BigDecimal todayRate = currencies.rateToBase(currency, java.time.LocalDate.now());
+    BigDecimal todayRate = currencies.rateToBase(currency, calendar.today());
     saleReturn.refundIn(
         currency, foreign, saleRate, todayRate, Amounts.money(foreign.multiply(todayRate)));
   }
@@ -617,7 +619,7 @@ class SaleServiceImpl implements SaleService {
     }
     BigDecimal total = SaleTotals.of(amounts).total();
     String base = currencies.baseCurrency();
-    java.time.LocalDate today = java.time.LocalDate.now();
+    java.time.LocalDate today = calendar.today();
     BigDecimal paid = BigDecimal.ZERO;
     BigDecimal cash = BigDecimal.ZERO;
     List<BigDecimal> baseAmounts = new ArrayList<>();

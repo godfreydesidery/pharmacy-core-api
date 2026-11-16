@@ -17,6 +17,7 @@ import tz.co.pharmacy.modules.partners.ports.inbound.SupplierService;
 import tz.co.pharmacy.modules.receivables.ports.inbound.CustomerCredit;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 @Service
 class OpeningBalancesService implements OpeningBalances {
@@ -29,13 +30,16 @@ class OpeningBalancesService implements OpeningBalances {
   private final CustomerService customers;
   private final SupplierService suppliers;
   private final StockQueries stock;
+  private final TenantCalendar calendar;
 
   OpeningBalancesService(
       Ledger ledger,
       CustomerCredit credit,
       CustomerService customers,
       SupplierService suppliers,
-      StockQueries stock) {
+      StockQueries stock,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.ledger = ledger;
     this.credit = credit;
     this.customers = customers;
@@ -47,7 +51,7 @@ class OpeningBalancesService implements OpeningBalances {
   @Transactional
   public OpeningBalanceView post(Command command) {
     Checks.required(command, "openingBalances");
-    LocalDate asOf = command.asOf() == null ? LocalDate.now() : command.asOf();
+    LocalDate asOf = command.asOf() == null ? calendar.today() : command.asOf();
     List<OpeningBalancesCommand.Party> receivables = new ArrayList<>();
     List<Amount> owed = command.receivables() == null ? List.of() : command.receivables();
     for (int i = 0; i < owed.size(); i++) {

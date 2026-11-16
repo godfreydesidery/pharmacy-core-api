@@ -16,6 +16,11 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
   List<User> findAllByUidIn(Collection<UUID> uids);
 
+  @org.springframework.data.jpa.repository.Query(
+      "select u from User u where lower(u.email) in :emails")
+  List<User> findAllByEmails(
+      @org.springframework.data.repository.query.Param("emails") Collection<String> emails);
+
   boolean existsByRootAdminTrue();
 
   List<User> findAllByRootAdminTrueOrderByNameAsc();

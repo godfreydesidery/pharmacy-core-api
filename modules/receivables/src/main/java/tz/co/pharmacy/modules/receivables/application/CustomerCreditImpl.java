@@ -41,6 +41,7 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 
 /**
@@ -60,6 +61,7 @@ class CustomerCreditImpl implements CustomerCredit {
   private final DomainEventPublisher events;
   private final Clock clock;
   private final JdbcTemplate jdbc;
+  private final TenantCalendar calendar;
 
   CustomerCreditImpl(
       CreditAccountRepository accounts,
@@ -70,7 +72,9 @@ class CustomerCreditImpl implements CustomerCredit {
       DocumentNumbers numbers,
       DomainEventPublisher events,
       Clock clock,
-      DataSource dataSource) {
+      DataSource dataSource,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.accounts = accounts;
     this.entries = entries;
     this.allocations = allocations;
@@ -101,20 +105,18 @@ class CustomerCreditImpl implements CustomerCredit {
     BigDecimal balance = balance(customerUid);
     BigDecimal after = balance.add(Amounts.money(amount));
     if (after.compareTo(account.getCreditLimit()) > 0) {
-      String code = currency.baseCurrency() + " ";
+      String code = currency.baseCurrency();
       throw Refusal.invalid(
           "credit_limit_exceeded",
           "This would take "
               + account.getCustomerName()
               + " to "
-              + code
-              + after.toPlainString()
+              + Amounts.display(code, after)
               + ", over the credit limit of "
-              + code
-              + account.getCreditLimit().toPlainString()
+              + Amounts.display(code, account.getCreditLimit())
               + " (available "
-              + code
-              + account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO).toPlainString()
+              + Amounts.display(
+                  code, account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO))
               + ").",
           "payments");
     }
@@ -598,6 +600,6 @@ class CustomerCreditImpl implements CustomerCredit {
   }
 
   private LocalDate today() {
-    return LocalDate.now(clock);
+    return calendar.today();
   }
 }

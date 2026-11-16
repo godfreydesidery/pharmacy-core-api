@@ -45,12 +45,16 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnLineView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleService;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleView;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.Entitlements;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Each use case runs in the one transaction it opens; the modules' write methods join it, so a
@@ -71,6 +75,9 @@ class CheckoutService implements Checkout {
   private final PricingService pricing;
   private final PackagingService packaging;
   private final Transformations transformations;
+  private final SettingsService settings;
+  private final Entitlements entitlements;
+  private final TenantCalendar calendar;
 
   /** The permission to sell on account: credit sales and balances put on account. */
   static final String CREDIT_PERMISSION = "sales.credit";
@@ -90,6 +97,7 @@ class CheckoutService implements Checkout {
       Checks.required(lines.get(i).productUid(), "lines[" + i + "].productUid");
       Checks.positive(lines.get(i).quantity(), "lines[" + i + "].quantity");
     }
+    requireMultiCurrencyFor(command.payments());
     Map<UUID, ProductView> products =
         catalogue
             .products(lines.stream().map(CheckoutLine::productUid).distinct().toList())
@@ -121,7 +129,7 @@ class CheckoutService implements Checkout {
                     .filter(e -> products.containsKey(e.getKey()))
                     .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
                     .toList(),
-                java.time.LocalDate.now())
+                calendar.today())
             .stream()
             .collect(
                 Collectors.toMap(
@@ -212,6 +220,30 @@ class CheckoutService implements Checkout {
           "A controlled drug needs the prescriber's name and registration number, the"
               + " prescription reference and the patient's name.",
           "prescription");
+    }
+  }
+
+  /** A tender in another currency needs the plan's multi-currency module (403 otherwise). */
+  private void requireMultiCurrencyFor(List<PaymentCommand> payments) {
+    if (payments == null || ExecutionContext.current().map(f -> f.rootAdmin()).orElse(false)) {
+      return;
+    }
+    String base = null;
+    for (int i = 0; i < payments.size(); i++) {
+      PaymentCommand payment = payments.get(i);
+      if (payment == null || payment.currency() == null || payment.currency().isBlank()) {
+        continue;
+      }
+      if (base == null) {
+        base = settings.current().currency();
+      }
+      if (!payment.currency().trim().equalsIgnoreCase(base)) {
+        try {
+          entitlements.requireFeature(ExecutionContext.requireTenant(), PlanFeature.MULTI_CURRENCY);
+        } catch (Refusal refusal) {
+          throw refusal.about("payments[" + i + "].currency");
+        }
+      }
     }
   }
 
@@ -577,8 +609,19 @@ class CheckoutService implements Checkout {
   public Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query) {
     Page<ProductView> page =
         catalogue.products(new ProductFilter(q, categoryUid, true, null), query);
-    Map<UUID, Integer> onHand =
-        stockQueries.onHand(page.items().stream().map(ProductView::uid).toList());
+    List<UUID> uids = page.items().stream().map(ProductView::uid).toList();
+    Map<UUID, Integer> onHand = stockQueries.onHand(uids);
+    Map<UUID, Integer> recalled = stockQueries.quarantined(uids);
+    // Units a cashier can still sell by opening packs here (break bulk at the till).
+    Map<UUID, PackagingService.PackLinkView> packs = packaging.packsOf(uids);
+    Map<UUID, Integer> packsOnHand =
+        packs.isEmpty()
+            ? Map.of()
+            : stockQueries.onHand(
+                packs.values().stream()
+                    .map(PackagingService.PackLinkView::packProductUid)
+                    .distinct()
+                    .toList());
     return page.map(
         product ->
             new SellableProduct(
@@ -598,6 +641,15 @@ class CheckoutService implements Checkout {
                 product.productType(),
                 product.trackingMode(),
                 product.unitOfMeasure(),
-                product.requiresSerialAtSale()));
+                product.requiresSerialAtSale(),
+                openable(packs.get(product.uid()), packsOnHand),
+                recalled.getOrDefault(product.uid(), 0)));
+  }
+
+  private static int openable(PackagingService.PackLinkView pack, Map<UUID, Integer> packsOnHand) {
+    if (pack == null) {
+      return 0;
+    }
+    return packsOnHand.getOrDefault(pack.packProductUid(), 0) * pack.unitsPerPack();
   }
 }

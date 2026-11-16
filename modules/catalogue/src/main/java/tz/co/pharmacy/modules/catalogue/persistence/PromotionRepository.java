@@ -17,6 +17,6 @@ public interface PromotionRepository extends JpaRepository<Promotion, Long> {
 
   @Query(
       "select p from Promotion p where p.active = true and p.validFrom <= :day"
-          + " and p.validTo >= :day")
+          + " and (p.validTo is null or p.validTo >= :day)")
   List<Promotion> runningOn(LocalDate day);
 }

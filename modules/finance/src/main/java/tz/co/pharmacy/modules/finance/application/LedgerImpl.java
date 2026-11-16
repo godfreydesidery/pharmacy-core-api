@@ -29,6 +29,7 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
 import tz.co.pharmacy.platform.persistence.TenantContext;
@@ -50,13 +51,16 @@ class LedgerImpl implements Ledger {
   private final ChartOfAccounts chart;
   private final JdbcTemplate jdbc;
   private final OpeningBalanceRepository openings;
+  private final TenantCalendar calendar;
 
   LedgerImpl(
       JournalWriter writer,
       JournalEntryRepository entries,
       ChartOfAccounts chart,
       DataSource dataSource,
-      OpeningBalanceRepository openings) {
+      OpeningBalanceRepository openings,
+      TenantCalendar calendar) {
+    this.calendar = calendar;
     this.writer = writer;
     this.entries = entries;
     this.chart = chart;
@@ -216,7 +220,7 @@ class LedgerImpl implements Ledger {
       throw Refusal.conflict(
           "opening_balances_posted", "The opening balances were already posted.");
     }
-    LocalDate asOf = command.asOf() == null ? LocalDate.now() : command.asOf();
+    LocalDate asOf = command.asOf() == null ? calendar.today() : command.asOf();
     OpeningBalance opening =
         new OpeningBalance(
             asOf,

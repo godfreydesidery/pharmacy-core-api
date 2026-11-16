@@ -62,23 +62,23 @@ class WebhookTargets {
     try {
       uri = URI.create(url.trim());
     } catch (IllegalArgumentException notAUri) {
-      return new Verdict("url is not a valid URL.");
+      return new Verdict("The address is not a valid URL.");
     }
     String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
     String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
     if (host.isEmpty() || uri.getUserInfo() != null) {
-      return new Verdict("url must name a host, without user name or password.");
+      return new Verdict("The address must name a host, without a user name or password.");
     }
     if (allowedHosts.contains(host)) {
       return scheme.equals("https") || scheme.equals("http")
           ? new Verdict(null)
-          : new Verdict("url must be an http(s) URL.");
+          : new Verdict("The address must be an http or https URL.");
     }
     if (!scheme.equals("https")) {
-      return new Verdict("url must be an https URL.");
+      return new Verdict("The address must be an https URL.");
     }
     if (internalName(host)) {
-      return new Verdict("url points to an internal host name.");
+      return new Verdict("The address points to an internal host name.");
     }
     InetAddress[] addresses;
     try {
@@ -88,7 +88,7 @@ class WebhookTargets {
     }
     for (InetAddress address : addresses) {
       if (!isPublic(address)) {
-        return new Verdict("url points to a private or local network address.");
+        return new Verdict("The address points to a private or local network address.");
       }
     }
     return new Verdict(null);

@@ -91,6 +91,7 @@ class SecurityFixesTest extends IntegrationTest {
       assertThat(refused.status()).as(url).isEqualTo(422);
       assertThat(refused.string("$.reason")).as(url).isEqualTo("webhook_url_not_allowed");
       assertThat(refused.string("$.field")).isEqualTo("url");
+      assertThat(refused.string("$.detail")).as(url).startsWith("The address ");
     }
   }
 

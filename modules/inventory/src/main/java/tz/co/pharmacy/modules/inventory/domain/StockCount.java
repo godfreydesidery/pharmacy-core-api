@@ -29,7 +29,7 @@ public class StockCount extends TenantEntity {
   private String postedBy;
 
   @OneToMany(mappedBy = "stockCount", cascade = CascadeType.ALL, orphanRemoval = true)
-  @OrderBy("productName, batchNumber")
+  @OrderBy("productName, expiryDate, batchNumber")
   private List<StockCountLine> lines = new ArrayList<>();
 
   public StockCount(String number, UUID branchUid, String note) {

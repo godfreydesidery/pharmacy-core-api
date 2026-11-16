@@ -52,9 +52,23 @@ public interface MessageRepository
           + " and m.status <> tz.co.pharmacy.modules.notifications.domain.MessageStatus.SENT")
   Instant earliestDue(@Param("maxAttempts") int maxAttempts);
 
-  /** The latest message of the channel in the given status, for a channel's health. */
-  Optional<Message> findFirstByChannelAndStatusOrderByUpdatedAtDesc(
-      Channel channel, tz.co.pharmacy.modules.notifications.domain.MessageStatus status);
+  /**
+   * The latest messages of the channel in the given status, newest first, for a channel's health.
+   * Ordered by when they last changed: a message written once (a provider test) has no update time,
+   * so ordering by it alone put such rows first in any order and showed a stale failure.
+   */
+  @Query(
+      "select m from Message m where m.channel = :channel and m.status = :status"
+          + " order by coalesce(m.updatedAt, m.createdAt) desc, m.id desc")
+  List<Message> latestByStatus(
+      @Param("channel") Channel channel,
+      @Param("status") tz.co.pharmacy.modules.notifications.domain.MessageStatus status,
+      Pageable page);
+
+  default Optional<Message> latestByStatus(
+      Channel channel, tz.co.pharmacy.modules.notifications.domain.MessageStatus status) {
+    return latestByStatus(channel, status, Pageable.ofSize(1)).stream().findFirst();
+  }
 
   Optional<Message> findFirstByChannelAndStatusOrderBySentAtDesc(
       Channel channel, tz.co.pharmacy.modules.notifications.domain.MessageStatus status);

@@ -49,6 +49,7 @@ public interface Destructions {
       BigDecimal totalCost,
       Instant createdAt,
       String createdBy,
+      String createdByName,
       List<LineView> lines) {}
 
   record LineView(

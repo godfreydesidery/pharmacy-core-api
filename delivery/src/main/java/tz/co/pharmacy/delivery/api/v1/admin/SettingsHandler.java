@@ -60,19 +60,45 @@ public class SettingsHandler {
         "Settings changed");
   }
 
-  /** Accepting a currency besides the base one needs the plan's multi-currency module. */
+  /**
+   * Adding a currency besides the base one needs the plan's multi-currency module. Keeping or
+   * removing currencies already accepted does not, so after a downgrade the other settings can
+   * still be saved; the till refuses foreign tenders on such a plan anyway.
+   */
   private void requireMultiCurrencyFor(java.util.List<String> accepted) {
     if (accepted == null || ExecutionContext.current().map(f -> f.rootAdmin()).orElse(false)) {
       return;
     }
-    String base = settings.current().currency();
-    boolean foreign =
-        accepted.stream()
-            .filter(c -> c != null && !c.isBlank())
-            .anyMatch(c -> !c.trim().equalsIgnoreCase(base));
-    if (foreign) {
-      entitlements.requireFeature(ExecutionContext.requireTenant(), PlanFeature.MULTI_CURRENCY);
+    var current = settings.current();
+    String base = current.currency();
+    java.util.Set<String> requested = foreign(accepted, base);
+    if (requested.isEmpty() || foreign(current.acceptedCurrencies(), base).containsAll(requested)) {
+      return;
     }
+    try {
+      entitlements.requireFeature(ExecutionContext.requireTenant(), PlanFeature.MULTI_CURRENCY);
+    } catch (Refusal refusal) {
+      throw Refusal.forbidden(
+              refusal.reason(),
+              "The subscription plan does not include more than one currency, so only "
+                  + base
+                  + " can be accepted. Remove "
+                  + String.join(", ", requested)
+                  + " from the accepted currencies, or upgrade the plan.")
+          .about("acceptedCurrencies");
+    }
+  }
+
+  private static java.util.Set<String> foreign(java.util.List<String> currencies, String base) {
+    java.util.Set<String> codes = new java.util.TreeSet<>();
+    if (currencies != null) {
+      currencies.stream()
+          .filter(c -> c != null && !c.isBlank())
+          .map(c -> c.trim().toUpperCase(java.util.Locale.ROOT))
+          .filter(c -> !c.equalsIgnoreCase(base))
+          .forEach(codes::add);
+    }
+    return codes;
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)

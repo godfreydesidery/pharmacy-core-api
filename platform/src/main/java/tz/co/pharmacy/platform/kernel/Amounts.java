@@ -37,4 +37,10 @@ public final class Amounts {
         .multiply(HUNDRED)
         .divide(previous.abs(), 1, RoundingMode.HALF_UP);
   }
+
+  /** An amount for people to read in a message: "TZS 240,000.00" (no code when it is blank). */
+  public static String display(String currency, BigDecimal amount) {
+    String figure = String.format(java.util.Locale.ENGLISH, "%,.2f", money(amount));
+    return currency == null || currency.isBlank() ? figure : currency + " " + figure;
+  }
 }
