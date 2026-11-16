@@ -85,6 +85,21 @@ class DestructionsImpl implements Destructions {
                   () -> Refusal.invalid("batch_not_found", "No such batch.", field + ".batchUid"));
       String name =
           products.findByProductUid(batch.getProductUid()).map(ProductRecord::getName).orElse("");
+      // "Expired" only for a batch past its expiry on the day it is destroyed (local date).
+      if ("EXPIRED".equals(reason)
+          && (batch.getExpiryDate() == null || !batch.getExpiryDate().isBefore(on))) {
+        throw Refusal.invalid(
+            "batch_not_expired",
+            "Batch "
+                + batch.getBatchNumber()
+                + " of "
+                + name
+                + (batch.getExpiryDate() == null
+                    ? " has no expiry date"
+                    : " expires on " + batch.getExpiryDate())
+                + "; destroy it as DAMAGED, or wait until it has expired.",
+            field + ".reason");
+      }
       try {
         stock.adjust(
             new AdjustStockCommand(

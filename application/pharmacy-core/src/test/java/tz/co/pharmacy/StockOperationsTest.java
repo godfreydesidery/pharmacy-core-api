@@ -220,11 +220,14 @@ class StockOperationsTest extends IntegrationTest {
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 500)).expect(422);
     assertThat(short_.string("$.reason")).isEqualTo("insufficient_stock");
     assertThat(short_.string("$.field")).isEqualTo("lines[0].quantity");
-    hq.post(
-            "/api/v1/destructions",
-            "{\"method\":\"Incineration\",\"lines\":[{\"batchUid\":\"%s\",\"quantity\":1,\"reason\":\"EXPIRED\"}]}"
-                .formatted(batchA))
-        .expect(422);
+    // Batch A expires in six months: it cannot be destroyed as expired.
+    Response notExpired =
+        hq.post(
+                "/api/v1/destructions",
+                destruction.formatted(batchA, 1).replace("\"DAMAGED\"", "\"EXPIRED\""))
+            .expect(422);
+    assertThat(notExpired.string("$.reason")).isEqualTo("batch_not_expired");
+    assertThat(notExpired.string("$.field")).isEqualTo("lines[0].reason");
     Response destroyed =
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 2)).expect(201);
     assertThat(destroyed.string("$.data.number")).startsWith("DST");
