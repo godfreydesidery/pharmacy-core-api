@@ -25,12 +25,15 @@ class MoneyScenariosTest extends IntegrationTest {
 
   private Api admin;
   private Api till;
+  private Api anonymous;
+  private String tenantUid;
+  private String branchUid;
   private String product;
   private String clinic;
 
   @BeforeEach
   void pharmacy() {
-    Api anonymous = api();
+    anonymous = api();
     Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
     String code = "MS" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
     String email = code.toLowerCase() + "@test.local";
@@ -50,6 +53,8 @@ class MoneyScenariosTest extends IntegrationTest {
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
+    tenantUid = tenant;
+    branchUid = branch;
 
     admin.put("/api/v1/settings", "{\"acceptedCurrencies\":[\"TZS\",\"USD\"]}").expect(200);
     admin
@@ -366,6 +371,44 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(money(closed, "$.data.variance")).isEqualTo(-1_000.0);
     assertThat(closed.read("$.data.sales", Integer.class)).isEqualTo(1);
     assertThat(closed.string("$.data.status")).isEqualTo("CLOSED");
+  }
+
+  @Test
+  @DisplayName("a supervisor's cash refund from the cashier's drawer counts in the cashier's shift")
+  void supervisorRefundCountsInTheCashiersShift() {
+    String email = "till." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
+    List<String> roles =
+        admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
+    admin
+        .post(
+            "/api/v1/users",
+            """
+            {"name":"Zawadi","email":"%s","password":"Staff#2026x","roleUid":"%s","allBranches":true}
+            """
+                .formatted(email, roles.getFirst()))
+        .expect(201);
+    Api cashier = anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenantUid, branchUid);
+    cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
+    Response sale =
+        cashier
+            .post(
+                "/api/v1/sales",
+                """
+                {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":1}],
+                 "payments":[{"method":"CASH","amount":10000}]}
+                """
+                    .formatted(UUID.randomUUID(), product))
+            .expect(201);
+    // The admin (no shift of their own) refunds the sale in cash from the cashier's drawer.
+    till.post(
+            "/api/v1/sales/" + sale.string("$.data.uid") + "/returns",
+            returnBody(sale.string("$.data.lines[0].uid"), "CASH", "TZS"))
+        .expect(201);
+    Response closed = cashier.post("/api/v1/shifts/close", "{\"countedCash\":50000}").expect(200);
+    // 50,000 float + 10,000 cash − 10,000 refunded = 50,000 expected; nothing short.
+    assertThat(money(closed, "$.data.cashRefunds")).isEqualTo(10_000.0);
+    assertThat(money(closed, "$.data.expectedCash")).isEqualTo(50_000.0);
+    assertThat(money(closed, "$.data.variance")).isEqualTo(0.0);
   }
 
   private static String returnBody(String saleLine, String method, String currency) {

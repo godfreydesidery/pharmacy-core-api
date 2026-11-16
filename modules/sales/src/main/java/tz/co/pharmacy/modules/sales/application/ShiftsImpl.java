@@ -143,15 +143,39 @@ class ShiftsImpl implements Shifts {
           tenders.put(r.getString("method"), Amounts.money(r.getBigDecimal("amount")));
         },
         window);
+    // Cash refunds paid from this drawer. A refund counts against the open shift of whoever paid
+    // it; when that person has no open shift here (a supervisor refunding from a cashier's drawer),
+    // against the shift of the cashier who made the original sale, if open; otherwise against the
+    // branch's only open shift.
+    String openShift =
+        " from sales.shifts o where o.branch_uid = r.branch_uid and o.opened_at <= r.created_at"
+            + " and (o.closed_at is null or o.closed_at >= r.created_at)";
     jdbc.query(
-        "select coalesce(sum(s.refund_total + coalesce(s.fx_difference, 0)), 0) as cash"
-            + " from sales.sale_returns s"
-            + where
-            + " and s.refund_method = 'CASH'",
+        "select coalesce(sum(r.refund_total + coalesce(r.fx_difference, 0)), 0) as cash"
+            + " from sales.sale_returns r"
+            + " where r.branch_uid = ? and r.refund_method = 'CASH'"
+            + " and r.created_at >= ? and r.created_at <= ?"
+            + " and (r.created_by = ?"
+            + " or (not exists (select 1"
+            + openShift
+            + " and o.cashier = r.created_by)"
+            + " and (exists (select 1 from sales.sales s where s.uid = r.sale_uid"
+            + " and s.created_by = ?)"
+            + " or (not exists (select 1 from sales.sales s where s.uid = r.sale_uid"
+            + " and exists (select 1"
+            + openShift
+            + " and o.cashier = s.created_by))"
+            + " and (select count(*)"
+            + openShift
+            + ") = 1))))",
         r -> {
           totals[2] = r.getBigDecimal("cash");
         },
-        window);
+        window[0],
+        window[2],
+        window[3],
+        window[1],
+        window[1]);
     return new Figures(
         count[0],
         Amounts.money(totals[0]),
