@@ -45,6 +45,9 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnLineView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleService;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleView;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.Entitlements;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -72,6 +75,8 @@ class CheckoutService implements Checkout {
   private final PricingService pricing;
   private final PackagingService packaging;
   private final Transformations transformations;
+  private final SettingsService settings;
+  private final Entitlements entitlements;
   private final TenantCalendar calendar;
 
   /** The permission to sell on account: credit sales and balances put on account. */
@@ -92,6 +97,7 @@ class CheckoutService implements Checkout {
       Checks.required(lines.get(i).productUid(), "lines[" + i + "].productUid");
       Checks.positive(lines.get(i).quantity(), "lines[" + i + "].quantity");
     }
+    requireMultiCurrencyFor(command.payments());
     Map<UUID, ProductView> products =
         catalogue
             .products(lines.stream().map(CheckoutLine::productUid).distinct().toList())
@@ -214,6 +220,30 @@ class CheckoutService implements Checkout {
           "A controlled drug needs the prescriber's name and registration number, the"
               + " prescription reference and the patient's name.",
           "prescription");
+    }
+  }
+
+  /** A tender in another currency needs the plan's multi-currency module (403 otherwise). */
+  private void requireMultiCurrencyFor(List<PaymentCommand> payments) {
+    if (payments == null || ExecutionContext.current().map(f -> f.rootAdmin()).orElse(false)) {
+      return;
+    }
+    String base = null;
+    for (int i = 0; i < payments.size(); i++) {
+      PaymentCommand payment = payments.get(i);
+      if (payment == null || payment.currency() == null || payment.currency().isBlank()) {
+        continue;
+      }
+      if (base == null) {
+        base = settings.current().currency();
+      }
+      if (!payment.currency().trim().equalsIgnoreCase(base)) {
+        try {
+          entitlements.requireFeature(ExecutionContext.requireTenant(), PlanFeature.MULTI_CURRENCY);
+        } catch (Refusal refusal) {
+          throw refusal.about("payments[" + i + "].currency");
+        }
+      }
     }
   }
 
