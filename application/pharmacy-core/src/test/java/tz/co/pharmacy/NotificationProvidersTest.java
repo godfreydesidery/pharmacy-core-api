@@ -2,10 +2,15 @@ package tz.co.pharmacy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
@@ -15,6 +20,8 @@ import tz.co.pharmacy.support.IntegrationTest;
  * resolved per send; secrets sealed and never shown; test sends; the monthly usage count.
  */
 class NotificationProvidersTest extends IntegrationTest {
+
+  @Autowired DataSource dataSource;
 
   @Test
   @DisplayName("platform default, pharmacy override, masked secrets, test send and usage")
@@ -128,5 +135,63 @@ class NotificationProvidersTest extends IntegrationTest {
 
     // A pharmacy cannot reach the platform's settings.
     admin.get("/api/v1/platform/notification-providers").expect(403);
+  }
+
+  @Test
+  @DisplayName("secrets sealed under another key: the page loads, sends explain, a save recovers")
+  void unreadableSecrets() {
+    Api anonymous = api();
+    Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    root.put(
+            "/api/v1/platform/notification-providers/WHATSAPP",
+            """
+            {"provider":"twilio","settings":{"accountSid":"AC123","from":"+14155238886"},
+             "secrets":{"authToken":"twilio-token-123456"}}
+            """)
+        .expect(200);
+
+    // As if the server's encryption key had changed since the save.
+    new JdbcTemplate(dataSource)
+        .update(
+            "update notifications.provider_settings set secrets = ?"
+                + " where tenant_uid is null and channel = 'WHATSAPP'",
+            Base64.getEncoder().encodeToString(new byte[48]));
+
+    Response listed = root.get("/api/v1/platform/notification-providers").expect(200);
+    String whatsApp = "$.data[?(@.channel == 'WHATSAPP')]";
+    assertThat(listed.read(whatsApp + ".secretsUnreadable", List.class)).containsExactly(true);
+    assertThat(listed.read(whatsApp + ".configured", List.class)).containsExactly(false);
+    assertThat(listed.read(whatsApp + ".secrets", List.class)).containsExactly(Map.of());
+
+    // A send says what to do instead of failing obscurely (and reaches no network).
+    Response test =
+        root.post(
+                "/api/v1/platform/notification-providers/WHATSAPP/test",
+                "{\"to\":\"+255712345678\"}")
+            .expect(200);
+    assertThat(test.read("$.data.ok", Boolean.class)).isFalse();
+    assertThat(test.string("$.data.error")).contains("can no longer be read");
+
+    // A save without the secret asks for it; with it, the channel is whole again.
+    Response missing =
+        root.put(
+            "/api/v1/platform/notification-providers/WHATSAPP",
+            "{\"provider\":\"twilio\",\"settings\":{\"accountSid\":\"AC123\","
+                + "\"from\":\"+14155238886\"}}");
+    assertThat(missing.expect(422).string("$.field")).isEqualTo("secrets.authToken");
+    Response saved =
+        root.put(
+                "/api/v1/platform/notification-providers/WHATSAPP",
+                """
+                {"provider":"twilio","settings":{"accountSid":"AC123","from":"+14155238886"},
+                 "secrets":{"authToken":"twilio-token-654321"}}
+                """)
+            .expect(200);
+    assertThat(saved.read("$.data.secretsUnreadable", Boolean.class)).isFalse();
+    assertThat(saved.read("$.data.configured", Boolean.class)).isTrue();
+    assertThat(saved.string("$.data.secrets.authToken")).isEqualTo("••••4321");
+
+    root.put("/api/v1/platform/notification-providers/WHATSAPP", "{\"provider\":\"log\"}")
+        .expect(200);
   }
 }

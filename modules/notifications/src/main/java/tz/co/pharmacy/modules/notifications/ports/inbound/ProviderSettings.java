@@ -41,8 +41,10 @@ public interface ProviderSettings {
 
   /**
    * {@code secrets} masked ("••••1234"); {@code configured} when every required field has a value;
-   * {@code effectiveProvider}/{@code effectiveSource} (OWN, PLATFORM or ENVIRONMENT) say where the
-   * channel's messages go now; the last send and failure come from the delivery log.
+   * {@code secretsUnreadable} when the saved secrets were sealed under another encryption key and
+   * must be entered again (they then count as missing); {@code effectiveProvider}/{@code
+   * effectiveSource} (OWN, PLATFORM or ENVIRONMENT) say where the channel's messages go now; the
+   * last send and failure come from the delivery log.
    */
   record ProviderSettingView(
       Channel channel,
@@ -51,6 +53,7 @@ public interface ProviderSettings {
       Map<String, String> settings,
       Map<String, String> secrets,
       boolean configured,
+      boolean secretsUnreadable,
       String effectiveProvider,
       String effectiveSource,
       Instant lastSentAt,
