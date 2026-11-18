@@ -35,6 +35,7 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 public class ProviderRouter {
 
   private static final Logger log = LoggerFactory.getLogger("notifications.log-provider");
+  private static final Logger LOG = LoggerFactory.getLogger(ProviderRouter.class);
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
   public static final String SOURCE_OWN = "OWN";
@@ -149,11 +150,40 @@ public class ProviderRouter {
     return read(row.getSettings());
   }
 
-  /** The secrets of a row, opened. */
+  /**
+   * The secrets of a row, opened. Refuses with a {@link ProviderException} when they were sealed
+   * under another {@code pharmacy.access.encryption-key}: they must be entered again.
+   */
   public Map<String, String> secrets(ProviderSetting row) {
-    return row.getSecrets() == null || row.getSecrets().isBlank()
-        ? Map.of()
-        : read(seal.open(row.getSecrets()));
+    if (row.getSecrets() == null || row.getSecrets().isBlank()) {
+      return Map.of();
+    }
+    String opened;
+    try {
+      opened = seal.open(row.getSecrets());
+    } catch (IllegalStateException unreadable) {
+      LOG.warn(
+          "The saved {} secrets of {} cannot be opened: {}",
+          row.getProvider(),
+          row.getTenantUid() == null ? "the platform" : "tenant " + row.getTenantUid(),
+          unreadable.getMessage());
+      throw new ProviderException(
+          "The saved "
+              + row.getProvider()
+              + " password or key can no longer be read (the server's encryption key changed)."
+              + " Enter it again in the message provider settings.");
+    }
+    return read(opened);
+  }
+
+  /** Whether a row's secrets can be opened with the current key (true when it has none). */
+  public boolean secretsReadable(ProviderSetting row) {
+    try {
+      secrets(row);
+      return true;
+    } catch (ProviderException unreadable) {
+      return false;
+    }
   }
 
   public String sealSecrets(Map<String, String> secrets) {
@@ -177,8 +207,19 @@ public class ProviderRouter {
 
   private Route configured(ProviderSetting row, String source) {
     Map<String, String> plain = plain(row);
-    Map<String, String> secret = secrets(row);
     String code = row.getProvider();
+    Map<String, String> secret;
+    try {
+      secret = secrets(row);
+    } catch (ProviderException unreadable) {
+      // Still a route, so settings pages load; each send fails with the reason.
+      return new Route(
+          code,
+          source,
+          (to, s, h, text) -> {
+            throw unreadable;
+          });
+    }
     ChannelSender sender =
         switch (row.getChannel()) {
           case EMAIL -> "smtp".equals(code) ? smtp(row, plain, secret) : logSender("email", source);

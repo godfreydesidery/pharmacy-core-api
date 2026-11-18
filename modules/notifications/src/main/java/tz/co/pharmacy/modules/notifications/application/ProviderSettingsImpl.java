@@ -177,9 +177,10 @@ class ProviderSettingsImpl implements ProviderSettings {
     if (plain.containsKey("port") && !plain.get("port").matches("\\d{1,5}")) {
       throw Refusal.invalid("invalid_port", "port must be a number.", "settings.port");
     }
-    // Secrets: keep the stored ones of the same provider, then apply the ones given.
+    // Secrets: keep the stored ones of the same provider, then apply the ones given. Stored ones
+    // sealed under another key are dropped, so the required check asks for them again.
     Map<String, String> secrets = new LinkedHashMap<>();
-    if (code.equals(row.getProvider()) && row.getSecrets() != null) {
+    if (code.equals(row.getProvider()) && row.getSecrets() != null && router.secretsReadable(row)) {
       secrets.putAll(router.secrets(row));
     }
     Map<String, String> newSecrets = command.secrets() == null ? Map.of() : command.secrets();
@@ -270,7 +271,9 @@ class ProviderSettingsImpl implements ProviderSettings {
     Optional<Definition> definition =
         row.flatMap(r -> ProviderCatalog.find(channel, r.getProvider()));
     Map<String, String> plain = row.map(ProviderRouter::plain).orElse(Map.of());
-    Map<String, String> secrets = row.map(router::secrets).orElse(Map.of());
+    boolean secretsUnreadable = row.map(r -> !router.secretsReadable(r)).orElse(false);
+    Map<String, String> secrets =
+        secretsUnreadable ? Map.of() : row.map(router::secrets).orElse(Map.of());
     Map<String, String> masked = new LinkedHashMap<>();
     secrets.forEach((k, v) -> masked.put(k, mask(v)));
     boolean configured =
@@ -295,6 +298,7 @@ class ProviderSettingsImpl implements ProviderSettings {
         plain,
         masked,
         configured,
+        secretsUnreadable,
         route.provider(),
         route.source(),
         lastSent.map(Message::getSentAt).orElse(null),

@@ -1,5 +1,6 @@
 package tz.co.pharmacy.delivery.edge;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,11 @@ public class AccessInterceptor implements HandlerInterceptor {
       HttpServletRequest request, HttpServletResponse response, Object handler) {
     if (!(handler instanceof HandlerMethod method)
         || !method.getBeanType().getName().startsWith(OWN_PACKAGE)) {
+      return true;
+    }
+    if (request.getDispatcherType() == DispatcherType.ASYNC) {
+      // The end of an async request (a notification stream closing): it was checked when it
+      // started, and the edge filter does not run again to rebuild the caller.
       return true;
     }
     Access access = method.getMethodAnnotation(Access.class);
