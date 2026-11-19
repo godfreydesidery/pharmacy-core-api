@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -64,6 +65,8 @@ class InvitationServiceImpl implements InvitationService {
   private final TransactionTemplate reads;
   private final String webUrl;
 
+  private final Clock clock;
+
   InvitationServiceImpl(
       InvitationRepository invitations,
       RoleRepository roles,
@@ -77,7 +80,9 @@ class InvitationServiceImpl implements InvitationService {
       ObjectProvider<AccessNotices> notices,
       DataSource dataSource,
       PlatformTransactionManager transactionManager,
-      @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl) {
+      @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl,
+      Clock clock) {
+    this.clock = clock;
     this.invitations = invitations;
     this.roles = roles;
     this.users = users;
@@ -112,7 +117,7 @@ class InvitationServiceImpl implements InvitationService {
             .isPresent()) {
       throw Refusal.conflict("already_a_member", email + " is already a member of this tenant.");
     }
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     invitations
         .findAllByTenantUidAndEmailAndAcceptedAtIsNullAndRevokedAtIsNull(tenant, email)
         .forEach(previous -> previous.revoke(now));
@@ -139,7 +144,7 @@ class InvitationServiceImpl implements InvitationService {
   @Override
   @Transactional(readOnly = true)
   public List<InvitationView> list() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     return invitations.findTop100ByTenantUidOrderByIdDesc(TenantContext.requireTenant()).stream()
         .map(invitation -> view(invitation, now))
         .toList();
@@ -151,7 +156,7 @@ class InvitationServiceImpl implements InvitationService {
     invitations
         .findByUidAndTenantUid(invitationUid, TenantContext.requireTenant())
         .orElseThrow(() -> Refusal.notFound("invitation_not_found", "No such invitation."))
-        .revoke(Instant.now());
+        .revoke(clock.instant());
   }
 
   @Override
@@ -170,7 +175,7 @@ class InvitationServiceImpl implements InvitationService {
                   invitation.getRole().getName(),
                   invitation.getInvitedBy(),
                   invitation.getExpiresAt(),
-                  invitation.status(Instant.now()),
+                  invitation.status(clock.instant()),
                   users.findByEmail(invitation.getEmail()).isPresent());
             });
     if (preview == null) {
@@ -182,7 +187,7 @@ class InvitationServiceImpl implements InvitationService {
   @Override
   public SignInOutcome accept(String token, String name, String password, ClientInfo client) {
     String hash = Tokens.hash(token == null ? "" : token.trim());
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     User user =
         ExecutionContext.callAs(
             SessionIssuer.serviceFrame(),

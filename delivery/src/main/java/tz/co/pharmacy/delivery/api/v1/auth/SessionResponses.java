@@ -23,6 +23,7 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
@@ -55,7 +56,7 @@ public class SessionResponses {
                       true,
                       "ACCEPTED",
                       "A second factor is required",
-                      Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                      Clocks.now().truncatedTo(ChronoUnit.MILLIS),
                       new ChallengeResponse(
                           challenge.challengeToken(), challenge.methods(), challenge.expiresAt())));
     };

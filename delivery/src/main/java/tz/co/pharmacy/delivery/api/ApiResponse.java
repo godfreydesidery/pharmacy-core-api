@@ -2,6 +2,7 @@ package tz.co.pharmacy.delivery.api;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /** The success envelope of every response: whether it succeeded, a code, a message and the data. */
 public record ApiResponse<T>(
@@ -20,6 +21,6 @@ public record ApiResponse<T>(
   }
 
   private static Instant now() {
-    return Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    return Clocks.now().truncatedTo(ChronoUnit.MILLIS);
   }
 }

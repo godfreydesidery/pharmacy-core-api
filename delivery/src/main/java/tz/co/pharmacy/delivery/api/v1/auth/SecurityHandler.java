@@ -27,6 +27,7 @@ import tz.co.pharmacy.modules.access.ports.inbound.PasswordResetService;
 import tz.co.pharmacy.modules.access.ports.inbound.SecurityOverview;
 import tz.co.pharmacy.modules.access.ports.inbound.TwoFactorService;
 import tz.co.pharmacy.modules.access.ports.inbound.TwoFactorSetup;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
@@ -156,7 +157,7 @@ public class SecurityHandler {
         true,
         "ACCEPTED",
         "If the email has an account, a reset link is on its way",
-        java.time.Instant.now(),
+        Clocks.now(),
         null);
   }
 

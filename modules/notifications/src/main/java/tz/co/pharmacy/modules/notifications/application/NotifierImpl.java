@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.notifications.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -50,6 +51,8 @@ class NotifierImpl implements Notifier {
   private final String defaultCountryCode;
 
   @SuppressWarnings("java:S107")
+  private final Clock clock;
+
   NotifierImpl(
       MessageRepository messages,
       InboxRepository inbox,
@@ -58,7 +61,9 @@ class NotifierImpl implements Notifier {
       NotificationDirectory directory,
       PendingScopes pending,
       Dispatcher dispatcher,
-      @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode) {
+      @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode,
+      Clock clock) {
+    this.clock = clock;
     this.messages = messages;
     this.inbox = inbox;
     this.preferences = preferences;
@@ -88,7 +93,7 @@ class NotifierImpl implements Notifier {
     Map<String, Object> params =
         new HashMap<>(request.params() == null ? Map.of() : request.params());
     params.putIfAbsent("name", recipient.name() == null ? "" : recipient.name());
-    Instant now = Instant.now();
+    Instant now = clock.instant();
 
     List<UUID> queued = new ArrayList<>();
     Set<UUID> inboxUsers = new LinkedHashSet<>();

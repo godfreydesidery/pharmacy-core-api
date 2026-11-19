@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -54,6 +55,8 @@ class AuthenticationServiceImpl implements AuthenticationService {
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
 
+  private final Clock clock;
+
   AuthenticationServiceImpl(
       UserRepository users,
       SessionRepository sessions,
@@ -64,7 +67,9 @@ class AuthenticationServiceImpl implements AuthenticationService {
       SignInGuard guard,
       SessionIssuer issuer,
       AuditLog audit,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.users = users;
     this.sessions = sessions;
     this.memberships = memberships;
@@ -83,7 +88,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
   public SignInOutcome signIn(String email, String password, ClientInfo client) {
     ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
     String normalised = email == null ? "" : email.trim().toLowerCase();
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     guard.checkClient(from.ip(), now);
     Optional<User> found = reads.execute(status -> users.findByEmail(normalised));
     User user = found == null ? null : found.orElse(null);
@@ -137,7 +142,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
 
   private SignInOutcome challenge(User user, ClientInfo from) {
     String token = "pch_" + Tokens.newToken().substring(4);
-    Instant expiresAt = Instant.now().plus(CHALLENGE_LENGTH);
+    Instant expiresAt = clock.instant().plus(CHALLENGE_LENGTH);
     Boolean hasPasskey =
         ExecutionContext.callAs(
             SessionIssuer.userFrame(user),
@@ -165,7 +170,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
     if (token == null || token.isBlank()) {
       return Optional.empty();
     }
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Optional<Live> live =
         reads.execute(
             status ->
@@ -202,7 +207,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 .findByTokenHash(Tokens.hash(token.trim()))
                 .ifPresent(
                     session -> {
-                      session.revoke(Instant.now());
+                      session.revoke(clock.instant());
                       audit.record("SIGN_OUT", "User", session.getUserUid(), null, null);
                     }));
   }
@@ -230,7 +235,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
           int revoked =
               currentToken == null
                   ? 0
-                  : sessions.revokeAll(userUid, Instant.now(), Tokens.hash(currentToken.trim()));
+                  : sessions.revokeAll(userUid, clock.instant(), Tokens.hash(currentToken.trim()));
           audit.record(
               "PASSWORD_CHANGED", "User", userUid, null, Map.of("otherSessionsRevoked", revoked));
         });
@@ -242,7 +247,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
     List<SessionView> views =
         reads.execute(
             status ->
-                sessions.findLive(userUid, Instant.now()).stream()
+                sessions.findLive(userUid, clock.instant()).stream()
                     .map(
                         session ->
                             new SessionView(
@@ -267,7 +272,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                   .findByUid(sessionUid)
                   .filter(found -> found.getUserUid().equals(userUid))
                   .orElseThrow(() -> Refusal.notFound("session_not_found", "No such session."));
-          session.revoke(Instant.now());
+          session.revoke(clock.instant());
           audit.record(
               "SESSION_REVOKED", "User", userUid, null, Map.of("session", sessionUid.toString()));
         });
@@ -282,7 +287,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
         writes.execute(
             status -> {
               int count =
-                  sessions.revokeAll(userUid, Instant.now(), Tokens.hash(currentToken.trim()));
+                  sessions.revokeAll(userUid, clock.instant(), Tokens.hash(currentToken.trim()));
               audit.record(
                   "OTHER_SESSIONS_REVOKED", "User", userUid, null, Map.of("revoked", count));
               return count;

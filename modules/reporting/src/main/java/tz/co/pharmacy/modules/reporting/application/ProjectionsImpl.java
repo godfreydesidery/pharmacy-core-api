@@ -1,6 +1,7 @@
 package tz.co.pharmacy.modules.reporting.application;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -14,6 +15,7 @@ import tz.co.pharmacy.modules.reporting.ports.inbound.PurchaseFact;
 import tz.co.pharmacy.modules.reporting.ports.inbound.SaleFact;
 import tz.co.pharmacy.modules.reporting.ports.outbound.ReportingTenant;
 import tz.co.pharmacy.platform.kernel.Amounts;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /**
  * Adds each fact to the day it happened on, in the tenant's timezone. Each write is one atomic
@@ -130,8 +132,9 @@ class ProjectionsImpl implements Projections {
   private boolean firstDelivery(UUID eventId) {
     return jdbc.update(
             "insert into reporting.processed_events (tenant_uid, event_id, processed_at)"
-                + " values (platform.current_tenant_uid(), ?, now()) on conflict do nothing",
-            eventId)
+                + " values (platform.current_tenant_uid(), ?, ?) on conflict do nothing",
+            eventId,
+            Timestamp.from(Clocks.now()))
         == 1;
   }
 

@@ -1,11 +1,11 @@
 package tz.co.pharmacy.platform.bus;
 
-import java.time.Instant;
 import java.util.function.Function;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.DomainEvent;
 import tz.co.pharmacy.platform.kernel.EventMetadata;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -35,7 +35,7 @@ public class DomainEventPublisher {
             type,
             TenantContext.tenantUid().orElse(null),
             ExecutionContext.branchUid().orElse(null),
-            Instant.now(),
+            Clocks.now(),
             ExecutionContext.actor().reference(),
             ExecutionContext.correlationId().orElse(null));
     E event = factory.apply(metadata);

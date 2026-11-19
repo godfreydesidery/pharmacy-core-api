@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,11 @@ class TwoFactorServiceImpl implements TwoFactorService {
   private final AuditLog audit;
   private final TransactionTemplate writes;
 
+  /** TOTP codes come from the user's authenticator app, which keeps real time. */
+  private static final Clock WALL_CLOCK = Clock.systemUTC();
+
+  private final Clock clock;
+
   TwoFactorServiceImpl(
       UserRepository users,
       RecoveryCodeRepository recoveryCodes,
@@ -53,7 +59,9 @@ class TwoFactorServiceImpl implements TwoFactorService {
       SessionIssuer issuer,
       AuthenticationServiceImpl authentication,
       AuditLog audit,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.users = users;
     this.recoveryCodes = recoveryCodes;
     this.challenges = challenges;
@@ -101,11 +109,11 @@ class TwoFactorServiceImpl implements TwoFactorService {
     if (user.getTotpSecret() == null) {
       throw Refusal.invalid("two_factor_not_started", "Start the two-factor set-up first.", "code");
     }
-    long step = Totp.match(secrets.open(user.getTotpSecret()), code, Instant.now());
+    long step = Totp.match(secrets.open(user.getTotpSecret()), code, WALL_CLOCK.instant());
     if (step < 0) {
       throw invalidCode();
     }
-    user.enableTwoFactor(Instant.now(), step);
+    user.enableTwoFactor(clock.instant(), step);
     List<String> codes = replaceRecoveryCodes(userUid);
     audit.record("TWO_FACTOR_ENABLED", "User", userUid, null, null);
     return codes;
@@ -144,7 +152,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
   @Override
   public SignInResult verify(String challengeToken, String code, ClientInfo client) {
     ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     String hash = Tokens.hash(challengeToken == null ? "" : challengeToken.trim());
     SignInChallenge open =
         ExecutionContext.callAs(
@@ -197,7 +205,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
       return false;
     }
     if (user.getTotpSecret() != null && code.replaceAll("\\s", "").matches("\\d{6}")) {
-      long step = Totp.match(secrets.open(user.getTotpSecret()), code, Instant.now());
+      long step = Totp.match(secrets.open(user.getTotpSecret()), code, WALL_CLOCK.instant());
       if (step < 0) {
         return false;
       }
@@ -213,7 +221,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
           .findByUserUidAndCodeHashAndUsedAtIsNull(user.getUid(), RecoveryCodes.hash(code))
           .map(
               recovery -> {
-                recovery.use(Instant.now());
+                recovery.use(clock.instant());
                 audit.record(
                     "RECOVERY_CODE_USED",
                     "User",

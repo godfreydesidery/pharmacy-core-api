@@ -1,6 +1,9 @@
 package tz.co.pharmacy.platform.persistence.audit;
 
 import jakarta.persistence.EntityManagerFactory;
+import java.sql.Date;
+import java.time.Clock;
+import java.time.LocalDate;
 import javax.sql.DataSource;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.event.service.spi.EventListenerRegistry;
@@ -46,24 +49,30 @@ public class AuditConfiguration {
   }
 
   @Bean
-  AuditPartitions auditPartitions(DataSource dataSource) {
-    return new AuditPartitions(new JdbcTemplate(dataSource));
+  AuditPartitions auditPartitions(DataSource dataSource, Clock clock) {
+    return new AuditPartitions(new JdbcTemplate(dataSource), clock);
   }
 
-  /** Keeps this month's and the next two months' partitions in place. */
+  /**
+   * Keeps the partitions of the clock's month and the next two in place: at start, every night, and
+   * whenever a simulated clock moves forward.
+   */
   public static class AuditPartitions {
 
     private final JdbcTemplate jdbc;
+    private final Clock clock;
 
-    AuditPartitions(JdbcTemplate jdbc) {
+    AuditPartitions(JdbcTemplate jdbc, Clock clock) {
       this.jdbc = jdbc;
+      this.clock = clock;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Scheduled(cron = "0 15 2 * * *", zone = "UTC")
     public void ensure() {
       try {
-        jdbc.queryForList("select audit.ensure_partitions(2)");
+        jdbc.queryForList(
+            "select audit.ensure_partitions(?::date, 2)", Date.valueOf(LocalDate.now(clock)));
       } catch (RuntimeException failure) {
         log.warn("Could not create the audit partitions: {}", failure.getMessage());
       }

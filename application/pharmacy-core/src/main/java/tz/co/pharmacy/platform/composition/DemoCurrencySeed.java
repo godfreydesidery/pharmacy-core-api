@@ -13,6 +13,7 @@ import tz.co.pharmacy.modules.tenancy.events.TenantRegistered;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeSettingsCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.platform.bus.EventScopes;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /**
  * The demo tenant of a local run also accepts US dollars and Kenyan shillings, with today's rates
@@ -44,7 +45,7 @@ class DemoCurrencySeed {
           settings.change(
               new ChangeSettingsCommand(
                   null, null, null, null, null, null, null, List.of("USD", "KES")));
-          LocalDate today = LocalDate.now();
+          LocalDate today = LocalDate.now(Clocks.clock());
           rates.record(new RateCommand("USD", "TZS", new BigDecimal("2650"), today));
           rates.record(new RateCommand("KES", "TZS", new BigDecimal("20.45"), today));
         });

@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -39,6 +40,8 @@ class PasswordResetServiceImpl implements PasswordResetService {
   private final TransactionTemplate writes;
   private final String webUrl;
 
+  private final Clock clock;
+
   PasswordResetServiceImpl(
       UserRepository users,
       PasswordResetRepository resets,
@@ -47,7 +50,9 @@ class PasswordResetServiceImpl implements PasswordResetService {
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
       PlatformTransactionManager transactionManager,
-      @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl) {
+      @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl,
+      Clock clock) {
+    this.clock = clock;
     this.users = users;
     this.resets = resets;
     this.sessions = sessions;
@@ -83,7 +88,7 @@ class PasswordResetServiceImpl implements PasswordResetService {
                     new PasswordReset(
                         Tokens.hash(token),
                         user.getUid(),
-                        Instant.now().plus(Duration.ofMinutes(VALID_MINUTES)),
+                        clock.instant().plus(Duration.ofMinutes(VALID_MINUTES)),
                         SessionIssuer.trim(ip, 64)));
                 String link = webUrl + "/reset-password?token=" + token;
                 notices.ifAvailable(
@@ -103,7 +108,7 @@ class PasswordResetServiceImpl implements PasswordResetService {
 
   @Override
   public void complete(String token, String newPassword) {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     PasswordReset reset =
         resets
             .findByTokenHash(Tokens.hash(token == null ? "" : token.trim()))

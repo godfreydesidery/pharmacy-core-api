@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.notifications.application;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -24,11 +25,15 @@ class RetryJob {
   private final MessageRepository messages;
   private final TransactionTemplate transactions;
 
+  private final Clock clock;
+
   RetryJob(
       PendingScopes pending,
       Dispatcher dispatcher,
       MessageRepository messages,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.pending = pending;
     this.dispatcher = dispatcher;
     this.messages = messages;
@@ -40,7 +45,7 @@ class RetryJob {
       initialDelayString = "${pharmacy.notifications.retry.initial-delay:PT30S}",
       fixedDelayString = "${pharmacy.notifications.retry.every:PT1M}")
   void retryDue() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     for (UUID scope : pending.dueBy(now)) {
       UUID tenant = PendingScopes.tenantOf(scope);
       Dispatcher.inScope(

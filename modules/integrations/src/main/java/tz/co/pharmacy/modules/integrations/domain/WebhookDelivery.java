@@ -11,6 +11,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.integrations.ports.inbound.DeliveryStatus;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.persistence.TenantEntity;
 
 /** One event sent, or being sent, to one webhook, with the outcome of its last attempt. */
@@ -58,6 +59,6 @@ public class WebhookDelivery extends TenantEntity {
     this.responseStatus = responseStatus;
     this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
     this.status = delivered ? DeliveryStatus.DELIVERED : DeliveryStatus.FAILED;
-    this.deliveredAt = delivered ? Instant.now() : null;
+    this.deliveredAt = delivered ? Clocks.now() : null;
   }
 }

@@ -30,6 +30,7 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsView;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.bus.EventScopes;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.EventMetadata;
 
 /**
@@ -84,7 +85,7 @@ class NotificationReactions {
               branchUid == null
                   ? "your pharmacy"
                   : branches.find(branchUid).map(BranchView::name).orElse("your branch");
-          String today = LocalDate.now().toString();
+          String today = LocalDate.now(Clocks.clock()).toString();
           for (Recipient recipient : directory.usersWithPermission("inventory.adjust", branchUid)) {
             notifier.send(
                 new NotificationRequest(

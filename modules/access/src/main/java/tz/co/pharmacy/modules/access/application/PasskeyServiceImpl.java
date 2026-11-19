@@ -17,6 +17,7 @@ import com.yubico.webauthn.data.ResidentKeyRequirement;
 import com.yubico.webauthn.data.UserIdentity;
 import com.yubico.webauthn.data.UserVerificationRequirement;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -67,6 +68,8 @@ class PasskeyServiceImpl implements PasskeyService {
   private final AuditLog audit;
   private final TransactionTemplate writes;
 
+  private final Clock clock;
+
   PasskeyServiceImpl(
       RelyingParty relyingParty,
       UserRepository users,
@@ -75,7 +78,9 @@ class PasskeyServiceImpl implements PasskeyService {
       SessionIssuer issuer,
       SignInGuard guard,
       AuditLog audit,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.relyingParty = relyingParty;
     this.users = users;
     this.passkeys = passkeys;
@@ -118,7 +123,7 @@ class PasskeyServiceImpl implements PasskeyService {
                   WebauthnCeremony.REGISTER,
                   userUid,
                   options.toJson(),
-                  Instant.now().plus(CEREMONY)));
+                  clock.instant().plus(CEREMONY)));
       return new PasskeyOptions(ceremony.getUid(), options.toCredentialsCreateJson());
     } catch (java.io.IOException impossible) {
       throw new IllegalStateException(impossible);
@@ -129,7 +134,7 @@ class PasskeyServiceImpl implements PasskeyService {
   @Transactional
   public PasskeyView finishRegistration(
       UUID userUid, UUID ceremonyUid, String credentialJson, String name) {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     WebauthnCeremony ceremony = ceremony(ceremonyUid, WebauthnCeremony.REGISTER, now);
     if (!userUid.equals(ceremony.getUserUid())) {
       throw expired();
@@ -201,7 +206,7 @@ class PasskeyServiceImpl implements PasskeyService {
                                 WebauthnCeremony.ASSERT,
                                 null,
                                 request.toJson(),
-                                Instant.now().plus(CEREMONY)));
+                                clock.instant().plus(CEREMONY)));
                     return new PasskeyOptions(ceremony.getUid(), request.toCredentialsGetJson());
                   } catch (java.io.IOException impossible) {
                     throw new IllegalStateException(impossible);
@@ -212,7 +217,7 @@ class PasskeyServiceImpl implements PasskeyService {
   @Override
   public SignInResult finishSignIn(UUID ceremonyUid, String credentialJson, ClientInfo client) {
     ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     guard.checkClient(from.ip(), now);
     User user =
         ExecutionContext.callAs(

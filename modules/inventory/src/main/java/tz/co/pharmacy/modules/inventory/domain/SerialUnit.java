@@ -13,6 +13,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.inventory.ports.inbound.SerialStatus;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.persistence.TenantEntity;
 
 /** One unit of a serial-tracked product: its serial number, branch and status. */
@@ -48,7 +49,7 @@ public class SerialUnit extends TenantEntity {
   public void sell(String reference) {
     status = SerialStatus.SOLD;
     saleReference = reference;
-    soldAt = Instant.now();
+    soldAt = Clocks.now();
   }
 
   /** Back in stock at the branch after a sales return; it keeps its sale history. */

@@ -7,6 +7,7 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.persistence.MutableEntity;
 import tz.co.pharmacy.platform.persistence.audit.AuditIgnore;
 
@@ -45,7 +46,7 @@ public class Session extends MutableEntity {
     this.ip = ip;
     this.userAgent = userAgent;
     this.method = method;
-    this.lastSeenAt = Instant.now();
+    this.lastSeenAt = Clocks.now();
   }
 
   public boolean liveAt(Instant at) {

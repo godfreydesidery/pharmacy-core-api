@@ -16,6 +16,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.persistence.TenantEntity;
 
 /** Stock sent from one branch to another: in transit once dispatched, then received. */
@@ -69,6 +70,6 @@ public class Transfer extends TenantEntity {
 
   public void markReceived() {
     this.status = TransferStatus.RECEIVED;
-    this.receivedAt = Instant.now();
+    this.receivedAt = Clocks.now();
   }
 }
