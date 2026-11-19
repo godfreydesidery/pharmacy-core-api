@@ -81,7 +81,7 @@ class SessionIssuer {
                           trim(from.userAgent(), 400),
                           method));
                   User row = users.findByUid(user.getUid()).orElse(user);
-                  row.signedIn(now);
+                  users.markSignedIn(user.getUid(), now);
                   Map<String, Object> details = new LinkedHashMap<>();
                   details.put("method", method);
                   details.put("ip", from.ip());
