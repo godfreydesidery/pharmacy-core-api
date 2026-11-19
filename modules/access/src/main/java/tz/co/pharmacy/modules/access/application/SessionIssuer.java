@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -40,6 +41,8 @@ class SessionIssuer {
   private final Duration sessionLength;
   private final boolean twoFactorRequiredForRoot;
 
+  private final Clock clock;
+
   SessionIssuer(
       UserRepository users,
       SessionRepository sessions,
@@ -47,7 +50,9 @@ class SessionIssuer {
       ObjectProvider<AccessNotices> notices,
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.access.session-hours:12}") long sessionHours,
-      @Value("${pharmacy.access.require-2fa-for-root:false}") boolean twoFactorRequiredForRoot) {
+      @Value("${pharmacy.access.require-2fa-for-root:false}") boolean twoFactorRequiredForRoot,
+      Clock clock) {
+    this.clock = clock;
     this.users = users;
     this.sessions = sessions;
     this.audit = audit;
@@ -65,7 +70,7 @@ class SessionIssuer {
         () ->
             writes.execute(
                 status -> {
-                  Instant now = Instant.now();
+                  Instant now = clock.instant();
                   boolean known = sessions.existsByUserUid(user.getUid());
                   boolean sameDevice =
                       from.userAgent() != null

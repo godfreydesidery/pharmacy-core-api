@@ -1,6 +1,6 @@
 package tz.co.pharmacy.modules.notifications.application;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -21,7 +21,10 @@ class InAppInboxImpl implements InAppInbox {
 
   private final InboxRepository inbox;
 
-  InAppInboxImpl(InboxRepository inbox) {
+  private final Clock clock;
+
+  InAppInboxImpl(InboxRepository inbox, Clock clock) {
+    this.clock = clock;
     this.inbox = inbox;
   }
 
@@ -53,7 +56,7 @@ class InAppInboxImpl implements InAppInbox {
   @Override
   @Transactional
   public void markAllRead() {
-    inbox.markAllRead(me(), Instant.now());
+    inbox.markAllRead(me(), clock.instant());
   }
 
   private static UUID me() {

@@ -84,6 +84,47 @@ class CodeRulesTest {
   }
 
   @Test
+  @DisplayName("time comes from the application clock, so a simulated world can move it")
+  void timeComesFromTheClock() {
+    noClasses()
+        .that()
+        .doNotHaveFullyQualifiedName("tz.co.pharmacy.platform.kernel.Clocks")
+        .and()
+        .doNotHaveFullyQualifiedName("tz.co.pharmacy.platform.kernel.SimulatedClock")
+        .and()
+        .doNotHaveFullyQualifiedName("tz.co.pharmacy.platform.config.PlatformConfiguration")
+        // Wall time on purpose: uid ordering, TOTP codes from the user's phone, and request
+        // throttles, which measure real traffic.
+        .and()
+        .doNotHaveFullyQualifiedName("tz.co.pharmacy.platform.kernel.Uids")
+        .and()
+        .doNotHaveFullyQualifiedName(
+            "tz.co.pharmacy.modules.access.application.TwoFactorServiceImpl")
+        .and()
+        .resideOutsideOfPackage("tz.co.pharmacy.delivery.edge..")
+        .should()
+        .callMethod(java.time.Instant.class, "now")
+        .orShould()
+        .callMethod(java.time.LocalDate.class, "now")
+        .orShould()
+        .callMethod(java.time.LocalDateTime.class, "now")
+        .orShould()
+        .callMethod(java.time.OffsetDateTime.class, "now")
+        .orShould()
+        .callMethod(java.time.ZonedDateTime.class, "now")
+        .orShould()
+        .callMethod(java.time.LocalTime.class, "now")
+        .orShould()
+        .callMethod(System.class, "currentTimeMillis")
+        .orShould()
+        .callMethod(java.time.Clock.class, "systemUTC")
+        .orShould()
+        .callMethod(java.time.Clock.class, "systemDefaultZone")
+        .because("Instant.now() and friends ignore the simulated clock")
+        .check(CLASSES);
+  }
+
+  @Test
   @DisplayName("handlers live in delivery.api.v1")
   void handlersAreVersioned() {
     classes()

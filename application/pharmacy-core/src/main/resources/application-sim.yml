@@ -1,0 +1,21 @@
+# The simulated world: run with the local profile first (--spring.profiles.active=local,sim).
+# The clock is a SimulatedClock the world moves forward (/api/v1/platform/sim/clock); the world
+# seeds its own pharmacies through the API, so the demo tenant is left out. See pharmacy-world.
+# Never on a server with real pharmacies: the API refuses to start under sim unless the local
+# profile is on too, or PHARMACY_SIM_ALLOWED=true marks a dedicated demo service.
+pharmacy:
+  seed:
+    demo: false
+  access:
+    # Sessions outlast a simulated quarter, so the world's hundreds of staff do not sign in again
+    # every simulated day; real-time sign-in limits are for real traffic, not one laptop.
+    session-hours: 2400
+  edge:
+    auth-requests-per-minute: 100000
+  integrations:
+    payments:
+      # Push payments approve, decline, fail for funds or go unanswered by the phone's last digits.
+      simulator-outcomes: by-phone
+    fx:
+      # Nothing fetches rates from outside; a world sets its rates through the API.
+      refresh-cron: "-"

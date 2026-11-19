@@ -22,6 +22,7 @@ import tz.co.pharmacy.modules.receivables.events.PaymentReceived;
 import tz.co.pharmacy.modules.receivables.ports.inbound.CustomerCredit;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.platform.bus.EventScopes;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.EventMetadata;
 
 /**
@@ -179,7 +180,7 @@ public class CreditReactions {
             .find(metadata.tenantUid())
             .map(tenant -> ZoneId.of(tenant.timezone()))
             .orElse(ZoneOffset.UTC);
-    Instant at = metadata.occurredAt() == null ? Instant.now() : metadata.occurredAt();
+    Instant at = metadata.occurredAt() == null ? Clocks.now() : metadata.occurredAt();
     return LocalDate.ofInstant(at, zone);
   }
 }

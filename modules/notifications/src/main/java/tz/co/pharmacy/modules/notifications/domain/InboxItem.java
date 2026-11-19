@@ -8,6 +8,7 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /** One in-app message in a user's inbox. */
 @Getter
@@ -42,7 +43,7 @@ public class InboxItem extends ScopedEntity {
 
   public void markRead() {
     if (readAt == null) {
-      readAt = Instant.now();
+      readAt = Clocks.now();
     }
   }
 }

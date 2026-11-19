@@ -9,6 +9,7 @@ import jakarta.persistence.PrePersist;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.Getter;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Uids;
 
@@ -36,7 +37,7 @@ public abstract class RecordedEntity {
 
   @PrePersist
   void recordCreation() {
-    createdAt = Instant.now();
+    createdAt = Clocks.now();
     createdBy = ExecutionContext.actor().reference();
   }
 }

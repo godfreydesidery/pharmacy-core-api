@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.notifications.application;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -44,6 +45,8 @@ class Dispatcher {
   private final TransactionTemplate transactions;
 
   @SuppressWarnings("java:S107")
+  private final Clock clock;
+
   Dispatcher(
       MessageRepository messages,
       InboxRepository inbox,
@@ -51,7 +54,9 @@ class Dispatcher {
       PendingScopes pending,
       ApplicationEventPublisher events,
       @Qualifier("notificationSenders") ExecutorService senders,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.messages = messages;
     this.inbox = inbox;
     this.router = router;
@@ -91,7 +96,7 @@ class Dispatcher {
 
   /** Sends one message if this caller wins its claim; the current thread is in its scope. */
   void deliver(UUID messageUid) {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     Integer claimed =
         transactions.execute(
             status -> messages.claim(messageUid, now, now.plusSeconds(300), Message.MAX_ATTEMPTS));
@@ -145,7 +150,7 @@ class Dispatcher {
                         row.failed(
                             used,
                             outcome,
-                            Instant.now().plus(Backoff.after(row.getAttempts() + 1)));
+                            clock.instant().plus(Backoff.after(row.getAttempts() + 1)));
                       }
                     }));
   }

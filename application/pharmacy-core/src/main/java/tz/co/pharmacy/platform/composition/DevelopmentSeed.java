@@ -51,6 +51,7 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.RegisterTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.persistence.TenantContext;
@@ -570,7 +571,7 @@ class DevelopmentSeed {
                     .uid());
 
     // Stock at both branches: most batches far from expiry, a few near it, one product low.
-    LocalDate today = LocalDate.now();
+    LocalDate today = LocalDate.now(Clocks.clock());
     for (BranchView branch : List.of(hq, mbezi)) {
       List<ReceiptLineCommand> lines = new ArrayList<>();
       for (int i = 0; i < products.size(); i++) {

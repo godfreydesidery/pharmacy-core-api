@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.finance.application;
 
+import java.sql.Timestamp;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.finance.ports.inbound.AccountType;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Uids;
 
@@ -67,12 +69,13 @@ class ChartOfAccounts {
     for (Seed seed : DEFAULT) {
       jdbc.update(
           "insert into finance.accounts (uid, tenant_uid, code, name, type, created_at, created_by,"
-              + " version) values (?, platform.current_tenant_uid(), ?, ?, ?, now(), ?, 0)"
+              + " version) values (?, platform.current_tenant_uid(), ?, ?, ?, ?, ?, 0)"
               + " on conflict (tenant_uid, code) do nothing",
           Uids.newUid(),
           seed.code(),
           seed.name(),
           seed.type().name(),
+          Timestamp.from(Clocks.now()),
           actor);
     }
   }

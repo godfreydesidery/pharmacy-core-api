@@ -1,6 +1,7 @@
 package tz.co.pharmacy.modules.integrations.application;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -57,12 +58,16 @@ class WebhooksImpl implements Webhooks {
   private final TransactionTemplate transactions;
   private final JsonMapper json = JsonMapper.builder().build();
 
+  private final Clock clock;
+
   WebhooksImpl(
       WebhookRepository webhooks,
       WebhookDeliveryRepository deliveries,
       WebhookSender sender,
       WebhookTargets targets,
-      PlatformTransactionManager transactionManager) {
+      PlatformTransactionManager transactionManager,
+      Clock clock) {
+    this.clock = clock;
     this.webhooks = webhooks;
     this.deliveries = deliveries;
     this.sender = sender;
@@ -172,7 +177,7 @@ class WebhooksImpl implements Webhooks {
     event.put("id", eventId.toString());
     event.put("source", "pharmacy-core/tenants/" + tenantUid);
     event.put("type", eventType);
-    event.put("time", (occurredAt == null ? Instant.now() : occurredAt).toString());
+    event.put("time", (occurredAt == null ? clock.instant() : occurredAt).toString());
     event.put("datacontenttype", "application/json");
     JsonNode payload = json.valueToTree(data);
     if (payload instanceof ObjectNode object) {

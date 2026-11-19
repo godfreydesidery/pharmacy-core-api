@@ -5,6 +5,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import lombok.Getter;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 
 /**
@@ -22,7 +23,7 @@ public abstract class MutableEntity extends RecordedEntity {
 
   @PreUpdate
   void recordUpdate() {
-    updatedAt = Instant.now();
+    updatedAt = Clocks.now();
     updatedBy = ExecutionContext.actor().reference();
   }
 }

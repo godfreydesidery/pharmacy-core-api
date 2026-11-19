@@ -1,5 +1,6 @@
 package tz.co.pharmacy.modules.access.application;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,11 +25,15 @@ class SignInGuard {
   private final FailureWindow unknownEmails;
   private final FailureWindow clients;
 
+  private final Clock clock;
+
   SignInGuard(
       @Value("${pharmacy.access.lockout.max-failures:5}") int maxFailures,
       @Value("${pharmacy.access.lockout.window-minutes:15}") long windowMinutes,
       @Value("${pharmacy.access.lockout.lock-minutes:15}") long lockMinutes,
-      @Value("${pharmacy.access.lockout.ip-max-failures:20}") int ipMaxFailures) {
+      @Value("${pharmacy.access.lockout.ip-max-failures:20}") int ipMaxFailures,
+      Clock clock) {
+    this.clock = clock;
     this.maxFailures = maxFailures;
     this.window = Duration.ofMinutes(windowMinutes);
     this.lockFor = Duration.ofMinutes(lockMinutes);
@@ -94,7 +99,7 @@ class SignInGuard {
 
   @Scheduled(fixedDelay = 600_000)
   void prune() {
-    Instant now = Instant.now();
+    Instant now = clock.instant();
     unknownEmails.prune(now);
     clients.prune(now);
   }

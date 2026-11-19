@@ -27,6 +27,7 @@ import tz.co.pharmacy.modules.sales.events.SaleReturned;
 import tz.co.pharmacy.modules.sales.events.VoucherIssued;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.platform.bus.EventScopes;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /**
  * Posts the journal entries of sales, sale returns and goods receipts after they commit, on the
@@ -180,7 +181,7 @@ public class LedgerReactions {
   private LocalDate localDate(UUID tenantUid, Instant occurredAt) {
     ZoneId zone =
         tenants.find(tenantUid).map(tenant -> ZoneId.of(tenant.timezone())).orElse(ZoneOffset.UTC);
-    return LocalDate.ofInstant(occurredAt == null ? Instant.now() : occurredAt, zone);
+    return LocalDate.ofInstant(occurredAt == null ? Clocks.now() : occurredAt, zone);
   }
 
   /**

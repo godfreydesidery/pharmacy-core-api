@@ -11,6 +11,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
+import tz.co.pharmacy.platform.kernel.Clocks;
 
 /** One message to one address on one channel: the outbox row and its delivery record. */
 @Getter
@@ -96,7 +97,7 @@ public class Message extends ScopedEntity {
     this.status = MessageStatus.SENT;
     this.provider = "in-app";
     this.attempts = 1;
-    this.sentAt = Instant.now();
+    this.sentAt = Clocks.now();
     this.nextAttemptAt = null;
   }
 
@@ -104,7 +105,7 @@ public class Message extends ScopedEntity {
     this.attempts++;
     this.status = MessageStatus.SENT;
     this.provider = providerName;
-    this.sentAt = Instant.now();
+    this.sentAt = Clocks.now();
     this.lastError = null;
     this.nextAttemptAt = null;
   }

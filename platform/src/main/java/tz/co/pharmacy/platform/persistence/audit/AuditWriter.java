@@ -1,12 +1,12 @@
 package tz.co.pharmacy.platform.persistence.audit;
 
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.json.JsonMapper;
 import tz.co.pharmacy.platform.kernel.Actor;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Uids;
 import tz.co.pharmacy.platform.persistence.TenantContext;
@@ -47,7 +47,7 @@ final class AuditWriter {
             + " entity_uid, before, after, correlation_id, label)"
             + " values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)",
         Uids.newUid(),
-        Timestamp.from(Instant.now()),
+        Timestamp.from(Clocks.now()),
         TenantContext.tenantUid().orElse(null),
         ExecutionContext.branchUid().orElse(null),
         actor(),

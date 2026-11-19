@@ -28,7 +28,7 @@ class WebhookPayloadTest {
         new EventMetadata(eventId, "sale.completed", tenantUid, null, at, "a@b.c", "corr");
 
     String body =
-        new WebhooksImpl(null, null, null, null, null)
+        new WebhooksImpl(null, null, null, null, null, java.time.Clock.systemUTC())
             .cloudEvent(
                 eventId,
                 "sale.completed",
