@@ -15,4 +15,6 @@ public record SettingsView(
     /* The base currency first, then the accepted foreign currencies. */
     java.util.List<String> acceptedCurrencies,
     /* Selling prices include VAT (true) or have it added on top (false). */
-    boolean pricesIncludeTax) {}
+    boolean pricesIncludeTax,
+    /* How the web app looks for everyone in the pharmacy: PREMIUM or CLASSIC. */
+    String look) {}
