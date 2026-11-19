@@ -57,7 +57,8 @@ public class SettingsHandler {
                 body.lowStockAlerts(),
                 body.smsReceipts(),
                 body.acceptedCurrencies(),
-                body.pricesIncludeTax())),
+                body.pricesIncludeTax(),
+                body.look())),
         "Settings changed");
   }
 
@@ -112,5 +113,6 @@ public class SettingsHandler {
       Boolean lowStockAlerts,
       Boolean smsReceipts,
       java.util.List<String> acceptedCurrencies,
-      Boolean pricesIncludeTax) {}
+      Boolean pricesIncludeTax,
+      String look) {}
 }

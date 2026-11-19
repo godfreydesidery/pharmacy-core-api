@@ -31,6 +31,12 @@ public class TenantSettings extends TenantEntity {
    */
   private boolean pricesIncludeTax;
 
+  /** How the web app looks for everyone in the pharmacy: {@code PREMIUM} or {@code CLASSIC}. */
+  private String look;
+
+  /** The looks a pharmacy can choose. */
+  public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
+
   /**
    * The foreign currencies the tenant accepts besides its base, as ISO codes joined by commas, such
    * as {@code USD,KES}; null or empty for the base only.
@@ -57,6 +63,13 @@ public class TenantSettings extends TenantEntity {
     }
   }
 
+  /** A known look (see {@link #LOOKS}); null keeps the current one. */
+  public void changeLook(String look) {
+    if (look != null) {
+      this.look = look;
+    }
+  }
+
   public void changeSmsReceipts(Boolean smsReceipts) {
     if (smsReceipts != null) {
       this.smsReceipts = smsReceipts;
@@ -74,6 +87,7 @@ public class TenantSettings extends TenantEntity {
     settings.lowStockAlerts = true;
     // Shelf prices in Tanzania are shown to the customer with VAT in them.
     settings.pricesIncludeTax = true;
+    settings.look = "PREMIUM";
     return settings;
   }
 

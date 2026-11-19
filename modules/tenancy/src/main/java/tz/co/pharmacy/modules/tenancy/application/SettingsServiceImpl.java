@@ -63,6 +63,7 @@ class SettingsServiceImpl implements SettingsService {
         command.lowStockAlerts());
     row.changeSmsReceipts(command.smsReceipts());
     row.changePricesIncludeTax(command.pricesIncludeTax());
+    row.changeLook(look(command.look()));
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     return view(tenant, row);
@@ -91,6 +92,19 @@ class SettingsServiceImpl implements SettingsService {
     }
     codes.remove(tenant.getCurrency());
     return java.util.List.copyOf(codes);
+  }
+
+  /** The look upper-cased and known; null keeps the current one. */
+  private static String look(String look) {
+    if (look == null) {
+      return null;
+    }
+    String code = look.trim().toUpperCase(java.util.Locale.ROOT);
+    if (!TenantSettings.LOOKS.contains(code)) {
+      throw Refusal.invalid(
+          "invalid_look", "The look must be one of " + TenantSettings.LOOKS + ".", "look");
+    }
+    return code;
   }
 
   /** The base currency first, then the accepted foreign ones. */
@@ -125,6 +139,7 @@ class SettingsServiceImpl implements SettingsService {
         row.isLowStockAlerts(),
         row.isSmsReceipts(),
         accepted(tenant, row),
-        row.isPricesIncludeTax());
+        row.isPricesIncludeTax(),
+        row.getLook());
   }
 }
