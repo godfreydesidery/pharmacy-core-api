@@ -8,6 +8,8 @@ import java.util.UUID;
 /**
  * One priced line per batch allocation; checkout builds them. {@code serialNumbers} are the units
  * of a serial-tracked product sold on the line; {@code warrantyMonths} the product's warranty.
+ * {@code priceIncludesTax}: the unit price already includes VAT (the pharmacy's setting), so the
+ * tax is taken out of it rather than added on top.
  */
 public record SaleLineCommand(
     UUID productUid,
@@ -21,4 +23,5 @@ public record SaleLineCommand(
     BigDecimal unitCost,
     BigDecimal taxRatePercent,
     List<String> serialNumbers,
-    Integer warrantyMonths) {}
+    Integer warrantyMonths,
+    boolean priceIncludesTax) {}

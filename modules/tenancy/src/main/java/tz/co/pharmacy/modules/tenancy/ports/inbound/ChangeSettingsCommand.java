@@ -12,4 +12,6 @@ public record ChangeSettingsCommand(
     Boolean lowStockAlerts,
     Boolean smsReceipts,
     /* The currencies the tenant accepts; the base is always included. Null keeps them. */
-    java.util.List<String> acceptedCurrencies) {}
+    java.util.List<String> acceptedCurrencies,
+    /* Selling prices include VAT, or have it added on top; null keeps the current rule. */
+    Boolean pricesIncludeTax) {}

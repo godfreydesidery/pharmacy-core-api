@@ -26,6 +26,12 @@ public class TenantSettings extends TenantEntity {
   private boolean smsReceipts;
 
   /**
+   * Whether selling prices already include VAT (the tax is inside the price) rather than exclude it
+   * (the tax is added on top at the till).
+   */
+  private boolean pricesIncludeTax;
+
+  /**
    * The foreign currencies the tenant accepts besides its base, as ISO codes joined by commas, such
    * as {@code USD,KES}; null or empty for the base only.
    */
@@ -45,6 +51,12 @@ public class TenantSettings extends TenantEntity {
     }
   }
 
+  public void changePricesIncludeTax(Boolean pricesIncludeTax) {
+    if (pricesIncludeTax != null) {
+      this.pricesIncludeTax = pricesIncludeTax;
+    }
+  }
+
   public void changeSmsReceipts(Boolean smsReceipts) {
     if (smsReceipts != null) {
       this.smsReceipts = smsReceipts;
@@ -60,6 +72,8 @@ public class TenantSettings extends TenantEntity {
     settings.maxDiscountPercent = BigDecimal.TEN;
     settings.expiryAlertDays = 90;
     settings.lowStockAlerts = true;
+    // Shelf prices in Tanzania are shown to the customer with VAT in them.
+    settings.pricesIncludeTax = true;
     return settings;
   }
 

@@ -56,7 +56,8 @@ public class SettingsHandler {
                 body.expiryAlertDays(),
                 body.lowStockAlerts(),
                 body.smsReceipts(),
-                body.acceptedCurrencies())),
+                body.acceptedCurrencies(),
+                body.pricesIncludeTax())),
         "Settings changed");
   }
 
@@ -110,5 +111,6 @@ public class SettingsHandler {
       Integer expiryAlertDays,
       Boolean lowStockAlerts,
       Boolean smsReceipts,
-      java.util.List<String> acceptedCurrencies) {}
+      java.util.List<String> acceptedCurrencies,
+      Boolean pricesIncludeTax) {}
 }
