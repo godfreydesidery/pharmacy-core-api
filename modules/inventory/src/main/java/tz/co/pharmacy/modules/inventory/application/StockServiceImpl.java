@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ import tz.co.pharmacy.modules.inventory.domain.SerialUnit;
 import tz.co.pharmacy.modules.inventory.domain.StockLevel;
 import tz.co.pharmacy.modules.inventory.domain.Transfer;
 import tz.co.pharmacy.modules.inventory.domain.TransferLine;
+import tz.co.pharmacy.modules.inventory.events.BatchCostAveraged;
 import tz.co.pharmacy.modules.inventory.events.StockAdjusted;
 import tz.co.pharmacy.modules.inventory.events.StockLow;
 import tz.co.pharmacy.modules.inventory.persistence.BatchRepository;
@@ -514,32 +516,57 @@ class StockServiceImpl implements StockService, ProductSnapshots {
           "serialNumbers");
     }
     LocalDate batchExpiry = expiry;
+    Optional<Batch> existing = batches.findByProductUidAndBatchNumber(productUid, batchNumber);
     Batch batch =
-        batches
-            .findByProductUidAndBatchNumber(productUid, batchNumber)
-            .orElseGet(
-                () -> batches.save(new Batch(productUid, batchNumber, batchExpiry, unitCost)));
+        existing.orElseGet(
+            () -> batches.save(new Batch(productUid, batchNumber, batchExpiry, unitCost)));
     if (product.expiryTracked() && !expiry.equals(batch.getExpiryDate())) {
       throw Refusal.invalid(
           "batch_expiry_mismatch",
           "Batch " + batchNumber + " is recorded with expiry " + batch.getExpiryDate() + ".",
           "expiryDate");
     }
+    // More of a batch already held, at another cost: the batch takes the weighted average, so the
+    // stock is valued at what was paid for it, as the books record the receipt.
+    BigDecimal previousCost = batch.getUnitCost();
+    BigDecimal rounding =
+        existing.isPresent()
+            ? batch.receive(levels.quantityOfBatch(batch), quantity, unitCost)
+            : Amounts.ZERO;
     serials.forEach(serial -> units.save(new SerialUnit(batch, serial, branch)));
     int before = (int) levels.quantityAt(branch, productUid);
     levelFor(branch, batch).change(quantity);
-    return movements.save(
-        new Movement(
-            branch,
-            product.getName(),
-            batch,
-            type,
-            quantity,
-            before + quantity,
-            command.reference(),
-            null,
-            null,
-            serials));
+    Movement movement =
+        movements.save(
+            new Movement(
+                branch,
+                product.getName(),
+                batch,
+                type,
+                quantity,
+                before + quantity,
+                command.reference(),
+                null,
+                null,
+                serials));
+    // Opening stock reaches the books through the opening balances; a receipt posts on its own.
+    if (type == MovementType.RECEIPT && previousCost.compareTo(batch.getUnitCost()) != 0) {
+      events.publish(
+          "stock.cost_averaged",
+          meta ->
+              new BatchCostAveraged(
+                  meta,
+                  productUid,
+                  product.getName(),
+                  batch.getUid(),
+                  batch.getBatchNumber(),
+                  previousCost,
+                  Amounts.money(unitCost),
+                  batch.getUnitCost(),
+                  movement.getUid(),
+                  rounding));
+    }
+    return movement;
   }
 
   /**

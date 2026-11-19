@@ -3,6 +3,7 @@ package tz.co.pharmacy.modules.inventory.domain;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -36,6 +37,31 @@ public class Batch extends TenantEntity {
     this.batchNumber = batchNumber;
     this.expiryDate = expiryDate;
     this.unitCost = Amounts.money(unitCost);
+  }
+
+  /**
+   * Takes in {@code quantity} more units bought at {@code cost} while {@code onHand} units of the
+   * batch are held across the branches: the batch's cost becomes the weighted average of the two,
+   * to the cent. Returns how far the stock's value at the new cost differs from what it was worth
+   * plus what was paid, which is the cent rounding of the average (a few cents either way); the
+   * books post it as a stock adjustment so they keep matching the stock at cost. With nothing on
+   * hand the batch simply takes the new cost.
+   */
+  public BigDecimal receive(long onHand, int quantity, BigDecimal cost) {
+    BigDecimal received = Amounts.money(cost);
+    if (onHand <= 0) {
+      unitCost = received;
+      return Amounts.ZERO;
+    }
+    if (received.compareTo(unitCost) == 0) {
+      return Amounts.ZERO;
+    }
+    BigDecimal held = unitCost.multiply(BigDecimal.valueOf(onHand));
+    BigDecimal paid = received.multiply(BigDecimal.valueOf(quantity));
+    BigDecimal units = BigDecimal.valueOf(onHand + quantity);
+    BigDecimal averaged = Amounts.money(held.add(paid).divide(units, 10, RoundingMode.HALF_UP));
+    unitCost = averaged;
+    return Amounts.money(averaged.multiply(units).subtract(held).subtract(paid));
   }
 
   /** Recalled: kept on hand but never sold, transferred or transformed until released. */
