@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +70,25 @@ class SecurityFixesTest extends IntegrationTest {
         {"name":"Staff","email":"%s","password":"%s","roleUid":"%s","allBranches":true}
         """
             .formatted(email, password, cashierRole(as)));
+  }
+
+  @Test
+  @DisplayName(
+      "one person signing in on several devices at the same moment: every sign-in succeeds")
+  void simultaneousSignIns() throws Exception {
+    String body = "{\"email\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(adminEmail);
+    ExecutorService devices = Executors.newFixedThreadPool(6);
+    try {
+      List<Future<Integer>> attempts = new ArrayList<>();
+      for (int i = 0; i < 6; i++) {
+        attempts.add(devices.submit(() -> anonymous.post("/api/v1/auth/sign-in", body).status()));
+      }
+      for (Future<Integer> attempt : attempts) {
+        assertThat(attempt.get()).isEqualTo(201);
+      }
+    } finally {
+      devices.shutdownNow();
+    }
   }
 
   @Test

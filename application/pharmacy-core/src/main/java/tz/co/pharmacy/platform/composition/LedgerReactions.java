@@ -19,6 +19,7 @@ import tz.co.pharmacy.modules.finance.ports.inbound.Ledger;
 import tz.co.pharmacy.modules.finance.ports.inbound.ReceiptPosting;
 import tz.co.pharmacy.modules.finance.ports.inbound.ReturnPosting;
 import tz.co.pharmacy.modules.finance.ports.inbound.SalePosting;
+import tz.co.pharmacy.modules.inventory.events.BatchCostAveraged;
 import tz.co.pharmacy.modules.inventory.events.StockAdjusted;
 import tz.co.pharmacy.modules.purchasing.events.GoodsReceived;
 import tz.co.pharmacy.modules.purchasing.events.SupplierReturned;
@@ -147,6 +148,31 @@ public class LedgerReactions {
                         event.branchUid(),
                         localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
                         event.total())));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(BatchCostAveraged event) {
+    if (event.roundingValue() == null || event.roundingValue().signum() == 0) {
+      return;
+    }
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postStockAdjustment(
+                        event.movementUid(),
+                        event.productName()
+                            + " batch "
+                            + event.batchNumber()
+                            + " (cost averaged to "
+                            + event.averagedUnitCost().toPlainString()
+                            + ")",
+                        event.metadata().branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.roundingValue())));
   }
 
   @Async
