@@ -1,6 +1,8 @@
 # The simulated world: run with the local profile first (--spring.profiles.active=local,sim).
 # The clock is a SimulatedClock the world moves forward (/api/v1/platform/sim/clock); the world
 # seeds its own pharmacies through the API, so the demo tenant is left out. See pharmacy-world.
+# Never on a server with real pharmacies: the API refuses to start under sim unless the local
+# profile is on too, or PHARMACY_SIM_ALLOWED=true marks a dedicated demo service.
 pharmacy:
   seed:
     demo: false

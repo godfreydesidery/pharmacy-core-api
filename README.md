@@ -83,6 +83,23 @@ The `local` profile does the following:
 
 To reset the local database, stop the app and delete `application/pharmacy-core/target/local-postgres`. Use `PHARMACY_LOCAL_DB_PORT` and `PHARMACY_LOCAL_DATA` to change the port and the data directory.
 
+### On a simulated clock (`local,sim`)
+
+All business time comes from one application `Clock`. Services inject it, entities use
+`Clocks.now()`, and the build fails on a direct `Instant.now()`. Under the extra `sim` profile
+that clock is simulated, and root moves it forward:
+
+```bash
+java -jar … --spring.profiles.active=local,sim --pharmacy.sim.start=2026-12-01T04:00:00Z
+curl -X POST localhost:8080/api/v1/platform/sim/clock -H 'Authorization: Bearer …' \
+     -H 'Content-Type: application/json' -d '{"advance":"P1D"}'
+```
+
+The `pharmacy-world` workspace uses this to play a whole market through a quarter and check the
+books every night. The API refuses to start under `sim` without `local` (or an explicit
+`PHARMACY_SIM_ALLOWED=true` on a dedicated demo service). See
+`pharmacy-core-docs/runbook/simulated-world.md` and ADR 0011.
+
 ## Run against a real PostgreSQL
 
 Create the two roles once, as a superuser:
