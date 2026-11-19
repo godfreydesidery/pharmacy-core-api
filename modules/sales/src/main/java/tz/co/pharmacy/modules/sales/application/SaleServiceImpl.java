@@ -155,7 +155,7 @@ class SaleServiceImpl implements SaleService {
           line.unitCost() == null ? Amounts.ZERO : Checks.notNegative(line.unitCost(), "unitCost");
       BigDecimal taxRate = Checks.percent(line.taxRatePercent(), field + ".taxRatePercent");
       SaleTotals.LineAmounts lineAmounts =
-          SaleTotals.line(unitPrice, quantity, discountPercent, taxRate);
+          SaleTotals.line(unitPrice, quantity, discountPercent, taxRate, line.priceIncludesTax());
       amounts.add(lineAmounts);
       SaleLine saleLine =
           new SaleLine(
@@ -615,7 +615,8 @@ class SaleServiceImpl implements SaleService {
               line.unitPrice(),
               line.quantity(),
               discount,
-              line.taxRatePercent() == null ? BigDecimal.ZERO : line.taxRatePercent()));
+              line.taxRatePercent() == null ? BigDecimal.ZERO : line.taxRatePercent(),
+              line.priceIncludesTax()));
     }
     BigDecimal total = SaleTotals.of(amounts).total();
     String base = currencies.baseCurrency();

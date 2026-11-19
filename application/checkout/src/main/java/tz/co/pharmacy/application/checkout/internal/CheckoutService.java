@@ -176,6 +176,7 @@ class CheckoutService implements Checkout {
       }
       BigDecimal taxRate =
           product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent();
+      boolean taxIncluded = pricesIncludeTax();
       for (Allocation allocation : allocations) {
         saleLines.add(
             new SaleLineCommand(
@@ -190,7 +191,8 @@ class CheckoutService implements Checkout {
                 allocation.unitCost(),
                 taxRate,
                 allocation.serialNumbers(),
-                product.warrantyMonths()));
+                product.warrantyMonths(),
+                taxIncluded));
       }
     }
     requireControlledPrescription(command, products);
@@ -598,7 +600,8 @@ class CheckoutService implements Checkout {
               null,
               product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent(),
               null,
-              null));
+              null,
+              pricesIncludeTax()));
     }
     SalePreview preview = sales.preview(priced, BigDecimal.ZERO, List.of());
     return insurance.quote(memberUid, coverage(priced, preview, products), preauthNumber);
@@ -651,5 +654,10 @@ class CheckoutService implements Checkout {
       return 0;
     }
     return packsOnHand.getOrDefault(pack.packProductUid(), 0) * pack.unitsPerPack();
+  }
+
+  /** Whether the pharmacy's selling prices include VAT (its setting). */
+  private boolean pricesIncludeTax() {
+    return settings.current().pricesIncludeTax();
   }
 }

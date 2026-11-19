@@ -62,6 +62,7 @@ class SettingsServiceImpl implements SettingsService {
         command.expiryAlertDays(),
         command.lowStockAlerts());
     row.changeSmsReceipts(command.smsReceipts());
+    row.changePricesIncludeTax(command.pricesIncludeTax());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     return view(tenant, row);
@@ -123,6 +124,7 @@ class SettingsServiceImpl implements SettingsService {
         row.getExpiryAlertDays(),
         row.isLowStockAlerts(),
         row.isSmsReceipts(),
-        accepted(tenant, row));
+        accepted(tenant, row),
+        row.isPricesIncludeTax());
   }
 }
