@@ -29,6 +29,30 @@ class ClientAddressTest {
   }
 
   @Test
+  @DisplayName("X-Real-IP from our edge comes before X-Forwarded-For")
+  void realIpFirst() {
+    // Railway: X-Real-IP is the client; its X-Forwarded-For may end with an edge hop.
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/sign-in");
+    request.setRemoteAddr("fd12::5");
+    request.addHeader(ClientAddress.REAL_IP, "203.0.113.40");
+    request.addHeader(ClientAddress.FORWARDED_FOR, "203.0.113.40, 198.51.100.101");
+    assertThat(ClientAddress.of(request)).isEqualTo("203.0.113.40");
+
+    // From a public connection (not our proxy) the header is ignored.
+    MockHttpServletRequest direct = new MockHttpServletRequest("POST", "/api/v1/auth/sign-in");
+    direct.setRemoteAddr("41.59.12.34");
+    direct.addHeader(ClientAddress.REAL_IP, "8.8.8.8");
+    assertThat(ClientAddress.of(direct)).isEqualTo("41.59.12.34");
+
+    // Not an address: fall back to X-Forwarded-For.
+    MockHttpServletRequest junk = new MockHttpServletRequest("POST", "/api/v1/auth/sign-in");
+    junk.setRemoteAddr("10.0.0.7");
+    junk.addHeader(ClientAddress.REAL_IP, "unknown");
+    junk.addHeader(ClientAddress.FORWARDED_FOR, "41.59.12.34");
+    assertThat(ClientAddress.of(junk)).isEqualTo("41.59.12.34");
+  }
+
+  @Test
   @DisplayName("an address a client writes into the header is never taken")
   void spoofedHeader() {
     // The client wrote 8.8.8.8; our edge appended the address it really saw.
