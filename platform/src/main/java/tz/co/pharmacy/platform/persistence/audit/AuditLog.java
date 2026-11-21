@@ -25,10 +25,11 @@ public interface AuditLog {
       Map<String, Object> after);
 
   /**
-   * The current scope's entries, newest first, filtered by any of entity type, entity uid, actor
-   * (contains, any case) and an inclusive date range (UTC days).
+   * The current scope's entries, newest first, filtered by any of action (such as SIGN_IN), entity
+   * type, entity uid, actor (contains, any case) and an inclusive date range (UTC days).
    */
   Page<AuditEntryView> search(
+      String action,
       String entityType,
       UUID entityUid,
       String actor,

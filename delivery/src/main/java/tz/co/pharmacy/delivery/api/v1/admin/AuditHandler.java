@@ -31,6 +31,7 @@ public class AuditHandler {
   @GetMapping("/api/v1/audit")
   @Access(scope = AccessScope.TENANT, permission = "settings.manage")
   public ApiResponse<Page<AuditEntryView>> tenant(
+      @RequestParam(required = false) String action,
       @RequestParam(required = false) String entityType,
       @RequestParam(required = false) UUID entityUid,
       @RequestParam(required = false) String actor,
@@ -38,12 +39,14 @@ public class AuditHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
-    return ApiResponse.ok(search(entityType, entityUid, actor, from, to, cursor, limit), "Audit");
+    return ApiResponse.ok(
+        search(action, entityType, entityUid, actor, from, to, cursor, limit), "Audit");
   }
 
   @GetMapping("/api/v1/platform/audit")
   @Access(scope = AccessScope.PLATFORM, permission = "platform.manage")
   public ApiResponse<Page<AuditEntryView>> platform(
+      @RequestParam(required = false) String action,
       @RequestParam(required = false) String entityType,
       @RequestParam(required = false) UUID entityUid,
       @RequestParam(required = false) String actor,
@@ -51,10 +54,12 @@ public class AuditHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
-    return ApiResponse.ok(search(entityType, entityUid, actor, from, to, cursor, limit), "Audit");
+    return ApiResponse.ok(
+        search(action, entityType, entityUid, actor, from, to, cursor, limit), "Audit");
   }
 
   private Page<AuditEntryView> search(
+      String action,
       String entityType,
       UUID entityUid,
       String actor,
@@ -65,6 +70,6 @@ public class AuditHandler {
     if (from != null && to != null && from.isAfter(to)) {
       throw Refusal.invalid("invalid_range", "from must not be after to.", "from");
     }
-    return audit.search(entityType, entityUid, actor, from, to, Pages.of(cursor, limit));
+    return audit.search(action, entityType, entityUid, actor, from, to, Pages.of(cursor, limit));
   }
 }
