@@ -224,7 +224,7 @@ public class EdgeFilter extends OncePerRequestFilter {
     }
     rateLimiter
         .acquire(
-            "auth:" + request.getRemoteAddr(), authRequestsPerMinute, AUTH_WINDOW, Instant.now())
+            "auth:" + ClientAddress.of(request), authRequestsPerMinute, AUTH_WINDOW, Instant.now())
         .ifPresent(
             seconds -> {
               throw Refusal.tooManyRequests(
@@ -232,10 +232,11 @@ public class EdgeFilter extends OncePerRequestFilter {
             });
   }
 
-  /** The client of a request, for sign-in records and new-device notices. */
+  /** The client of a request (behind our proxies too), for sign-in records and device notices. */
   public static ClientInfo client(HttpServletRequest request) {
     String agent = request.getHeader("User-Agent");
-    return new ClientInfo(request.getRemoteAddr(), agent == null || agent.isBlank() ? null : agent);
+    return new ClientInfo(
+        ClientAddress.of(request), agent == null || agent.isBlank() ? null : agent);
   }
 
   private static String correlationId(HttpServletRequest request) {
