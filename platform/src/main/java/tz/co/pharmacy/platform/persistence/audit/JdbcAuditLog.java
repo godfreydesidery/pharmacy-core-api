@@ -50,6 +50,7 @@ public class JdbcAuditLog implements AuditLog {
   @Override
   @Transactional(readOnly = true)
   public Page<AuditEntryView> search(
+      String action,
       String entityType,
       UUID entityUid,
       String actor,
@@ -62,6 +63,10 @@ public class JdbcAuditLog implements AuditLog {
                 + " before::text as before_json, after::text as after_json, correlation_id, label"
                 + " from audit.entries where true");
     List<Object> arguments = new ArrayList<>();
+    if (action != null && !action.isBlank()) {
+      sql.append(" and upper(action) = upper(?)");
+      arguments.add(action.trim());
+    }
     if (entityType != null && !entityType.isBlank()) {
       sql.append(" and lower(entity_type) = lower(?)");
       arguments.add(entityType.trim());

@@ -224,6 +224,29 @@ class SecurityFixesTest extends IntegrationTest {
     assertThat(live).hasSize(1);
   }
 
+  @Test
+  @DisplayName("a pharmacy's audit shows who signed in, and when; another pharmacy's does not")
+  void signInsAreInThePharmacysAudit() {
+    String email = "seen." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
+    addUser(admin, email, "Staff#2026x").expect(201);
+    anonymous.signIn(email, "Staff#2026x");
+
+    Response signIns = admin.get("/api/v1/audit?action=sign_in&limit=50").expect(200);
+    List<String> actions = signIns.json().read("$.data.items[*].action");
+    List<String> actors = signIns.json().read("$.data.items[*].actor");
+    List<String> ats = signIns.json().read("$.data.items[*].at");
+    assertThat(actions).isNotEmpty().allMatch("SIGN_IN"::equals);
+    assertThat(actors).contains(email, adminEmail);
+    assertThat(ats).allMatch(at -> at != null && !at.isBlank());
+
+    String otherEmail = "other" + UUID.randomUUID().toString().substring(0, 4) + "@test.local";
+    String other =
+        register("SO" + UUID.randomUUID().toString().substring(0, 4).toUpperCase(), otherEmail);
+    Api otherAdmin = anonymous.as(anonymous.signIn(otherEmail, "Admin#2026x")).in(other, null);
+    String theirs = otherAdmin.get("/api/v1/audit?action=SIGN_IN&limit=50").expect(200).body();
+    assertThat(theirs).contains(otherEmail).doesNotContain(email);
+  }
+
   /** RFC 6238 TOTP: HMAC-SHA1, 30-second steps, 6 digits. */
   private static String totp(String base32Secret, Instant at) {
     try {
