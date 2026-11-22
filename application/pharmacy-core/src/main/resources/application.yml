@@ -25,6 +25,13 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  # The fallback email sender (when no platform provider is set) gives up on a server that does not
+  # answer, as the providers do: a hung mail server must not hold a sender thread for ever.
+  mail:
+    properties:
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
   modulith:
     detection-strategy: explicitly-annotated
     events:
