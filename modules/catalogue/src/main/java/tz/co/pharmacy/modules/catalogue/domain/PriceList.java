@@ -30,7 +30,15 @@ public class PriceList extends TenantEntity {
   private String customerType;
   private UUID customerUid;
   private String customerName;
-  private BigDecimal adjustmentPercent = BigDecimal.ZERO;
+
+  /** For a medicine the plan has no price for: null blocks it, 0 sells at Normal Sale, else ±%. */
+  private BigDecimal adjustmentPercent;
+
+  /** The insurer whose members' sales take this plan by default; null for none. */
+  private UUID payerUid;
+
+  private String payerName;
+
   private LocalDate validFrom;
   private LocalDate validTo;
   private boolean active = true;
@@ -41,6 +49,11 @@ public class PriceList extends TenantEntity {
 
   public PriceList(String name) {
     this.name = name;
+  }
+
+  public void forPayer(UUID payerUid, String payerName) {
+    this.payerUid = payerUid;
+    this.payerName = payerUid == null ? null : payerName;
   }
 
   public void change(
@@ -56,7 +69,7 @@ public class PriceList extends TenantEntity {
     this.customerType = customerType;
     this.customerUid = customerUid;
     this.customerName = customerName;
-    this.adjustmentPercent = adjustmentPercent == null ? BigDecimal.ZERO : adjustmentPercent;
+    this.adjustmentPercent = adjustmentPercent;
     this.validFrom = validFrom;
     this.validTo = validTo;
     this.active = active;

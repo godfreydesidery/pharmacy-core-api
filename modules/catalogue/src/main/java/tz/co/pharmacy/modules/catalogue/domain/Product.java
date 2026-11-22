@@ -53,6 +53,11 @@ public class Product extends TenantEntity {
   @Column(precision = 14, scale = 2)
   private BigDecimal sellingPrice;
 
+  /** A new Normal Sale price, from the pricing plans page. */
+  public void reprice(BigDecimal sellingPrice) {
+    this.sellingPrice = sellingPrice;
+  }
+
   @Column(precision = 14, scale = 2)
   private BigDecimal costPrice;
 

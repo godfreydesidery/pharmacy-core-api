@@ -27,7 +27,37 @@ public record CheckoutCommand(
     String preauthNumber,
     String diagnosisCode,
     Boolean balanceToAccount,
-    Boolean excessToAccount) {
+    Boolean excessToAccount,
+    /* NORMAL, a pricing plan's uid, or null for the customer's own plan. */
+    String pricePlan) {
+
+  /** A sale under the customer's own pricing plan. */
+  public CheckoutCommand(
+      String idempotencyKey,
+      UUID customerUid,
+      BigDecimal discountPercent,
+      List<CheckoutLine> lines,
+      List<PaymentCommand> payments,
+      PrescriptionDetails prescription,
+      UUID memberUid,
+      String preauthNumber,
+      String diagnosisCode,
+      Boolean balanceToAccount,
+      Boolean excessToAccount) {
+    this(
+        idempotencyKey,
+        customerUid,
+        discountPercent,
+        lines,
+        payments,
+        prescription,
+        memberUid,
+        preauthNumber,
+        diagnosisCode,
+        balanceToAccount,
+        excessToAccount,
+        null);
+  }
 
   /** A sale without insurance or account settlement. */
   public CheckoutCommand(
@@ -44,6 +74,7 @@ public record CheckoutCommand(
         lines,
         payments,
         prescription,
+        null,
         null,
         null,
         null,

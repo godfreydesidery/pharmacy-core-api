@@ -12,4 +12,7 @@ public record RecordSaleCommand(
     BigDecimal discountPercent,
     List<SaleLineCommand> lines,
     List<PaymentCommand> payments,
-    PrescriptionDetails prescription) {}
+    PrescriptionDetails prescription,
+    UUID priceListUid,
+    String priceListName,
+    BigDecimal normalTotal) {}

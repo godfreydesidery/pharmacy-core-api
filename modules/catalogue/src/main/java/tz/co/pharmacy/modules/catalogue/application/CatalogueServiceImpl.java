@@ -57,6 +57,7 @@ class CatalogueServiceImpl implements CatalogueService {
   private final DomainEventPublisher events;
   private final ProductStock stock;
   private final tz.co.pharmacy.platform.persistence.DocumentNumbers numbers;
+  private final PriceHistory priceHistory;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -279,6 +280,15 @@ class CatalogueServiceImpl implements CatalogueService {
   public ProductView createProduct(ProductCommand c) {
     Product.Details details = details(c, null);
     Product product = products.save(new Product(details));
+    priceHistory.record(
+        product.getUid(),
+        product.getName(),
+        null,
+        null,
+        1,
+        null,
+        product.getSellingPrice(),
+        tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.PRODUCT);
     publish(product);
     return view(product);
   }
@@ -308,7 +318,17 @@ class CatalogueServiceImpl implements CatalogueService {
             "trackingMode");
       }
     }
+    java.math.BigDecimal before = product.getSellingPrice();
     product.change(details);
+    priceHistory.record(
+        product.getUid(),
+        product.getName(),
+        null,
+        null,
+        1,
+        before,
+        product.getSellingPrice(),
+        tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.PRODUCT);
     product.activate(active);
     products.flush();
     publish(product);
@@ -398,7 +418,7 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.requiresSerialAtSale());
   }
 
-  private void publish(Product product) {
+  void publish(Product product) {
     events.publish(
         "product.changed",
         meta ->

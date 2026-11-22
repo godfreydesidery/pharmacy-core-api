@@ -52,17 +52,23 @@ class PriceListImport {
               "The product's name, for your reference only; the Code decides.",
               "Jina la bidhaa, kwa marejeo tu; Msimbo ndio unaoamua."),
           optional(
+              "barcode",
+              "Barcode",
+              "Msimbo pau",
+              "The product's barcode, for your reference only; the Code decides.",
+              "Msimbo pau wa bidhaa, kwa marejeo tu; Msimbo ndio unaoamua."),
+          optional(
+              "price",
+              "Selling price",
+              "Bei ya kuuza",
+              "The unit price in this plan; leave it empty to leave the product as it is.",
+              "Bei ya kipande kwenye mpango huu; iache tupu kuacha bidhaa kama ilivyo."),
+          optional(
               "minQuantity",
               "Min quantity",
               "Idadi ya chini",
               "The price applies from this quantity (a quantity break); empty means 1.",
-              "Bei inaanza kutumika kuanzia idadi hii; tupu ni 1."),
-          required(
-              "price",
-              "Price",
-              "Bei",
-              "The unit price on this list.",
-              "Bei ya kipande kwenye" + " orodha hii."));
+              "Bei inaanza kutumika kuanzia idadi hii; tupu ni 1."));
 
   /** The import of the list {@code uid}; 404 price_list_not_found when there is none. */
   Importer<Plan> forList(UUID uid) {
@@ -97,30 +103,41 @@ class PriceListImport {
 
     @Override
     public List<Object> example() {
-      return Arrays.asList("P00001", "Paracetamol 500mg Tablets", 1, 4500);
+      return Arrays.asList("P00001", "Paracetamol 500mg Tablets", "6001234567890", 4500, 1);
     }
 
-    /** The list's items now, each with its product's code; the example when it has none. */
+    /**
+     * Every active medicine, with its price in this plan (empty when it has none, to fill in), then
+     * the plan's quantity breaks; the example when the pharmacy has no medicine yet.
+     */
     @Override
     public List<List<Object>> templateRows() {
-      if (list.items().isEmpty()) {
-        return List.of(example());
-      }
-      Map<UUID, String> codes = new LinkedHashMap<>();
-      for (ProductView product :
-          catalogue.products(list.items().stream().map(ItemView::productUid).toList())) {
-        codes.put(product.uid(), product.sku());
-      }
       List<List<Object>> rows = new ArrayList<>();
-      for (ItemView item : list.items()) {
-        rows.add(
-            Arrays.asList(
-                codes.get(item.productUid()),
-                item.productName(),
-                item.minQuantity(),
-                item.price()));
+      Map<UUID, PricingService.GridRow> byUid = new LinkedHashMap<>();
+      String cursor = null;
+      do {
+        var page =
+            pricing.grid(
+                null, null, false, new tz.co.pharmacy.platform.kernel.PageQuery(cursor, 500));
+        page.items().forEach(r -> byUid.put(r.productUid(), r));
+        cursor = page.nextCursor();
+      } while (cursor != null);
+      for (PricingService.GridRow r : byUid.values()) {
+        rows.add(Arrays.asList(r.code(), r.name(), r.barcode(), r.prices().get(list.uid()), 1));
       }
-      return rows;
+      for (ItemView item : list.items()) {
+        if (item.minQuantity() > 1) {
+          PricingService.GridRow r = byUid.get(item.productUid());
+          rows.add(
+              Arrays.asList(
+                  r == null ? null : r.code(),
+                  item.productName(),
+                  r == null ? null : r.barcode(),
+                  item.price(),
+                  item.minQuantity()));
+        }
+      }
+      return rows.isEmpty() ? List.of(example()) : rows;
     }
 
     @Override
@@ -149,7 +166,8 @@ class PriceListImport {
           }
           BigDecimal price = null;
           if (row.text("price") == null) {
-            row.required("price");
+            // No price: the product stays as it is in this plan.
+            return null;
           } else {
             price = row.number("price");
             if (price != null && price.signum() < 0) {
@@ -197,7 +215,7 @@ class PriceListImport {
                 key(plan.productUid(), plan.minQuantity()),
                 new ItemCommand(plan.productUid(), plan.minQuantity(), plan.price()));
           }
-          pricing.savePriceList(
+          pricing.importPriceList(
               list.uid(),
               new PriceListCommand(
                   list.name(),
@@ -208,7 +226,9 @@ class PriceListImport {
                   list.validFrom(),
                   list.validTo(),
                   list.active(),
-                  new ArrayList<>(items.values())));
+                  new ArrayList<>(items.values()),
+                  list.payerUid(),
+                  list.payerName()));
         }
       };
     }

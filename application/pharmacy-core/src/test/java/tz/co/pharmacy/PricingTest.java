@@ -97,10 +97,10 @@ class PricingTest extends IntegrationTest {
     assertThat(own.read("$.data[0].unitPrice", Double.class)).isEqualTo(950.0);
     assertThat(own.string("$.data[0].label")).isEqualTo("Mama Upendo special");
 
-    // Branch 550, wholesale −10% = 495, then the 20% promotion = 396.
+    // Branch 550, wholesale −10% = 495; the plan's price stands (no promotion on top of a plan).
     Response promo = quote(hq, wholesale, b, 1);
-    assertThat(promo.read("$.data[0].unitPrice", Double.class)).isEqualTo(396.0);
-    assertThat(promo.string("$.data[0].source")).isEqualTo("PROMOTION");
+    assertThat(promo.read("$.data[0].unitPrice", Double.class)).isEqualTo(495.0);
+    assertThat(promo.string("$.data[0].source")).isEqualTo("LIST");
     assertThat(quote(hq, null, b, 1).read("$.data[0].unitPrice", Double.class)).isEqualTo(440.0);
 
     // A promotion with no end date runs until switched off.

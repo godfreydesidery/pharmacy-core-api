@@ -117,22 +117,54 @@ class CheckoutService implements Checkout {
       customerName = customer.name();
       customerType = customer.type() == null ? null : customer.type().name();
     }
-    // The price of each line for this customer here and now: branch price, the customer's or their
-    // type's price list (with quantity breaks), then the best running promotion.
+    // The pricing plan: the customer's own (special prices, else their type's, else Normal Sale),
+    // or another one chosen by someone allowed to. A plan's price replaces the Normal Sale price;
+    // Normal Sale takes the branch price and the best running promotion.
+    // An insured sale takes the insurer's plan, when it has one.
+    UUID payerUid = null;
+    if (command.memberUid() != null && command.customerUid() != null) {
+      payerUid =
+          insurance.membersOf(command.customerUid()).stream()
+              .filter(m -> m.uid().equals(command.memberUid()))
+              .map(tz.co.pharmacy.modules.insurance.ports.inbound.MemberView::payerUid)
+              .findFirst()
+              .orElse(null);
+    }
+    PricingService.ResolvedPlan plan =
+        pricing.resolvePlan(
+            command.pricePlan(), command.customerUid(), customerType, payerUid, calendar.today());
     Map<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
     lines.forEach(l -> quantities.merge(l.productUid(), l.quantity(), Integer::sum));
+    List<PricingService.PricedLine> priced =
+        pricing.price(
+            ExecutionContext.requireBranch(),
+            customerType,
+            command.customerUid(),
+            plan.choice(),
+            quantities.entrySet().stream()
+                .filter(e -> products.containsKey(e.getKey()))
+                .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
+                .toList(),
+            calendar.today());
+    for (PricingService.PricedLine line : priced) {
+      if (line.unpriced()) {
+        ProductView product = products.get(line.productUid());
+        throw Refusal.invalid(
+            "no_plan_price",
+            "No "
+                + plan.plan().name()
+                + " price for "
+                + (product == null ? "this medicine" : product.name())
+                + ".",
+            "lines");
+      }
+    }
+    BigDecimal normalTotal =
+        priced.stream()
+            .map(l -> l.retailPrice().multiply(BigDecimal.valueOf(l.quantity())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
     Map<UUID, BigDecimal> prices =
-        pricing
-            .price(
-                ExecutionContext.requireBranch(),
-                customerType,
-                command.customerUid(),
-                quantities.entrySet().stream()
-                    .filter(e -> products.containsKey(e.getKey()))
-                    .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
-                    .toList(),
-                calendar.today())
-            .stream()
+        priced.stream()
             .collect(
                 Collectors.toMap(
                     PricingService.PricedLine::productUid, PricingService.PricedLine::unitPrice));
@@ -198,7 +230,8 @@ class CheckoutService implements Checkout {
       }
     }
     requireControlledPrescription(command, products);
-    return settle(command, number, key, customerName, saleLines, products);
+    return settle(
+        command, number, key, customerName, saleLines, products, plan.plan(), normalTotal);
   }
 
   /**
@@ -295,7 +328,9 @@ class CheckoutService implements Checkout {
       String key,
       String customerName,
       List<SaleLineCommand> saleLines,
-      Map<UUID, ProductView> products) {
+      Map<UUID, ProductView> products,
+      PricingService.PlanView pricedUnder,
+      BigDecimal normalTotal) {
     UUID customer = command.customerUid();
     List<PaymentCommand> payments =
         new ArrayList<>(command.payments() == null ? List.of() : command.payments());
@@ -408,7 +443,10 @@ class CheckoutService implements Checkout {
                 command.discountPercent(),
                 saleLines,
                 payments,
-                command.prescription()));
+                command.prescription(),
+                pricedUnder.uid(),
+                pricedUnder.name(),
+                normalTotal));
 
     BigDecimal onCredit = paidBy(sale, PaymentMethod.CREDIT);
     BigDecimal fromAccount = paidBy(sale, PaymentMethod.ACCOUNT_CREDIT);

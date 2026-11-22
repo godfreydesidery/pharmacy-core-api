@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
@@ -41,6 +42,8 @@ public class PricingHandler {
   private final PricingService pricing;
   private final CustomerService customers;
   private final TenantCalendar calendar;
+  private final tz.co.pharmacy.modules.insurance.ports.inbound.Insurance insurance;
+  private final tz.co.pharmacy.modules.sales.ports.inbound.SaleService sales;
 
   @GetMapping("/price-lists")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
@@ -123,7 +126,8 @@ public class PricingHandler {
 
   public record QuoteLine(UUID productUid, Integer quantity) {}
 
-  public record QuoteRequest(UUID customerUid, List<QuoteLine> lines) {}
+  public record QuoteRequest(
+      UUID customerUid, List<QuoteLine> lines, String pricePlan, UUID memberUid) {}
 
   /** The till's prices for a basket: what checkout will charge, line by line. */
   @PostMapping("/pos/prices")
@@ -133,20 +137,20 @@ public class PricingHandler {
       throw Refusal.malformed("The request needs a body.");
     }
     List<QuoteLine> lines = Checks.notEmpty(body.lines(), "lines");
-    String type = null;
-    if (body.customerUid() != null) {
-      var customer =
-          customers
-              .find(body.customerUid())
-              .orElseThrow(
-                  () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"));
-      type = customer.type() == null ? null : customer.type().name();
-    }
+    String type = customerType(body.customerUid());
+    PricingService.ResolvedPlan plan =
+        pricing.resolvePlan(
+            body.pricePlan(),
+            body.customerUid(),
+            type,
+            payerOf(body.customerUid(), body.memberUid()),
+            calendar.today());
     return ApiResponse.ok(
         pricing.price(
             ExecutionContext.requireBranch(),
             type,
             body.customerUid(),
+            plan.choice(),
             lines.stream()
                 .map(
                     l ->
@@ -156,6 +160,178 @@ public class PricingHandler {
                 .toList(),
             calendar.today()),
         "Prices retrieved");
+  }
+
+  private String customerType(UUID customerUid) {
+    if (customerUid == null) {
+      return null;
+    }
+    var customer =
+        customers
+            .find(customerUid)
+            .orElseThrow(
+                () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"));
+    return customer.type() == null ? null : customer.type().name();
+  }
+
+  /**
+   * The till's pricing plans for a customer: the one the sale takes by default, every plan it could
+   * take, and whether this person may switch.
+   */
+  @GetMapping("/pos/price-plans")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
+  public ApiResponse<TillPlans> tillPlans(
+      @RequestParam(required = false) UUID customerUid,
+      @RequestParam(required = false) UUID memberUid) {
+    PricingService.PlanView own =
+        pricing.defaultPlan(
+            customerUid,
+            customerType(customerUid),
+            payerOf(customerUid, memberUid),
+            calendar.today());
+    return ApiResponse.ok(
+        new TillPlans(
+            own, pricing.plans(), ExecutionContext.permits(PricingService.CHANGE_PLAN_PERMISSION)),
+        "Pricing plans retrieved");
+  }
+
+  public record TillPlans(
+      PricingService.PlanView defaultPlan,
+      List<PricingService.PlanView> plans,
+      boolean canChange) {}
+
+  /** Normal Sale and every active plan, for the pricing page's columns. */
+  @GetMapping("/pricing-plans")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<List<PricingService.PlanView>> plans() {
+    return ApiResponse.ok(pricing.plans(), "Pricing plans retrieved");
+  }
+
+  /**
+   * The pricing grid: each active medicine's Normal Sale price and its price in every plan, by
+   * {@code q} (name, code, barcode), {@code categoryUid}, and {@code missing=true} for the
+   * medicines some plan has no price (and no rule) for.
+   */
+  @GetMapping("/pricing-plans/grid")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<tz.co.pharmacy.platform.kernel.Page<PricingService.GridRow>> grid(
+      @RequestParam(required = false) String q,
+      @RequestParam(required = false) UUID categoryUid,
+      @RequestParam(required = false) Boolean missing,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        pricing.grid(q, categoryUid, Boolean.TRUE.equals(missing), Pages.of(cursor, limit)),
+        "Pricing grid retrieved");
+  }
+
+  /**
+   * Sets one price: {@code plan} is {@code normal} (the medicine's Normal Sale price) or a plan's
+   * uid. A null price removes the medicine from the plan.
+   */
+  @PutMapping("/pricing-plans/{plan}/prices/{productUid}")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<PricingService.GridRow> setPrice(
+      @PathVariable String plan, @PathVariable UUID productUid, @RequestBody PriceBody body) {
+    return ApiResponse.ok(
+        pricing.setPrice(productUid, planUid(plan), body == null ? null : body.price()),
+        "Price saved");
+  }
+
+  @DeleteMapping("/pricing-plans/{plan}/prices/{productUid}")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<PricingService.GridRow> removePrice(
+      @PathVariable String plan, @PathVariable UUID productUid) {
+    UUID uid = planUid(plan);
+    if (uid == null) {
+      throw Refusal.invalid("invalid_price", "Every medicine has a Normal Sale price.", "plan");
+    }
+    return ApiResponse.ok(pricing.setPrice(productUid, uid, null), "Price removed");
+  }
+
+  /** A medicine's price changes, newest first: which plan, old and new price, who and when. */
+  @GetMapping("/products/{productUid}/price-history")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<List<PricingService.PriceChangeView>> history(@PathVariable UUID productUid) {
+    return ApiResponse.ok(pricing.history(productUid), "Price history retrieved");
+  }
+
+  public record PriceBody(BigDecimal price) {}
+
+  /** The insurer of an insured sale's member, or null. */
+  private UUID payerOf(UUID customerUid, UUID memberUid) {
+    if (customerUid == null || memberUid == null) {
+      return null;
+    }
+    return insurance.membersOf(customerUid).stream()
+        .filter(m -> m.uid().equals(memberUid))
+        .map(tz.co.pharmacy.modules.insurance.ports.inbound.MemberView::payerUid)
+        .findFirst()
+        .orElse(null);
+  }
+
+  /**
+   * Bulk update, previewed: {@code plan} is {@code normal} or a plan's uid; the body sets Normal ±
+   * {@code percent}, rounded to {@code roundTo} (NEAREST, UP or DOWN), for {@code categoryUid} or
+   * all, and for a plan only its medicines without a price when {@code onlyMissing}.
+   */
+  @PostMapping("/pricing-plans/{plan}/bulk/preview")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<PricingService.BulkResult> bulkPreview(
+      @PathVariable String plan, @RequestBody BulkBody body) {
+    return ApiResponse.ok(pricing.bulk(bulk(plan, body), false), "Bulk update previewed");
+  }
+
+  /** The bulk update saved, with its price history. */
+  @PostMapping("/pricing-plans/{plan}/bulk")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<PricingService.BulkResult> bulkApply(
+      @PathVariable String plan, @RequestBody BulkBody body) {
+    return ApiResponse.ok(pricing.bulk(bulk(plan, body), true), "Prices updated");
+  }
+
+  public record BulkBody(
+      BigDecimal percent,
+      BigDecimal roundTo,
+      String rounding,
+      UUID categoryUid,
+      Boolean onlyMissing) {}
+
+  private static PricingService.BulkCommand bulk(String plan, BulkBody body) {
+    if (body == null) {
+      throw Refusal.malformed("The request needs a body.");
+    }
+    return new PricingService.BulkCommand(
+        planUid(plan),
+        body.percent(),
+        body.roundTo(),
+        body.rounding(),
+        body.categoryUid(),
+        body.onlyMissing());
+  }
+
+  /**
+   * Sales per pricing plan from {@code from} to {@code to} (pharmacy days, inclusive): how many,
+   * what they charged, their Normal Sale value and the difference.
+   */
+  @GetMapping("/reports/pricing-plans")
+  @Access(scope = AccessScope.TENANT, permission = "reports.view")
+  public ApiResponse<List<tz.co.pharmacy.modules.sales.ports.inbound.SaleService.PlanSalesView>>
+      byPlan(@RequestParam java.time.LocalDate from, @RequestParam java.time.LocalDate to) {
+    if (to.isBefore(from)) {
+      throw Refusal.invalid("invalid_period", "to is before from.", "to");
+    }
+    java.time.ZoneId zone = calendar.zone();
+    return ApiResponse.ok(
+        sales.byPricingPlan(
+            from.atStartOfDay(zone).toInstant(), to.plusDays(1).atStartOfDay(zone).toInstant()),
+        "Sales by pricing plan retrieved");
+  }
+
+  private static UUID planUid(String plan) {
+    return "normal".equalsIgnoreCase(plan)
+        ? null
+        : tz.co.pharmacy.platform.kernel.Uids.parse(plan, "plan");
   }
 
   private static PriceListCommand body(PriceListCommand body) {

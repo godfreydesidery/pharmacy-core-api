@@ -24,6 +24,20 @@ public interface SaleService {
   Optional<SaleView> claimIdempotencyKey(String key);
 
   /**
+   * Sales per pricing plan between two moments (the branches the caller reports on): how many, what
+   * they charged, what they would have cost at Normal Sale prices, and the difference (positive:
+   * given away against Normal Sale). Sales before pricing plans have no normal total.
+   */
+  List<PlanSalesView> byPricingPlan(java.time.Instant from, java.time.Instant to);
+
+  record PlanSalesView(
+      String plan,
+      long sales,
+      java.math.BigDecimal total,
+      java.math.BigDecimal normalTotal,
+      java.math.BigDecimal belowNormal) {}
+
+  /**
    * Records a priced sale. Per line: gross = unitPrice × quantity, discount = gross ×
    * discountPercent %, tax = (gross − discount) × taxRate %, lineTotal = gross − discount + tax.
    * Refuses 422 {@code prescription_required}, {@code discount_not_allowed}, {@code
