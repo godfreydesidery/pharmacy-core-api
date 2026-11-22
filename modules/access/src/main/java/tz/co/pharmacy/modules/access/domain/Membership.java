@@ -61,6 +61,11 @@ public class Membership extends TenantEntity {
     assign(role, allBranches, branchUids);
   }
 
+  /** The person linked the staff login holding this membership to their personal account. */
+  public void moveTo(UUID personalUid) {
+    this.userUid = personalUid;
+  }
+
   public void change(Role role, boolean allBranches, Collection<UUID> branchUids, boolean active) {
     assign(role, allBranches, branchUids);
     this.active = active;

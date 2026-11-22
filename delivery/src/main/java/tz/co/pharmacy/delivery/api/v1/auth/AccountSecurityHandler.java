@@ -107,6 +107,22 @@ public class AccountSecurityHandler {
     return ApiResponse.ok("Password changed; sign in with the new one");
   }
 
+  /** Links a pharmacy's staff login (juma@DAWA) to the signed-in personal account. */
+  @PostMapping("/link-login")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<Void> linkStaffLogin(
+      @RequestBody LinkRequest body, HttpServletRequest request) {
+    LinkRequest given = body == null ? new LinkRequest(null, null, null, null) : body;
+    security.linkStaffLogin(
+        self(),
+        given.signIn(),
+        given.loginPassword(),
+        given.password(),
+        given.code(),
+        EdgeFilter.client(request));
+    return ApiResponse.ok("The staff login is now part of your account");
+  }
+
   @GetMapping("/security/history")
   @Access(scope = AccessScope.AUTHENTICATED)
   public ApiResponse<Page<SecurityEventView>> history(
@@ -140,6 +156,9 @@ public class AccountSecurityHandler {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record PasswordOnly(String password) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record LinkRequest(String signIn, String loginPassword, String password, String code) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record PhoneResetRequest(String phone, String code, String newPassword) {}

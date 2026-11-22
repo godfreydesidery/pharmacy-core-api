@@ -81,6 +81,23 @@ public interface AccountSecurity {
   RecoveryView startRecovery(
       UUID userUid, String newEmail, boolean resetTwoFactor, String reason, ClientInfo client);
 
+  /**
+   * Links a pharmacy's staff login to the signed-in person's personal account (G22): proved with
+   * the login's sign-in ({@code juma@DAWA}) and password, and the person's own password (and
+   * second-factor code when on). The login's membership moves to the personal account; the login is
+   * switched off and its sessions end; what it recorded stays under it, as history. A wrong login
+   * password counts toward that login's lockout. 422 invalid_login (the same for an unknown login);
+   * 422 invalid_password; 422 invalid_code; 409 already_a_member when the personal account is
+   * already in that pharmacy; 422 managed_login when the signed-in account is itself a staff login.
+   */
+  void linkStaffLogin(
+      UUID userUid,
+      String signIn,
+      String loginPassword,
+      String password,
+      String code,
+      ClientInfo client);
+
   /** A root admin looks up an account by its sign-in email, to recover it. 404 user_not_found. */
   UserView account(String email);
 

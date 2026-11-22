@@ -190,6 +190,17 @@ class AccessNotificationsAdapter implements AccessNotices {
   }
 
   @Override
+  public void loginLinked(UUID userUid, String name, String email, String signIn, Instant at) {
+    notifier.send(
+        new NotificationRequest(
+            TemplateKeys.ACCESS_LOGIN_LINKED,
+            new Recipient(userUid, name, email, null, null),
+            Set.of(Channel.EMAIL, Channel.IN_APP),
+            params("login", signIn, "time", WHEN.format(at)),
+            null));
+  }
+
+  @Override
   public void recoveryLink(String name, String newEmail, String link, Instant usableAt) {
     notifier.send(
         new NotificationRequest(
