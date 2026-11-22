@@ -58,7 +58,8 @@ public class SettingsHandler {
                 body.smsReceipts(),
                 body.acceptedCurrencies(),
                 body.pricesIncludeTax(),
-                body.look())),
+                body.look(),
+                body.idleMinutes())),
         "Settings changed");
   }
 
@@ -114,5 +115,6 @@ public class SettingsHandler {
       Boolean smsReceipts,
       java.util.List<String> acceptedCurrencies,
       Boolean pricesIncludeTax,
-      String look) {}
+      String look,
+      Integer idleMinutes) {}
 }

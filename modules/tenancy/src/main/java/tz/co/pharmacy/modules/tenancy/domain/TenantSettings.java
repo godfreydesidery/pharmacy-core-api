@@ -34,6 +34,9 @@ public class TenantSettings extends TenantEntity {
   /** How the web app looks for everyone in the pharmacy: {@code PREMIUM} or {@code CLASSIC}. */
   private String look;
 
+  /** Minutes without use after which a person is signed out (5 to 60). */
+  private int idleMinutes;
+
   /** The looks a pharmacy can choose. */
   public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
 
@@ -70,6 +73,13 @@ public class TenantSettings extends TenantEntity {
     }
   }
 
+  /** Null keeps the current limit; the service checks the range. */
+  public void changeIdleMinutes(Integer idleMinutes) {
+    if (idleMinutes != null) {
+      this.idleMinutes = idleMinutes;
+    }
+  }
+
   public void changeSmsReceipts(Boolean smsReceipts) {
     if (smsReceipts != null) {
       this.smsReceipts = smsReceipts;
@@ -88,6 +98,7 @@ public class TenantSettings extends TenantEntity {
     // Shelf prices in Tanzania are shown to the customer with VAT in them.
     settings.pricesIncludeTax = true;
     settings.look = "PREMIUM";
+    settings.idleMinutes = 15;
     return settings;
   }
 

@@ -10,6 +10,8 @@ pharmacy:
     # Sessions outlast a simulated quarter, so the world's hundreds of staff do not sign in again
     # every simulated day; real-time sign-in limits are for real traffic, not one laptop.
     session-hours: 2400
+    # The world's staff are scripts that never press a key: no inactivity sign-out.
+    idle-timeout-enabled: false
   edge:
     auth-requests-per-minute: 100000
   integrations:

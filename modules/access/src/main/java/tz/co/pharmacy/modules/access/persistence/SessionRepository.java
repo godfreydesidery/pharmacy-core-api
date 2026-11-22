@@ -30,6 +30,23 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
   @Query("update Session s set s.lastSeenAt = :at where s.id = :id")
   int touch(@Param("id") Long id, @Param("at") Instant at);
 
+  /**
+   * The person used the app: the inactivity clock restarts, with the limit of the pharmacy they
+   * work in. Without a version bump or an audit entry; the web app calls it at most every half
+   * minute.
+   */
+  @Modifying
+  @Query(
+      "update Session s set s.activeAt = :at, s.lastSeenAt = :at, s.idleMinutes = :idleMinutes"
+          + " where s.id = :id")
+  int markActive(
+      @Param("id") Long id, @Param("at") Instant at, @Param("idleMinutes") Integer idleMinutes);
+
+  /** Revokes the session unless already revoked; 1 when this call ended it. */
+  @Modifying
+  @Query("update Session s set s.revokedAt = :at where s.id = :id and s.revokedAt is null")
+  int revokeIfLive(@Param("id") Long id, @Param("at") Instant at);
+
   @Modifying
   @Query(
       "update Session s set s.revokedAt = :at where s.userUid = :userUid and s.revokedAt is null"

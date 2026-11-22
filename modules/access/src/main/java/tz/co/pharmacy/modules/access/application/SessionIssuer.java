@@ -48,6 +48,7 @@ class SessionIssuer {
   private final TransactionTemplate writes;
   private final Duration sessionLength;
   private final boolean twoFactorRequiredForRoot;
+  private final IdlePolicy idle;
 
   private final Clock clock;
 
@@ -61,8 +62,10 @@ class SessionIssuer {
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.access.session-hours:12}") long sessionHours,
       @Value("${pharmacy.access.require-2fa-for-root:false}") boolean twoFactorRequiredForRoot,
+      IdlePolicy idle,
       Clock clock) {
     this.clock = clock;
+    this.idle = idle;
     this.users = users;
     this.sessions = sessions;
     this.memberships = memberships;
@@ -101,7 +104,8 @@ class SessionIssuer {
                                   expiresAt,
                                   trim(from.ip(), 64),
                                   trim(from.userAgent(), 400),
-                                  method));
+                                  method,
+                                  idle.initial()));
                           User row = users.findByUid(user.getUid()).orElse(user);
                           users.markSignedIn(user.getUid(), now);
                           Map<String, Object> details = new LinkedHashMap<>();
@@ -130,6 +134,45 @@ class SessionIssuer {
                           }
                           return new SignInResult(token, expiresAt, principal(row));
                         })));
+  }
+
+  /**
+   * Ends a session that went unused for {@code idleMinutes}, audited as a SIGN_OUT with reason IDLE
+   * for the platform and in each pharmacy the user works for (beside their sign-ins). When several
+   * requests find it idle at once, only the one that ends it records it.
+   */
+  void endIdle(Long sessionId, User user, Integer idleMinutes) {
+    // Outside the pharmacy the request may name (the app's own sign-out does), so the first entry
+    // is the platform's.
+    ExecutionContext.callAs(
+        userFrame(user),
+        () ->
+            TenantContext.callAs(
+                null,
+                () ->
+                    TenantContext.callAsUser(
+                        user.getUid(),
+                        () ->
+                            writes.execute(
+                                status -> {
+                                  if (sessions.revokeIfLive(sessionId, clock.instant()) == 0) {
+                                    return null;
+                                  }
+                                  Map<String, Object> details = new LinkedHashMap<>();
+                                  details.put("reason", "IDLE");
+                                  details.put("idleMinutes", idleMinutes);
+                                  audit.record("SIGN_OUT", "User", user.getUid(), null, details);
+                                  for (UUID tenantUid : workplaces(user.getUid())) {
+                                    tenantSwitch.within(
+                                        tenantUid,
+                                        () -> {
+                                          audit.record(
+                                              "SIGN_OUT", "User", user.getUid(), null, details);
+                                          return null;
+                                        });
+                                  }
+                                  return null;
+                                }))));
   }
 
   /** The pharmacies the user is an active member of. */

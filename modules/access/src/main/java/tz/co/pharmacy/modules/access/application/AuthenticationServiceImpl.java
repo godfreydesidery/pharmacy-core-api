@@ -24,6 +24,7 @@ import tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService;
 import tz.co.pharmacy.modules.access.ports.inbound.ClientInfo;
 import tz.co.pharmacy.modules.access.ports.inbound.MembershipGrant;
 import tz.co.pharmacy.modules.access.ports.inbound.Principal;
+import tz.co.pharmacy.modules.access.ports.inbound.SessionActivity;
 import tz.co.pharmacy.modules.access.ports.inbound.SessionView;
 import tz.co.pharmacy.modules.access.ports.inbound.SignInOutcome;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -51,6 +52,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
   private final Passwords passwords;
   private final SignInGuard guard;
   private final SessionIssuer issuer;
+  private final IdlePolicy idle;
   private final AuditLog audit;
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
@@ -66,10 +68,12 @@ class AuthenticationServiceImpl implements AuthenticationService {
       Passwords passwords,
       SignInGuard guard,
       SessionIssuer issuer,
+      IdlePolicy idle,
       AuditLog audit,
       PlatformTransactionManager transactionManager,
       Clock clock) {
     this.clock = clock;
+    this.idle = idle;
     this.users = users;
     this.sessions = sessions;
     this.memberships = memberships;
@@ -182,11 +186,15 @@ class AuthenticationServiceImpl implements AuthenticationService {
                             users
                                 .findByUid(session.getUserUid())
                                 .filter(User::isActive)
-                                .map(user -> new Live(session, issuer.principal(user)))));
+                                .map(user -> new Live(session, user, issuer.principal(user)))));
     if (live == null || live.isEmpty()) {
       return Optional.empty();
     }
     Session session = live.get().session();
+    if (session.idleAt(now)) {
+      issuer.endIdle(session.getId(), live.get().user(), session.getIdleMinutes());
+      throw idleRefusal(session.getIdleMinutes());
+    }
     if (session.getLastSeenAt() == null
         || session.getLastSeenAt().isBefore(now.minus(SEEN_EVERY))) {
       writes.executeWithoutResult(status -> sessions.touch(session.getId(), now));
@@ -194,11 +202,63 @@ class AuthenticationServiceImpl implements AuthenticationService {
     return Optional.of(live.get().principal());
   }
 
-  private record Live(Session session, Principal principal) {}
+  private record Live(Session session, User user, Principal principal) {}
+
+  /** 401 session_idle, so the app can tell the person why they have to sign in again. */
+  static Refusal idleRefusal(Integer idleMinutes) {
+    return Refusal.unauthenticated(
+        "session_idle",
+        "You were signed out after "
+            + idleMinutes
+            + " minutes without using the app; sign in again.");
+  }
 
   @Override
-  public void signOut(String token) {
+  public SessionActivity recordActivity(String token, Integer pharmacyIdleMinutes) {
+    Instant now = clock.instant();
+    Live live = liveSession(token, now);
+    if (live == null) {
+      throw Refusal.unauthenticated("session_expired", "Your session has expired; sign in again.");
+    }
+    Session session = live.session();
+    Integer minutes = idle.minutesFor(live.user().isRootAdmin(), pharmacyIdleMinutes);
+    writes.executeWithoutResult(status -> sessions.markActive(session.getId(), now, minutes));
+    return new SessionActivity(
+        minutes,
+        minutes == null ? null : now.plus(Duration.ofMinutes(minutes)),
+        session.getExpiresAt());
+  }
+
+  /** The live session of {@code token} with its active user; null otherwise. */
+  private Live liveSession(String token, Instant now) {
     if (token == null || token.isBlank()) {
+      return null;
+    }
+    Optional<Live> live =
+        reads.execute(
+            status ->
+                sessions
+                    .findByTokenHash(Tokens.hash(token.trim()))
+                    .filter(session -> session.liveAt(now))
+                    .flatMap(
+                        session ->
+                            users
+                                .findByUid(session.getUserUid())
+                                .filter(User::isActive)
+                                .map(user -> new Live(session, user, null))));
+    return live == null ? null : live.orElse(null);
+  }
+
+  @Override
+  public void signOut(String token, boolean idleTimeout) {
+    if (token == null || token.isBlank()) {
+      return;
+    }
+    if (idleTimeout) {
+      Live live = liveSession(token, clock.instant());
+      if (live != null) {
+        issuer.endIdle(live.session().getId(), live.user(), live.session().getIdleMinutes());
+      }
       return;
     }
     writes.executeWithoutResult(

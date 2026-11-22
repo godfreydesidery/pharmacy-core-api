@@ -17,4 +17,6 @@ public record SettingsView(
     /* Selling prices include VAT (true) or have it added on top (false). */
     boolean pricesIncludeTax,
     /* How the web app looks for everyone in the pharmacy: PREMIUM or CLASSIC. */
-    String look) {}
+    String look,
+    /* Minutes without use that sign a person out of this pharmacy. */
+    int idleMinutes) {}
