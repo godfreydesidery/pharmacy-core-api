@@ -104,9 +104,7 @@ class PharmacyVisitsImpl implements PharmacyVisits {
                           tenantSwitch.within(
                               tenantUid,
                               () -> {
-                                memberships
-                                    .findByUserUidAndTenantUid(userUid, tenantUid)
-                                    .ifPresent(membership -> membership.workedAt(now));
+                                memberships.workedAt(userUid, tenantUid, now);
                                 if (first) {
                                   Map<String, Object> details = new LinkedHashMap<>();
                                   if (session != null) {

@@ -126,6 +126,9 @@ class PharmaciesApartTest extends IntegrationTest {
     session.in(weekend, null).get("/api/v1/settings").expect(200);
     assertThat(signInsOf(weekendAdmin, juma)).hasSize(1);
     assertThat(member(weekendAdmin, membership).get("lastActiveAt")).isNotNull();
+    // Keeping "last active here" leaves no entries in the pharmacy's audit.
+    assertThat(weekendAdmin.get("/api/v1/audit?entityType=Membership&limit=100").expect(200).body())
+        .doesNotContain("lastActiveAt");
 
     // Signing out is recorded where the session worked.
     session.post("/api/v1/auth/sign-out", null).expect(200);

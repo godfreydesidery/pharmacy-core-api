@@ -21,4 +21,17 @@ public interface MembershipRepository
   boolean existsByUserUidAndTenantUid(UUID userUid, UUID tenantUid);
 
   List<Membership> findAllByUserUid(UUID userUid);
+
+  /**
+   * When the member last worked in this pharmacy. Written directly, not through the entity, so the
+   * bookkeeping leaves no "membership updated" entry in the pharmacy's audit every few minutes.
+   */
+  @org.springframework.data.jpa.repository.Modifying
+  @org.springframework.data.jpa.repository.Query(
+      "update Membership m set m.lastActiveAt = :at"
+          + " where m.userUid = :user and m.tenantUid = :tenant")
+  int workedAt(
+      @org.springframework.data.repository.query.Param("user") UUID userUid,
+      @org.springframework.data.repository.query.Param("tenant") UUID tenantUid,
+      @org.springframework.data.repository.query.Param("at") java.time.Instant at);
 }
