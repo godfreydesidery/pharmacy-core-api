@@ -26,8 +26,13 @@ class RowLevelSecurityTest extends IntegrationTest {
    * root administrator and the daily subscription lifecycle read them across tenants, and every
    * query names its tenant. A tenant's own data never goes here.
    */
+  /**
+   * Platform-scope tables that name a tenant without belonging to it: subscriptions, and the
+   * pharmacies each session entered (sessions are the person's, read only by the access module).
+   */
   private static final String PLATFORM_TABLES =
-      "('tenancy', 'subscriptions'), ('tenancy', 'subscription_invoices')";
+      "('tenancy', 'subscriptions'), ('tenancy', 'subscription_invoices'),"
+          + " ('access', 'session_pharmacies')";
 
   @Test
   @DisplayName("every table with tenant_uid has forced row-level security")

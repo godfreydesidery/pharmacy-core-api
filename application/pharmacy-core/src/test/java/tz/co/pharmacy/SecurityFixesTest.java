@@ -225,10 +225,11 @@ class SecurityFixesTest extends IntegrationTest {
   }
 
   @Test
-  @DisplayName("a pharmacy's audit shows who signed in, and when; another pharmacy's does not")
+  @DisplayName("a pharmacy's audit shows who signed in to work in it, and when; another's does not")
   void signInsAreInThePharmacysAudit() {
     String email = Staff.login(admin, anonymous, "Seen", "CASHIER", "Staff#2026x").signIn();
-    anonymous.signIn(email, "Staff#2026x");
+    // Recorded when the session first works in the pharmacy.
+    anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenant, null).get("/api/v1/products");
 
     Response signIns = admin.get("/api/v1/audit?action=sign_in&limit=50").expect(200);
     List<String> actions = signIns.json().read("$.data.items[*].action");
