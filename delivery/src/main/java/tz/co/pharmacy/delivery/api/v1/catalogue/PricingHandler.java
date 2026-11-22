@@ -232,21 +232,65 @@ public class PricingHandler {
   @PutMapping("/pricing-plans/{plan}/prices/{productUid}")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
   public ApiResponse<PricingService.GridRow> setPrice(
-      @PathVariable String plan, @PathVariable UUID productUid, @RequestBody PriceBody body) {
+      @PathVariable String plan,
+      @PathVariable UUID productUid,
+      @RequestParam(required = false) Integer minQuantity,
+      @RequestBody PriceBody body) {
     return ApiResponse.ok(
-        pricing.setPrice(productUid, planUid(plan), body == null ? null : body.price()),
+        pricing.setPrice(
+            productUid,
+            planUid(plan),
+            minQuantity == null ? 1 : minQuantity,
+            body == null ? null : body.price()),
         "Price saved");
   }
 
   @DeleteMapping("/pricing-plans/{plan}/prices/{productUid}")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
   public ApiResponse<PricingService.GridRow> removePrice(
-      @PathVariable String plan, @PathVariable UUID productUid) {
+      @PathVariable String plan,
+      @PathVariable UUID productUid,
+      @RequestParam(required = false) Integer minQuantity) {
     UUID uid = planUid(plan);
     if (uid == null) {
       throw Refusal.invalid("invalid_price", "Every medicine has a Normal Sale price.", "plan");
     }
-    return ApiResponse.ok(pricing.setPrice(productUid, uid, null), "Price removed");
+    return ApiResponse.ok(
+        pricing.setPrice(productUid, uid, minQuantity == null ? 1 : minQuantity, null),
+        "Price removed");
+  }
+
+  /** Normal Sale and every plan, each with how many medicines it prices: the plan cards. */
+  @GetMapping("/pricing-plans/cards")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<List<PricingService.PlanCard>> cards() {
+    return ApiResponse.ok(pricing.planCards(), "Pricing plans retrieved");
+  }
+
+  /**
+   * One plan's medicines: {@code plan} is {@code normal} (every medicine) or a plan's uid (the
+   * medicines it prices, a row per quantity break; {@code notPriced=true}: those it does not).
+   */
+  @GetMapping("/pricing-plans/{plan}/items")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<tz.co.pharmacy.platform.kernel.Page<PricingService.PlanItemRow>> planItems(
+      @PathVariable String plan,
+      @RequestParam(required = false) String q,
+      @RequestParam(required = false) UUID categoryUid,
+      @RequestParam(required = false) Boolean notPriced,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        pricing.planItems(
+            planUid(plan), q, categoryUid, Boolean.TRUE.equals(notPriced), Pages.of(cursor, limit)),
+        "Plan prices retrieved");
+  }
+
+  /** A medicine's price in Normal Sale and every plan. */
+  @GetMapping("/products/{productUid}/plan-prices")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<List<PricingService.PlanPriceView>> planPrices(@PathVariable UUID productUid) {
+    return ApiResponse.ok(pricing.planPrices(productUid), "Prices in plans retrieved");
   }
 
   /** A medicine's price changes, newest first: which plan, old and new price, who and when. */

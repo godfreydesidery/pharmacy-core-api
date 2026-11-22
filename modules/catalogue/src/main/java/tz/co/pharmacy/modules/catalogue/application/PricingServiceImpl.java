@@ -657,6 +657,13 @@ class PricingServiceImpl implements PricingService {
   @Override
   @Transactional
   public GridRow setPrice(UUID productUid, UUID planUid, BigDecimal price) {
+    return setPrice(productUid, planUid, 1, price);
+  }
+
+  @Override
+  @Transactional
+  public GridRow setPrice(UUID productUid, UUID planUid, int minQuantity, BigDecimal price) {
+    int min = Math.max(1, minQuantity);
     Product product =
         products
             .findByUid(productUid)
@@ -688,18 +695,18 @@ class PricingServiceImpl implements PricingService {
               .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such pricing plan."));
       BigDecimal before =
           list.getItems().stream()
-              .filter(i -> i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)
+              .filter(i -> i.getProductUid().equals(productUid) && i.getMinQuantity() == min)
               .map(PriceListItem::getPrice)
               .findFirst()
               .orElse(null);
       List<PriceListItem> replacement = new ArrayList<>();
       for (PriceListItem i : list.getItems()) {
-        if (!(i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)) {
+        if (!(i.getProductUid().equals(productUid) && i.getMinQuantity() == min)) {
           replacement.add(new PriceListItem(i.getProductUid(), i.getMinQuantity(), i.getPrice()));
         }
       }
       if (price != null) {
-        replacement.add(new PriceListItem(productUid, 1, Amounts.money(price)));
+        replacement.add(new PriceListItem(productUid, min, Amounts.money(price)));
       }
       list.items(replacement);
       lists.save(list);
@@ -708,7 +715,7 @@ class PricingServiceImpl implements PricingService {
           product.getName(),
           list.getUid(),
           list.getName(),
-          1,
+          min,
           before,
           price == null ? null : Amounts.money(price),
           tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.MANUAL);
@@ -723,6 +730,165 @@ class PricingServiceImpl implements PricingService {
       }
     }
     return gridRow(product, prices);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<PlanCard> planCards() {
+    long medicines = products.findAll().stream().filter(Product::isActive).count();
+    List<PlanCard> cards = new ArrayList<>();
+    cards.add(
+        new PlanCard(
+            null,
+            PriceHistory.NORMAL_SALE,
+            null,
+            null,
+            null,
+            null,
+            null,
+            BigDecimal.ZERO,
+            true,
+            null,
+            null,
+            medicines));
+    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+      cards.add(
+          new PlanCard(
+              l.getUid(),
+              l.getName(),
+              l.getCustomerType(),
+              l.getCustomerUid(),
+              l.getCustomerName(),
+              l.getPayerUid(),
+              l.getPayerName(),
+              l.getAdjustmentPercent(),
+              l.isActive(),
+              l.getValidFrom(),
+              l.getValidTo(),
+              l.getItems().stream().map(PriceListItem::getProductUid).distinct().count()));
+    }
+    return cards;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public tz.co.pharmacy.platform.kernel.Page<PlanItemRow> planItems(
+      UUID planUid,
+      String q,
+      UUID categoryUid,
+      boolean notPriced,
+      tz.co.pharmacy.platform.kernel.PageQuery query) {
+    String needle = q == null || q.isBlank() ? null : q.trim().toLowerCase(java.util.Locale.ROOT);
+    Set<UUID> tree = categoryUid == null ? null : descendants(categoryUid);
+    java.util.function.Predicate<Product> wanted =
+        p ->
+            p.isActive()
+                && (tree == null
+                    || (p.getCategory() != null && tree.contains(p.getCategory().getUid())))
+                && (needle == null
+                    || p.getName().toLowerCase(java.util.Locale.ROOT).contains(needle)
+                    || (p.getSku() != null
+                        && p.getSku().toLowerCase(java.util.Locale.ROOT).contains(needle))
+                    || (p.getGtin() != null && p.getGtin().contains(needle)));
+    List<PlanItemRow> rows = new ArrayList<>();
+    if (planUid == null) {
+      products.findAll(org.springframework.data.domain.Sort.by("name")).stream()
+          .filter(wanted)
+          .forEach(p -> rows.add(itemRow(p, 1, p.getSellingPrice())));
+    } else {
+      PriceList list =
+          lists
+              .findByUid(planUid)
+              .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such pricing plan."));
+      Set<UUID> priced = new HashSet<>();
+      list.getItems().forEach(i -> priced.add(i.getProductUid()));
+      if (notPriced) {
+        products.findAll(org.springframework.data.domain.Sort.by("name")).stream()
+            .filter(wanted)
+            .filter(p -> !priced.contains(p.getUid()))
+            .forEach(p -> rows.add(itemRow(p, 1, null)));
+      } else {
+        Map<UUID, Product> byUid =
+            products.findByUidIn(priced).stream()
+                .collect(Collectors.toMap(Product::getUid, Function.identity()));
+        list.getItems().stream()
+            .filter(
+                i ->
+                    byUid.containsKey(i.getProductUid())
+                        && wanted.test(byUid.get(i.getProductUid())))
+            .sorted(
+                Comparator.comparing((PriceListItem i) -> byUid.get(i.getProductUid()).getName())
+                    .thenComparingInt(PriceListItem::getMinQuantity))
+            .forEach(
+                i ->
+                    rows.add(
+                        itemRow(byUid.get(i.getProductUid()), i.getMinQuantity(), i.getPrice())));
+      }
+    }
+    int from = (int) Math.min(query.offset(), rows.size());
+    int to = (int) Math.min(from + (long) query.limit() + 1, rows.size());
+    return tz.co.pharmacy.platform.kernel.Page.offset(
+        rows.subList(from, to), query, () -> rows.size());
+  }
+
+  private static PlanItemRow itemRow(Product p, int minQuantity, BigDecimal price) {
+    return new PlanItemRow(
+        p.getUid(),
+        p.getSku(),
+        p.getName(),
+        p.getGtin(),
+        p.getCategory() == null ? null : p.getCategory().getName(),
+        p.getCostPrice(),
+        p.getSellingPrice(),
+        minQuantity,
+        price);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<PlanPriceView> planPrices(UUID productUid) {
+    Product product =
+        products
+            .findByUid(productUid)
+            .orElseThrow(() -> Refusal.notFound("product_not_found", "No such product."));
+    List<PlanPriceView> out = new ArrayList<>();
+    out.add(
+        new PlanPriceView(
+            null, PriceHistory.NORMAL_SALE, product.getSellingPrice(), "PRICE", List.of(), true));
+    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+      List<PriceListItem> mine =
+          l.getItems().stream()
+              .filter(i -> i.getProductUid().equals(productUid))
+              .sorted(Comparator.comparingInt(PriceListItem::getMinQuantity))
+              .toList();
+      BigDecimal one =
+          mine.stream()
+              .filter(i -> i.getMinQuantity() == 1)
+              .map(PriceListItem::getPrice)
+              .findFirst()
+              .orElse(null);
+      String basis;
+      if (one != null) {
+        basis = "PRICE";
+      } else if (l.getAdjustmentPercent() != null) {
+        basis = "RULE";
+        one = Amounts.money(adjust(product.getSellingPrice(), l.getAdjustmentPercent()));
+      } else {
+        basis = "BLOCKED";
+      }
+      out.add(
+          new PlanPriceView(
+              l.getUid(),
+              l.getName(),
+              one,
+              basis,
+              mine.stream()
+                  .filter(i -> i.getMinQuantity() > 1)
+                  .map(i -> new PriceBreak(i.getMinQuantity(), i.getPrice()))
+                  .toList(),
+              l.isActive()));
+    }
+    return out;
   }
 
   @Override

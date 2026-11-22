@@ -379,6 +379,80 @@ class PricingPlansTest extends IntegrationTest {
   }
 
   @Test
+  @DisplayName("plan pages: cards, a plan's priced medicines only, breaks, prices in plans")
+  void planPages() {
+    List<String> cards =
+        admin.get("/api/v1/pricing-plans/cards").expect(200).json().read("$.data[*].name");
+    assertThat(cards).containsExactly("Normal Sale", "Hospital", "Wholesale");
+    List<Integer> wholesaleCount =
+        admin
+            .get("/api/v1/pricing-plans/cards")
+            .expect(200)
+            .json()
+            .read("$.data[?(@.name == 'Wholesale')].priced");
+    assertThat(wholesaleCount).containsExactly(1);
+
+    // Wholesale lists only what it prices; "not priced" lists the rest.
+    List<String> priced =
+        admin
+            .get("/api/v1/pricing-plans/" + wholesalePlan + "/items")
+            .expect(200)
+            .json()
+            .read("$.data.items[*].name");
+    assertThat(priced).containsExactly("Paracetamol 500mg");
+    List<String> notPriced =
+        admin
+            .get("/api/v1/pricing-plans/" + wholesalePlan + "/items?notPriced=true")
+            .expect(200)
+            .json()
+            .read("$.data.items[*].name");
+    assertThat(notPriced).containsExactly("Amoxicillin 500mg");
+    // Normal Sale lists every medicine.
+    List<String> normal =
+        admin
+            .get("/api/v1/pricing-plans/normal/items")
+            .expect(200)
+            .json()
+            .read("$.data.items[*].name");
+    assertThat(normal).containsExactly("Amoxicillin 500mg", "Paracetamol 500mg");
+
+    // A quantity break is a row of its own.
+    admin
+        .put(
+            "/api/v1/pricing-plans/" + wholesalePlan + "/prices/" + paracetamol + "?minQuantity=10",
+            "{\"price\":350}")
+        .expect(200);
+    List<Integer> minimums =
+        admin
+            .get("/api/v1/pricing-plans/" + wholesalePlan + "/items")
+            .expect(200)
+            .json()
+            .read("$.data.items[*].minQuantity");
+    assertThat(minimums).containsExactly(1, 10);
+    assertThat(
+            sell(cashierTill, clinic, null, paracetamol, 10, 3500)
+                .expect(201)
+                .read("$.data.total", Double.class))
+        .isEqualTo(3500.0);
+    admin
+        .delete(
+            "/api/v1/pricing-plans/" + wholesalePlan + "/prices/" + paracetamol + "?minQuantity=10")
+        .expect(200);
+
+    // One medicine across plans: set, by rule, or blocked.
+    Response prices = admin.get("/api/v1/products/" + amoxicillin + "/plan-prices").expect(200);
+    List<String> bases = prices.json().read("$.data[*].basis");
+    assertThat(bases).containsExactly("PRICE", "RULE", "BLOCKED");
+    assertThat(prices.read("$.data[1].price", Double.class)).isEqualTo(800.0);
+
+    // Excel: priced only by default, every medicine on request.
+    byte[] pricedOnly = admin.download("/api/v1/price-lists/" + wholesalePlan + "/import/template");
+    byte[] everything =
+        admin.download("/api/v1/price-lists/" + wholesalePlan + "/import/template?all=true");
+    assertThat(everything.length).isGreaterThan(pricedOnly.length);
+  }
+
+  @Test
   @DisplayName("Excel: the template lists every medicine; a filled file is checked, then saved")
   void excelRoundTrip() {
     byte[] template = admin.download("/api/v1/price-lists/" + wholesalePlan + "/import/template");
