@@ -1,0 +1,9 @@
+target
+target-*
+**/target
+**/target-*
+local-postgres
+*.log
+.git
+.idea
+.vscode

@@ -4,7 +4,9 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 COPY . .
-RUN --mount=type=cache,target=/root/.m2 \
+# Railway requires cache mount ids prefixed s/<service id>- (here the pharmacy-core-test api service);
+# any other BuildKit treats the id as an ordinary cache name.
+RUN --mount=type=cache,id=s/7cfd8ac3-f354-4387-8431-f16d28f68c5e-/root/.m2,target=/root/.m2 \
     mvn -B -q -pl application/pharmacy-core -am package -DskipTests -Dspotless.check.skip=true \
  && cp application/pharmacy-core/target/pharmacy-core-*-exec.jar /src/app.jar
 
