@@ -92,6 +92,30 @@ class SaleServiceImpl implements SaleService {
   }
 
   @Override
+  @Transactional(readOnly = true)
+  public List<PlanSalesView> byPricingPlan(java.time.Instant from, java.time.Instant to) {
+    java.util.Set<UUID> branches = ExecutionContext.reportBranches();
+    List<Object[]> rows =
+        branches == null
+            ? sales.totalsByPlan(from, to)
+            : branches.isEmpty() ? List.of() : sales.totalsByPlan(from, to, branches);
+    return rows.stream()
+        .map(
+            r -> {
+              BigDecimal total = r[2] == null ? BigDecimal.ZERO : (BigDecimal) r[2];
+              BigDecimal normal = r[3] == null ? null : (BigDecimal) r[3];
+              return new PlanSalesView(
+                  r[0] == null ? "Normal Sale" : (String) r[0],
+                  ((Number) r[1]).longValue(),
+                  total,
+                  normal,
+                  normal == null ? null : normal.subtract(total));
+            })
+        .sorted(java.util.Comparator.comparing(PlanSalesView::total).reversed())
+        .toList();
+  }
+
+  @Override
   @Transactional
   public Optional<SaleView> claimIdempotencyKey(String key) {
     if (key == null || key.isBlank()) {
@@ -144,6 +168,7 @@ class SaleServiceImpl implements SaleService {
             discountPercent,
             Checks.optionalText(command.idempotencyKey(), "idempotencyKey", 100),
             ExecutionContext.actor().name());
+    sale.pricedUnder(command.priceListUid(), command.priceListName(), command.normalTotal());
     if (prescription != null && prescription.prescriberName() != null) {
       sale.prescribe(
           Checks.optionalText(prescription.prescriberName(), "prescription.prescriberName", 200),
@@ -566,7 +591,9 @@ class SaleServiceImpl implements SaleService {
         prescription,
         sale.getFiscalReference(),
         sale.getCashierName(),
-        sale.getCreatedAt());
+        sale.getCreatedAt(),
+        sale.getPriceListUid(),
+        sale.getPriceListName());
   }
 
   static SaleSummaryView summary(Sale sale) {

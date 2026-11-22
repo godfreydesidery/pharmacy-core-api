@@ -46,6 +46,9 @@ class PricingServiceImpl implements PricingService {
   private final ProductRepository products;
   private final CategoryRepository categories;
   private final TenantCalendar calendar;
+  private final PriceHistory history;
+  private final tz.co.pharmacy.modules.catalogue.persistence.PriceChangeRepository changes;
+  private final CatalogueServiceImpl catalogue;
 
   @Override
   @Transactional(readOnly = true)
@@ -59,6 +62,19 @@ class PricingServiceImpl implements PricingService {
   @Override
   @Transactional
   public PriceListView savePriceList(UUID uid, PriceListCommand c) {
+    return save(uid, c, tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.MANUAL);
+  }
+
+  @Override
+  @Transactional
+  public PriceListView importPriceList(UUID uid, PriceListCommand c) {
+    return save(uid, c, tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.IMPORT);
+  }
+
+  private PriceListView save(
+      UUID uid,
+      PriceListCommand c,
+      tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source source) {
     String name = Checks.text(c.name(), "name", 120);
     if (uid == null
         ? lists.existsByNameIgnoreCase(name)
@@ -72,11 +88,17 @@ class PricingServiceImpl implements PricingService {
           "A price list is for a customer type or for one customer, not both.",
           "customerUid");
     }
+    if (c.payerUid() != null && (type != null || c.customerUid() != null)) {
+      throw Refusal.invalid(
+          "price_list_target",
+          "An insurer's plan is for the insurer's members, not for a customer type or a customer.",
+          "payerUid");
+    }
     if (c.validFrom() != null && c.validTo() != null && c.validTo().isBefore(c.validFrom())) {
       throw Refusal.invalid("invalid_period", "validTo is before validFrom.", "validTo");
     }
-    BigDecimal adjustment = c.adjustmentPercent() == null ? BigDecimal.ZERO : c.adjustmentPercent();
-    if (adjustment.compareTo(new BigDecimal("-100")) <= 0) {
+    BigDecimal adjustment = c.adjustmentPercent();
+    if (adjustment != null && adjustment.compareTo(new BigDecimal("-100")) <= 0) {
       throw Refusal.invalid(
           "invalid_adjustment", "adjustmentPercent must be above -100.", "adjustmentPercent");
     }
@@ -95,6 +117,7 @@ class PricingServiceImpl implements PricingService {
         c.validFrom(),
         c.validTo(),
         c.active() == null || c.active());
+    list.forPayer(c.payerUid(), c.payerName());
     List<PriceListItem> items = new ArrayList<>();
     Set<String> seen = new HashSet<>();
     List<ItemCommand> commands = c.items() == null ? List.of() : c.items();
@@ -125,8 +148,31 @@ class PricingServiceImpl implements PricingService {
         throw Refusal.invalid("product_not_found", "No such product.", "items");
       }
     }
+    Map<String, BigDecimal> before = new HashMap<>();
+    list.getItems()
+        .forEach(i -> before.put(i.getProductUid() + ":" + i.getMinQuantity(), i.getPrice()));
     list.items(items);
     PriceList saved = lists.save(list);
+    Map<String, BigDecimal> after = new HashMap<>();
+    saved
+        .getItems()
+        .forEach(i -> after.put(i.getProductUid() + ":" + i.getMinQuantity(), i.getPrice()));
+    Set<String> keys = new HashSet<>(before.keySet());
+    keys.addAll(after.keySet());
+    Map<UUID, String> changedNames =
+        names(keys.stream().map(k -> UUID.fromString(k.substring(0, k.indexOf(':')))).distinct());
+    for (String key : keys) {
+      UUID product = UUID.fromString(key.substring(0, key.indexOf(':')));
+      history.record(
+          product,
+          changedNames.getOrDefault(product, "?"),
+          saved.getUid(),
+          saved.getName(),
+          Integer.parseInt(key.substring(key.indexOf(':') + 1)),
+          before.get(key),
+          after.get(key),
+          source);
+    }
     return view(saved, names(saved.getItems().stream().map(PriceListItem::getProductUid)));
   }
 
@@ -253,6 +299,18 @@ class PricingServiceImpl implements PricingService {
       UUID customerUid,
       List<PriceRequest> lines,
       LocalDate on) {
+    return price(branchUid, customerType, customerUid, null, lines, on);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<PricedLine> price(
+      UUID branchUid,
+      String customerType,
+      UUID customerUid,
+      PlanChoice plan,
+      List<PriceRequest> lines,
+      LocalDate on) {
     if (lines == null || lines.isEmpty()) {
       return List.of();
     }
@@ -266,7 +324,10 @@ class PricingServiceImpl implements PricingService {
           .findByBranchUidAndProductUidIn(branchUid, byUid.keySet())
           .forEach(b -> branch.put(b.getProductUid(), b.getPrice()));
     }
-    Optional<PriceList> list = listFor(customerUid, customerType, day);
+    Optional<PriceList> list =
+        plan == null
+            ? listFor(customerUid, customerType, day)
+            : plan.planUid() == null ? Optional.empty() : Optional.of(chosen(plan.planUid(), day));
     List<Promotion> running =
         promotions.runningOn(day).stream()
             .filter(p -> p.getBranchUid() == null || p.getBranchUid().equals(branchUid))
@@ -283,6 +344,7 @@ class PricingServiceImpl implements PricingService {
       BigDecimal price = retail;
       String source = "RETAIL";
       String label = null;
+      boolean unpriced = false;
       if (branch.containsKey(product.getUid())) {
         price = branch.get(product.getUid());
         source = "BRANCH";
@@ -298,15 +360,21 @@ class PricingServiceImpl implements PricingService {
           price = item.get().getPrice();
           source = "LIST";
           label = l.getName();
-        } else if (l.getAdjustmentPercent().signum() != 0) {
+        } else if (l.getAdjustmentPercent() != null) {
           price = adjust(price, l.getAdjustmentPercent());
           source = "LIST";
           label = l.getName();
+        } else {
+          // The plan has no price and no rule for it: refused at checkout.
+          source = "LIST";
+          label = l.getName();
+          unpriced = true;
         }
       }
       Promotion best = null;
       BigDecimal bestPrice = price;
-      for (Promotion p : running) {
+      // A plan's price stands as it is: promotions only lower Normal Sale prices (no stacking).
+      for (Promotion p : list.isPresent() ? List.<Promotion>of() : running) {
         if (!applies(p, product, categoryTrees)) {
           continue;
         }
@@ -330,9 +398,349 @@ class PricingServiceImpl implements PricingService {
               Amounts.money(retail),
               source,
               label,
-              cost != null && price.compareTo(cost) < 0));
+              cost != null && price.compareTo(cost) < 0,
+              unpriced));
     }
     return out;
+  }
+
+  /** The plan chosen for a sale: active and in its dates, or 422 price_plan_not_found. */
+  private PriceList chosen(UUID planUid, LocalDate day) {
+    return lists
+        .findByUid(planUid)
+        .filter(l -> l.validOn(day))
+        .orElseThrow(
+            () ->
+                Refusal.invalid(
+                    "price_plan_not_found",
+                    "That pricing plan does not exist, is switched off or is out of its dates.",
+                    "pricePlan"));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public ResolvedPlan resolvePlan(
+      String requested, UUID customerUid, String customerType, LocalDate on) {
+    return resolvePlan(requested, customerUid, customerType, null, on);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public ResolvedPlan resolvePlan(
+      String requested, UUID customerUid, String customerType, UUID payerUid, LocalDate on) {
+    LocalDate day = on == null ? calendar.today() : on;
+    PlanView own = defaultPlan(customerUid, customerType, payerUid, day);
+    PlanChoice ownChoice = new PlanChoice(own.uid());
+    if (requested == null || requested.isBlank()) {
+      return new ResolvedPlan(ownChoice, own, own);
+    }
+    UUID wanted =
+        "NORMAL".equalsIgnoreCase(requested.trim())
+            ? null
+            : tz.co.pharmacy.platform.kernel.Uids.parse(requested.trim(), "pricePlan");
+    if (java.util.Objects.equals(wanted, own.uid())) {
+      return new ResolvedPlan(ownChoice, own, own);
+    }
+    if (!tz.co.pharmacy.platform.kernel.ExecutionContext.permits(CHANGE_PLAN_PERMISSION)) {
+      throw Refusal.forbidden(
+          "price_plan_not_allowed", "You may not change the pricing plan of a sale.");
+    }
+    PlanView plan = wanted == null ? PlanView.normal() : planView(chosen(wanted, day));
+    return new ResolvedPlan(new PlanChoice(wanted), plan, own);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public PlanView defaultPlan(UUID customerUid, String customerType, UUID payerUid, LocalDate on) {
+    LocalDate day = on == null ? calendar.today() : on;
+    if (payerUid != null) {
+      Optional<PriceList> insurer =
+          lists.findAllByOrderByNameAsc().stream()
+              .filter(l -> payerUid.equals(l.getPayerUid()) && l.validOn(day))
+              .max(Comparator.comparing(PriceList::getCreatedAt));
+      if (insurer.isPresent()) {
+        return planView(insurer.get());
+      }
+    }
+    return defaultPlan(customerUid, customerType, day);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public PlanView defaultPlan(UUID customerUid, String customerType, LocalDate on) {
+    return listFor(customerUid, customerType, on == null ? calendar.today() : on)
+        .map(PricingServiceImpl::planView)
+        .orElse(PlanView.normal());
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<PlanView> plans() {
+    List<PlanView> out = new ArrayList<>();
+    out.add(PlanView.normal());
+    lists.findAllByOrderByNameAsc().stream()
+        .filter(PriceList::isActive)
+        .map(PricingServiceImpl::planView)
+        .forEach(out::add);
+    return out;
+  }
+
+  private static PlanView planView(PriceList l) {
+    return new PlanView(
+        l.getUid(),
+        l.getName(),
+        l.getAdjustmentPercent(),
+        l.getCustomerType(),
+        l.getCustomerUid(),
+        l.getCustomerName(),
+        l.getPayerUid(),
+        l.getPayerName());
+  }
+
+  @Override
+  @Transactional
+  public BulkResult bulk(BulkCommand c, boolean apply) {
+    BigDecimal percent = Checks.required(c.percent(), "percent");
+    if (percent.compareTo(new BigDecimal("-100")) <= 0) {
+      throw Refusal.invalid("invalid_adjustment", "percent must be above -100.", "percent");
+    }
+    BigDecimal step = c.roundTo() == null ? new BigDecimal("50") : c.roundTo();
+    if (step.signum() < 0) {
+      throw Refusal.invalid("invalid_rounding", "roundTo cannot be negative.", "roundTo");
+    }
+    java.math.RoundingMode mode =
+        switch (c.rounding() == null
+            ? "NEAREST"
+            : c.rounding().trim().toUpperCase(java.util.Locale.ROOT)) {
+          case "UP" -> java.math.RoundingMode.CEILING;
+          case "DOWN" -> java.math.RoundingMode.FLOOR;
+          case "NEAREST" -> java.math.RoundingMode.HALF_UP;
+          default ->
+              throw Refusal.invalid(
+                  "invalid_rounding", "rounding is NEAREST, UP or DOWN.", "rounding");
+        };
+    PriceList list =
+        c.planUid() == null
+            ? null
+            : lists
+                .findByUid(c.planUid())
+                .orElseThrow(
+                    () -> Refusal.notFound("price_list_not_found", "No such pricing plan."));
+    Set<UUID> tree = c.categoryUid() == null ? null : descendants(c.categoryUid());
+    Map<UUID, BigDecimal> current = new HashMap<>();
+    if (list != null) {
+      list.getItems().stream()
+          .filter(i -> i.getMinQuantity() == 1)
+          .forEach(i -> current.put(i.getProductUid(), i.getPrice()));
+    }
+    boolean onlyMissing = list != null && Boolean.TRUE.equals(c.onlyMissing());
+    List<BulkLine> lines = new ArrayList<>();
+    for (Product p : products.findAll(org.springframework.data.domain.Sort.by("name"))) {
+      if (!p.isActive()
+          || (tree != null && (p.getCategory() == null || !tree.contains(p.getCategory().getUid())))
+          || (onlyMissing && current.containsKey(p.getUid()))) {
+        continue;
+      }
+      BigDecimal target = p.getSellingPrice().multiply(BigDecimal.ONE.add(percent.divide(HUNDRED)));
+      if (step.signum() > 0) {
+        target = target.divide(step, 0, mode).multiply(step);
+      }
+      target = Amounts.money(target);
+      BigDecimal old = list == null ? p.getSellingPrice() : current.get(p.getUid());
+      if (old != null && old.compareTo(target) == 0) {
+        continue;
+      }
+      lines.add(new BulkLine(p.getUid(), p.getSku(), p.getName(), old, target));
+    }
+    String planName = list == null ? PriceHistory.NORMAL_SALE : list.getName();
+    if (!apply) {
+      return new BulkResult(planName, lines, false);
+    }
+    Map<UUID, BigDecimal> newPrices = new HashMap<>();
+    lines.forEach(l -> newPrices.put(l.productUid(), l.newPrice()));
+    if (list == null) {
+      for (Product p : products.findByUidIn(newPrices.keySet())) {
+        p.reprice(newPrices.get(p.getUid()));
+        catalogue.publish(p);
+      }
+    } else {
+      List<PriceListItem> replacement = new ArrayList<>();
+      for (PriceListItem i : list.getItems()) {
+        if (!(i.getMinQuantity() == 1 && newPrices.containsKey(i.getProductUid()))) {
+          replacement.add(new PriceListItem(i.getProductUid(), i.getMinQuantity(), i.getPrice()));
+        }
+      }
+      newPrices.forEach((product, price) -> replacement.add(new PriceListItem(product, 1, price)));
+      list.items(replacement);
+      lists.save(list);
+    }
+    for (BulkLine l : lines) {
+      history.record(
+          l.productUid(),
+          l.name(),
+          list == null ? null : list.getUid(),
+          list == null ? null : list.getName(),
+          1,
+          l.oldPrice(),
+          l.newPrice(),
+          tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.BULK);
+    }
+    return new BulkResult(planName, lines, true);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public tz.co.pharmacy.platform.kernel.Page<GridRow> grid(
+      String q,
+      UUID categoryUid,
+      boolean missingOnly,
+      tz.co.pharmacy.platform.kernel.PageQuery query) {
+    List<PriceList> active =
+        lists.findAllByOrderByNameAsc().stream().filter(PriceList::isActive).toList();
+    Map<UUID, Map<UUID, BigDecimal>> byProduct = new HashMap<>();
+    for (PriceList l : active) {
+      for (PriceListItem i : l.getItems()) {
+        if (i.getMinQuantity() == 1) {
+          byProduct
+              .computeIfAbsent(i.getProductUid(), k -> new java.util.LinkedHashMap<>())
+              .put(l.getUid(), i.getPrice());
+        }
+      }
+    }
+    List<PriceList> blocking =
+        active.stream().filter(l -> l.getAdjustmentPercent() == null).toList();
+    String needle = q == null || q.isBlank() ? null : q.trim().toLowerCase(java.util.Locale.ROOT);
+    Set<UUID> tree = categoryUid == null ? null : descendants(categoryUid);
+    List<GridRow> rows =
+        products.findAll(org.springframework.data.domain.Sort.by("name")).stream()
+            .filter(Product::isActive)
+            .filter(
+                p ->
+                    tree == null
+                        || (p.getCategory() != null && tree.contains(p.getCategory().getUid())))
+            .filter(
+                p ->
+                    needle == null
+                        || p.getName().toLowerCase(java.util.Locale.ROOT).contains(needle)
+                        || (p.getSku() != null
+                            && p.getSku().toLowerCase(java.util.Locale.ROOT).contains(needle))
+                        || (p.getGtin() != null && p.getGtin().contains(needle)))
+            .filter(
+                p ->
+                    !missingOnly
+                        || blocking.stream()
+                            .anyMatch(
+                                l ->
+                                    !byProduct
+                                        .getOrDefault(p.getUid(), Map.of())
+                                        .containsKey(l.getUid())))
+            .map(p -> gridRow(p, byProduct.getOrDefault(p.getUid(), Map.of())))
+            .toList();
+    int from = (int) Math.min(query.offset(), rows.size());
+    int to = (int) Math.min(from + (long) query.limit() + 1, rows.size());
+    return tz.co.pharmacy.platform.kernel.Page.offset(
+        rows.subList(from, to), query, () -> rows.size());
+  }
+
+  private static GridRow gridRow(Product p, Map<UUID, BigDecimal> prices) {
+    return new GridRow(
+        p.getUid(),
+        p.getSku(),
+        p.getName(),
+        p.getGtin(),
+        p.getCategory() == null ? null : p.getCategory().getName(),
+        p.getCostPrice(),
+        p.getSellingPrice(),
+        Map.copyOf(prices));
+  }
+
+  @Override
+  @Transactional
+  public GridRow setPrice(UUID productUid, UUID planUid, BigDecimal price) {
+    Product product =
+        products
+            .findByUid(productUid)
+            .orElseThrow(() -> Refusal.notFound("product_not_found", "No such product."));
+    if (price != null && price.signum() < 0) {
+      throw Refusal.invalid("invalid_price", "A price cannot be negative.", "price");
+    }
+    if (planUid == null) {
+      if (price == null) {
+        throw Refusal.invalid("invalid_price", "Every medicine has a Normal Sale price.", "price");
+      }
+      BigDecimal before = product.getSellingPrice();
+      product.reprice(Amounts.money(price));
+      history.record(
+          productUid,
+          product.getName(),
+          null,
+          null,
+          1,
+          before,
+          product.getSellingPrice(),
+          tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.MANUAL);
+      products.flush();
+      catalogue.publish(product);
+    } else {
+      PriceList list =
+          lists
+              .findByUid(planUid)
+              .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such pricing plan."));
+      BigDecimal before =
+          list.getItems().stream()
+              .filter(i -> i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)
+              .map(PriceListItem::getPrice)
+              .findFirst()
+              .orElse(null);
+      List<PriceListItem> replacement = new ArrayList<>();
+      for (PriceListItem i : list.getItems()) {
+        if (!(i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)) {
+          replacement.add(new PriceListItem(i.getProductUid(), i.getMinQuantity(), i.getPrice()));
+        }
+      }
+      if (price != null) {
+        replacement.add(new PriceListItem(productUid, 1, Amounts.money(price)));
+      }
+      list.items(replacement);
+      lists.save(list);
+      history.record(
+          productUid,
+          product.getName(),
+          list.getUid(),
+          list.getName(),
+          1,
+          before,
+          price == null ? null : Amounts.money(price),
+          tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.MANUAL);
+    }
+    Map<UUID, BigDecimal> prices = new java.util.LinkedHashMap<>();
+    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+      if (l.isActive()) {
+        l.getItems().stream()
+            .filter(i -> i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)
+            .findFirst()
+            .ifPresent(i -> prices.put(l.getUid(), i.getPrice()));
+      }
+    }
+    return gridRow(product, prices);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<PriceChangeView> history(UUID productUid) {
+    return changes.findTop200ByProductUidOrderByCreatedAtDescIdDesc(productUid).stream()
+        .map(
+            c ->
+                new PriceChangeView(
+                    c.getPriceListUid(),
+                    c.getPlanName(),
+                    c.getMinQuantity(),
+                    c.getOldPrice(),
+                    c.getNewPrice(),
+                    c.getSource().name(),
+                    c.getCreatedBy(),
+                    c.getCreatedAt()))
+        .toList();
   }
 
   /** The customer's own list, else their type's; the newest valid one if several. */
@@ -418,7 +826,9 @@ class PricingServiceImpl implements PricingService {
                         names.get(i.getProductUid()),
                         i.getMinQuantity(),
                         i.getPrice()))
-            .toList());
+            .toList(),
+        l.getPayerUid(),
+        l.getPayerName());
   }
 
   private static PromotionView view(

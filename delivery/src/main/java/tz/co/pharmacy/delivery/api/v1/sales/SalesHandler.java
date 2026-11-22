@@ -113,7 +113,8 @@ public class SalesHandler {
                 body.preauthNumber(),
                 body.diagnosisCode(),
                 body.balanceToAccount(),
-                body.excessToAccount())),
+                body.excessToAccount(),
+                body.pricePlan())),
         "Sale completed");
   }
 
@@ -201,7 +202,9 @@ public class SalesHandler {
       String preauthNumber,
       String diagnosisCode,
       Boolean balanceToAccount,
-      Boolean excessToAccount) {}
+      Boolean excessToAccount,
+      /* NORMAL or a pricing plan's uid; empty for the customer's own plan. */
+      String pricePlan) {}
 
   /** {@code serialNumbers}: the units sold of a serial-tracked product, one per unit. */
   public record LineRequest(UUID productUid, Integer quantity, List<String> serialNumbers) {}

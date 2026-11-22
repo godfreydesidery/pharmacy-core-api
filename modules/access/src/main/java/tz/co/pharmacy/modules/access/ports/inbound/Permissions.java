@@ -20,6 +20,7 @@ public final class Permissions {
   public static final String SALES_REFUND = "sales.refund";
   public static final String SALES_DISCOUNT = "sales.discount";
   public static final String SALES_CREDIT = "sales.credit";
+  public static final String SALES_PRICE_PLAN = "sales.price_plan";
   public static final String INVENTORY_VIEW = "inventory.view";
   public static final String INVENTORY_ADJUST = "inventory.adjust";
   public static final String INVENTORY_TRANSFER = "inventory.transfer";
@@ -49,6 +50,8 @@ public final class Permissions {
           new PermissionView(SALES_DISCOUNT, "sales", "Apply a discount at the point of sale"),
           new PermissionView(
               SALES_CREDIT, "sales", "Sell on account: credit sales and balances put on account"),
+          new PermissionView(
+              SALES_PRICE_PLAN, "sales", "Sell under another pricing plan than the customer's own"),
           new PermissionView(INVENTORY_VIEW, "inventory", "View stock, batches, expiry, movements"),
           new PermissionView(
               INVENTORY_ADJUST, "inventory", "Adjust stock and record opening stock"),

@@ -36,6 +36,14 @@ public class Sale extends TenantEntity {
   private UUID customerUid;
   private String customerName;
 
+  /** The pricing plan it was priced under (null: Normal Sale), and its name then. */
+  private UUID priceListUid;
+
+  private String priceListName;
+
+  /** What the sale would have cost at Normal Sale prices (null before pricing plans). */
+  private BigDecimal normalTotal;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
   private SaleStatus status;
@@ -97,6 +105,12 @@ public class Sale extends TenantEntity {
     this.idempotencyKey = idempotencyKey;
     this.cashierName = cashierName;
     this.status = SaleStatus.COMPLETED;
+  }
+
+  public void pricedUnder(UUID planUid, String planName, BigDecimal normalTotal) {
+    this.priceListUid = planUid;
+    this.priceListName = planName;
+    this.normalTotal = normalTotal;
   }
 
   public void addLine(SaleLine line) {

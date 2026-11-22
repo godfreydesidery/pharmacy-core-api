@@ -25,4 +25,7 @@ public record SaleView(
     PrescriptionDetails prescription,
     String fiscalReference,
     String cashierName,
-    Instant createdAt) {}
+    Instant createdAt,
+    /* The pricing plan it was priced under (null: Normal Sale), as it was named then. */
+    UUID priceListUid,
+    String priceListName) {}

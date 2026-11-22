@@ -42,9 +42,12 @@ record ImportColumn(
     return swahili ? helpSw : helpEn;
   }
 
+  /**
+   * Its English or Swahili heading, or its key (so a file made with an older heading still reads).
+   */
   boolean matches(String heading) {
     String given = squash(heading);
-    return given.equals(squash(en)) || given.equals(squash(sw));
+    return given.equals(squash(en)) || given.equals(squash(sw)) || given.equals(squash(key));
   }
 
   /** Headings compare without case, spaces or punctuation: "VAT %" is "vat", "Code" is "code". */
