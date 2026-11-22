@@ -66,17 +66,20 @@ class ChartOfAccounts {
       return;
     }
     String actor = ExecutionContext.actor().reference();
+    java.util.UUID actorUid = ExecutionContext.actor().uid();
     for (Seed seed : DEFAULT) {
       jdbc.update(
           "insert into finance.accounts (uid, tenant_uid, code, name, type, created_at, created_by,"
-              + " version) values (?, platform.current_tenant_uid(), ?, ?, ?, ?, ?, 0)"
+              + " created_by_uid, version)"
+              + " values (?, platform.current_tenant_uid(), ?, ?, ?, ?, ?, ?, 0)"
               + " on conflict (tenant_uid, code) do nothing",
           Uids.newUid(),
           seed.code(),
           seed.name(),
           seed.type().name(),
           Timestamp.from(Clocks.now()),
-          actor);
+          actor,
+          actorUid);
     }
   }
 

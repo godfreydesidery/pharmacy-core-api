@@ -14,6 +14,9 @@ public interface UserAdministration {
    */
   java.util.Map<String, String> displayNames(java.util.Collection<String> references);
 
+  /** Display names of people by account uid: name, else the email; unknown uids are left out. */
+  java.util.Map<UUID, String> displayNamesByUid(java.util.Collection<UUID> userUids);
+
   /** Newest first; {@code q} matches name or email. */
   Page<MemberView> members(String q, PageQuery query);
 

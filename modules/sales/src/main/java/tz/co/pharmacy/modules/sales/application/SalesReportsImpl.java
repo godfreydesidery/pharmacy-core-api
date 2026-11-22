@@ -28,6 +28,14 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 @Transactional(readOnly = true)
 class SalesReportsImpl implements SalesReports {
 
+  /**
+   * Who a till row belongs to: the account, else the email for rows with no account; with the
+   * account uid and the email it last used in the rows.
+   */
+  private static final String WHO =
+      "coalesce(s.created_by_uid::text, s.created_by) as cashier, s.created_by_uid as cashier_uid,"
+          + " (array_agg(s.created_by order by s.created_at desc))[1] as reference";
+
   private final JdbcTemplate jdbc;
 
   SalesReportsImpl(DataSource dataSource) {
@@ -47,13 +55,15 @@ class SalesReportsImpl implements SalesReports {
     String branches = branchClause("s.branch_uid", args);
     Map<String, Row> rows = new TreeMap<>();
     jdbc.query(
-        "select s.created_by as cashier, max(s.cashier_name) as name, count(*) as sales,"
+        "select "
+            + WHO
+            + ", max(s.cashier_name) as name, count(*) as sales,"
             + " coalesce(sum(s.total), 0) as total, coalesce(sum(s.change_due), 0) as change"
             + " from sales.sales s where s.created_at >= ? and s.created_at < ?"
             + branches
-            + " group by 1",
+            + " group by 1, 2",
         r -> {
-          Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());
+          Row row = row(rows, r);
           row.name = r.getString("name");
           row.sales = r.getLong("sales");
           row.total = r.getBigDecimal("total");
@@ -61,27 +71,31 @@ class SalesReportsImpl implements SalesReports {
         },
         args.toArray());
     jdbc.query(
-        "select s.created_by as cashier, p.method,"
+        "select "
+            + WHO
+            + ", p.method,"
             + " coalesce(sum(coalesce(p.base_amount, p.amount)), 0) as amount"
             + " from sales.sale_payments p join sales.sales s on s.id = p.sale_id"
             + " where s.created_at >= ? and s.created_at < ?"
             + branches
-            + " group by 1, 2",
+            + " group by 1, 2, 4",
         r -> {
-          Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());
+          Row row = row(rows, r);
           row.tenders.merge(r.getString("method"), r.getBigDecimal("amount"), BigDecimal::add);
         },
         args.toArray());
     jdbc.query(
-        "select s.created_by as cashier, count(*) as returns,"
+        "select "
+            + WHO
+            + ", count(*) as returns,"
             + " coalesce(sum(s.refund_total + coalesce(s.fx_difference, 0)), 0) as refunded,"
             + " coalesce(sum(case when s.refund_method = 'CASH'"
             + " then s.refund_total + coalesce(s.fx_difference, 0) else 0 end), 0) as cash"
             + " from sales.sale_returns s where s.created_at >= ? and s.created_at < ?"
             + branches
-            + " group by 1",
+            + " group by 1, 2",
         r -> {
-          Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());
+          Row row = row(rows, r);
           row.returns = r.getLong("returns");
           row.refunded = r.getBigDecimal("refunded");
           row.cashRefunded = r.getBigDecimal("cash");
@@ -100,8 +114,9 @@ class SalesReportsImpl implements SalesReports {
           BigDecimal cash = tendered.subtract(r.change).subtract(r.cashRefunded);
           out.add(
               new CashierSummary(
-                  r.name == null || r.name.isBlank() ? cashier : r.name,
-                  cashier,
+                  r.name == null || r.name.isBlank() ? r.reference : r.name,
+                  r.reference,
+                  r.uid,
                   r.sales,
                   Amounts.money(r.total),
                   tenders,
@@ -181,7 +196,21 @@ class SalesReportsImpl implements SalesReports {
         + ")";
   }
 
+  /** The person's row, keyed by account (or the email, for rows with no account). */
+  private static Row row(Map<String, Row> rows, java.sql.ResultSet r) throws java.sql.SQLException {
+    Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());
+    if (row.uid == null) {
+      row.uid = r.getObject("cashier_uid", UUID.class);
+    }
+    if (row.reference == null) {
+      row.reference = r.getString("reference");
+    }
+    return row;
+  }
+
   private static final class Row {
+    UUID uid;
+    String reference;
     String name;
     long sales;
     BigDecimal total = Amounts.ZERO;

@@ -43,14 +43,15 @@ final class AuditWriter {
       Map<String, Object> after,
       String label) {
     jdbc.update(
-        "insert into audit.entries (uid, at, tenant_uid, branch_uid, actor, action, entity_type,"
-            + " entity_uid, before, after, correlation_id, label)"
-            + " values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)",
+        "insert into audit.entries (uid, at, tenant_uid, branch_uid, actor, actor_uid, action,"
+            + " entity_type, entity_uid, before, after, correlation_id, label)"
+            + " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)",
         Uids.newUid(),
         Timestamp.from(Clocks.now()),
         TenantContext.tenantUid().orElse(null),
         ExecutionContext.branchUid().orElse(null),
         actor(),
+        actorUid(),
         action,
         entityType,
         entityUid,
@@ -65,6 +66,14 @@ final class AuditWriter {
         .map(ExecutionContext.Frame::actor)
         .map(Actor::reference)
         .orElse("anonymous");
+  }
+
+  /** The account behind the entry; null for a platform service or no one signed in. */
+  static UUID actorUid() {
+    return ExecutionContext.current()
+        .map(ExecutionContext.Frame::actor)
+        .map(Actor::uid)
+        .orElse(null);
   }
 
   private static String json(Map<String, Object> values) {

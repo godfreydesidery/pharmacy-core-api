@@ -5,9 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
@@ -22,6 +25,8 @@ class MoneyScenariosTest extends IntegrationTest {
 
   private static final double PRICE = 10_000.0;
   private static final double USD = 2_650.0;
+
+  @Autowired DataSource dataSource;
 
   private Api admin;
   private Api till;
@@ -423,6 +428,56 @@ class MoneyScenariosTest extends IntegrationTest {
     assertThat(report.read("$.data[0].sales", Integer.class)).isEqualTo(1);
     assertThat(report.read("$.data[0].returns", Integer.class)).isEqualTo(1);
     assertThat(report.string("$.data[1].cashierReference")).isEqualTo(email);
+  }
+
+  @Test
+  @DisplayName("a cashier whose email changes mid-shift keeps one shift and one report row")
+  void emailChangeKeepsTheShift() {
+    String before = "kesho." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
+    String after = "kesho." + UUID.randomUUID().toString().substring(0, 6) + "@mail.test";
+    List<String> roles =
+        admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
+    admin
+        .post(
+            "/api/v1/users",
+            """
+            {"name":"Neema","email":"%s","password":"Staff#2026x","roleUid":"%s","allBranches":true}
+            """
+                .formatted(before, roles.getFirst()))
+        .expect(201);
+    Api cashier = anonymous.as(anonymous.signIn(before, "Staff#2026x")).in(tenantUid, branchUid);
+    cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
+    String sale =
+        """
+        {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":1}],
+         "payments":[{"method":"CASH","amount":10000}]}
+        """;
+    cashier.post("/api/v1/sales", sale.formatted(UUID.randomUUID(), product)).expect(201);
+
+    // The account's email changes; the same person carries on at the same till.
+    new JdbcTemplate(dataSource)
+        .update("update access.users set email = ? where email = ?", after, before);
+    cashier.post("/api/v1/sales", sale.formatted(UUID.randomUUID(), product)).expect(201);
+    assertThat(
+            cashier
+                .post("/api/v1/shifts/open", "{\"openingFloat\":1}")
+                .expect(409)
+                .string("$.reason"))
+        .isEqualTo("shift_open");
+
+    Response closed = cashier.post("/api/v1/shifts/close", "{\"countedCash\":70000}").expect(200);
+    // 50,000 float + 2 × 10,000 cash, before and after the change.
+    assertThat(closed.read("$.data.sales", Integer.class)).isEqualTo(2);
+    assertThat(money(closed, "$.data.expectedCash")).isEqualTo(70_000.0);
+
+    Response report = admin.get("/api/v1/reports/cashiers").expect(200);
+    List<Integer> sales = report.json().read("$.data[?(@.cashier == 'Neema')].sales");
+    assertThat(sales).containsExactly(2);
+    List<String> references =
+        report.json().read("$.data[?(@.cashier == 'Neema')].cashierReference");
+    assertThat(references).containsExactly(after);
+    List<String> uids = report.json().read("$.data[?(@.cashier == 'Neema')].cashierUid");
+    assertThat(uids).hasSize(1).doesNotContainNull();
   }
 
   private static String returnBody(String saleLine, String method, String currency) {

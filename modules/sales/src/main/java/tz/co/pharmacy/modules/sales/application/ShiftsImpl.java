@@ -91,8 +91,8 @@ class ShiftsImpl implements Shifts {
   }
 
   private Optional<Shift> open() {
-    return shifts.findByBranchUidAndCashierAndStatus(
-        ExecutionContext.requireBranch(), ExecutionContext.actor().reference(), "OPEN");
+    return shifts.findByBranchUidAndCreatedByUidAndStatus(
+        ExecutionContext.requireBranch(), ExecutionContext.actor().uid(), "OPEN");
   }
 
   private record Figures(
@@ -115,14 +115,15 @@ class ShiftsImpl implements Shifts {
   private Figures figures(Shift shift, Instant until) {
     Object[] window = {
       shift.getBranchUid(),
-      shift.getCashier(),
+      shift.getCreatedByUid(),
       shift.getOpenedAt().atOffset(ZoneOffset.UTC),
       until.atOffset(ZoneOffset.UTC)
     };
     long[] count = {0};
     BigDecimal[] totals = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
     String where =
-        " where s.branch_uid = ? and s.created_by = ? and s.created_at >= ? and s.created_at <= ?";
+        " where s.branch_uid = ? and s.created_by_uid = ? and s.created_at >= ?"
+            + " and s.created_at <= ?";
     jdbc.query(
         "select count(*) as sales, coalesce(sum(s.total), 0) as total,"
             + " coalesce(sum(s.change_due), 0) as change from sales.sales s"
@@ -155,16 +156,16 @@ class ShiftsImpl implements Shifts {
             + " from sales.sale_returns r"
             + " where r.branch_uid = ? and r.refund_method = 'CASH'"
             + " and r.created_at >= ? and r.created_at <= ?"
-            + " and (r.created_by = ?"
+            + " and (r.created_by_uid = ?"
             + " or (not exists (select 1"
             + openShift
-            + " and o.cashier = r.created_by)"
+            + " and o.created_by_uid = r.created_by_uid)"
             + " and (exists (select 1 from sales.sales s where s.uid = r.sale_uid"
-            + " and s.created_by = ?)"
+            + " and s.created_by_uid = ?)"
             + " or (not exists (select 1 from sales.sales s where s.uid = r.sale_uid"
             + " and exists (select 1"
             + openShift
-            + " and o.cashier = s.created_by))"
+            + " and o.created_by_uid = s.created_by_uid))"
             + " and (select count(*)"
             + openShift
             + ") = 1))))",

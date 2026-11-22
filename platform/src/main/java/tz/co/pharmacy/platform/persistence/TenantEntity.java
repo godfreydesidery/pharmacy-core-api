@@ -16,8 +16,9 @@ import lombok.Getter;
  *   id bigint generated always as identity primary key,
  *   uid uuid not null unique,
  *   tenant_uid uuid not null,
- *   created_at timestamptz not null, created_by text not null,
- *   updated_at timestamptz, updated_by text, version bigint not null default 0,
+ *   created_at timestamptz not null, created_by text not null, created_by_uid uuid,
+ *   updated_at timestamptz, updated_by text, updated_by_uid uuid,
+ *   version bigint not null default 0,
  *   ...
  *   alter table s.t enable row level security; alter table s.t force row level security;
  *   create policy tenant_isolation on s.t
