@@ -143,8 +143,10 @@ public class ImportHandler {
   @GetMapping("/price-lists/{uid}/import/template")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
   public ResponseEntity<byte[]> priceListTemplate(
-      @PathVariable UUID uid, @RequestParam(required = false) String lang) {
-    return ImportTemplate.answer(priceLists.forList(uid), swahili(lang));
+      @PathVariable UUID uid,
+      @RequestParam(required = false) String lang,
+      @RequestParam(required = false) Boolean all) {
+    return ImportTemplate.answer(priceLists.forList(uid, Boolean.TRUE.equals(all)), swahili(lang));
   }
 
   @PostMapping("/price-lists/{uid}/import/check")

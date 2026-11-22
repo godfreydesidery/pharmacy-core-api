@@ -72,12 +72,17 @@ class PriceListImport {
 
   /** The import of the list {@code uid}; 404 price_list_not_found when there is none. */
   Importer<Plan> forList(UUID uid) {
+    return forList(uid, false);
+  }
+
+  /** {@code allMedicines}: the template lists every active medicine, not only those priced. */
+  Importer<Plan> forList(UUID uid, boolean allMedicines) {
     PriceListView list =
         pricing.priceLists().stream()
             .filter(candidate -> candidate.uid().equals(uid))
             .findFirst()
             .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such price list."));
-    return new ListImport(list);
+    return new ListImport(list, allMedicines);
   }
 
   /** One row: the product, the quantity break and the price. */
@@ -86,9 +91,11 @@ class PriceListImport {
   private final class ListImport implements Importer<Plan> {
 
     private final PriceListView list;
+    private final boolean allMedicines;
 
-    ListImport(PriceListView list) {
+    ListImport(PriceListView list, boolean allMedicines) {
       this.list = list;
+      this.allMedicines = allMedicines;
     }
 
     @Override
@@ -123,7 +130,10 @@ class PriceListImport {
         cursor = page.nextCursor();
       } while (cursor != null);
       for (PricingService.GridRow r : byUid.values()) {
-        rows.add(Arrays.asList(r.code(), r.name(), r.barcode(), r.prices().get(list.uid()), 1));
+        BigDecimal price = r.prices().get(list.uid());
+        if (allMedicines || price != null) {
+          rows.add(Arrays.asList(r.code(), r.name(), r.barcode(), price, 1));
+        }
       }
       for (ItemView item : list.items()) {
         if (item.minQuantity() > 1) {

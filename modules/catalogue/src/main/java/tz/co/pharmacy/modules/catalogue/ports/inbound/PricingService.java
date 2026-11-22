@@ -125,6 +125,64 @@ public interface PricingService {
    */
   GridRow setPrice(UUID productUid, UUID planUid, BigDecimal price);
 
+  /** As {@link #setPrice(UUID, UUID, BigDecimal)} from {@code minQuantity} (a quantity break). */
+  GridRow setPrice(UUID productUid, UUID planUid, int minQuantity, BigDecimal price);
+
+  /** Normal Sale and every plan (active or not), each with how many medicines it prices. */
+  List<PlanCard> planCards();
+
+  /**
+   * One plan's rows: Normal Sale ({@code planUid} null) lists every active medicine; a plan lists
+   * the medicines it prices (a row per quantity break), or with {@code notPriced} the active
+   * medicines it has no price for. By text (name, code, barcode) and category.
+   */
+  tz.co.pharmacy.platform.kernel.Page<PlanItemRow> planItems(
+      UUID planUid,
+      String q,
+      UUID categoryUid,
+      boolean notPriced,
+      tz.co.pharmacy.platform.kernel.PageQuery query);
+
+  /** A medicine's price in Normal Sale and every plan: set, by the plan's rule, or blocked. */
+  List<PlanPriceView> planPrices(UUID productUid);
+
+  record PlanCard(
+      UUID uid,
+      String name,
+      String customerType,
+      UUID customerUid,
+      String customerName,
+      UUID payerUid,
+      String payerName,
+      BigDecimal rulePercent,
+      boolean active,
+      LocalDate validFrom,
+      LocalDate validTo,
+      long priced) {}
+
+  /** {@code price} null: not priced in the plan. */
+  record PlanItemRow(
+      UUID productUid,
+      String code,
+      String name,
+      String barcode,
+      String category,
+      BigDecimal costPrice,
+      BigDecimal normalPrice,
+      int minQuantity,
+      BigDecimal price) {}
+
+  /** {@code basis}: PRICE (set in the plan), RULE (Normal ± the plan's %) or BLOCKED. */
+  record PlanPriceView(
+      UUID planUid,
+      String planName,
+      BigDecimal price,
+      String basis,
+      List<PriceBreak> breaks,
+      boolean active) {}
+
+  record PriceBreak(int minQuantity, BigDecimal price) {}
+
   /** A medicine's price changes, newest first. */
   List<PriceChangeView> history(UUID productUid);
 
