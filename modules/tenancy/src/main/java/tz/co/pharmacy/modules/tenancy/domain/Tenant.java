@@ -49,6 +49,14 @@ public class Tenant extends MutableEntity {
    */
   private boolean directUserCreation = true;
 
+  /** A dispute, a regulator's or a court's order: the data may not be erased while it holds. */
+  private boolean legalHold;
+
+  private String legalHoldReason;
+  private java.time.Instant closedAt;
+  private java.time.Instant eraseAfter;
+  private java.time.Instant erasedAt;
+
   public Tenant(
       String code,
       String name,
@@ -98,17 +106,44 @@ public class Tenant extends MutableEntity {
     status = TenantStatus.SUSPENDED;
     suspensionKind = kind;
     statusReason = note;
+    if (kind == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.DISPUTE) {
+      placeLegalHold(note);
+    }
   }
 
+  /** Back to work; a dispute's suspension ending lifts its legal hold too. */
   public void reactivate() {
+    if (suspensionKind == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.DISPUTE) {
+      liftLegalHold();
+    }
     status = TenantStatus.ACTIVE;
     suspensionKind = null;
     statusReason = null;
   }
 
-  /** Under a legal hold: its data may not be erased. */
-  public boolean onLegalHold() {
-    return status == TenantStatus.SUSPENDED
-        && suspensionKind == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.DISPUTE;
+  public void placeLegalHold(String reason) {
+    legalHold = true;
+    legalHoldReason = reason;
+  }
+
+  public void liftLegalHold() {
+    legalHold = false;
+    legalHoldReason = null;
+  }
+
+  /** Closed for good unless reopened before {@code eraseAfter}; then its data may be erased. */
+  public void close(String reason, java.time.Instant at, java.time.Instant eraseAfter) {
+    status = TenantStatus.CLOSED;
+    suspensionKind = null;
+    statusReason = reason;
+    closedAt = at;
+    this.eraseAfter = eraseAfter;
+  }
+
+  public void reopen() {
+    status = TenantStatus.ACTIVE;
+    statusReason = null;
+    closedAt = null;
+    eraseAfter = null;
   }
 }

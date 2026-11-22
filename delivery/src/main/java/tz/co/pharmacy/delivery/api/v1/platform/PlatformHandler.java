@@ -2,7 +2,9 @@ package tz.co.pharmacy.delivery.api.v1.platform;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +32,7 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeTenantCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlatformCounts;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.RegisterTenantCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantData;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -45,13 +48,22 @@ public class PlatformHandler {
   private final UserAdministration users;
   private final PasswordResetService passwordResets;
   private final tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions;
+  private final TenantData data;
+  private final java.time.Clock clock;
+  private final int eraseAfterDays;
 
   public PlatformHandler(
       TenantService tenants,
       TenantOnboarding onboarding,
       UserAdministration users,
       PasswordResetService passwordResets,
-      tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions) {
+      tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions,
+      TenantData data,
+      java.time.Clock clock,
+      @Value("${pharmacy.tenancy.erase-after-days:30}") int eraseAfterDays) {
+    this.data = data;
+    this.clock = clock;
+    this.eraseAfterDays = eraseAfterDays;
     this.subscriptions = subscriptions;
     this.tenants = tenants;
     this.onboarding = onboarding;
@@ -154,6 +166,61 @@ public class PlatformHandler {
     // Its subscription goes on too, or the lifecycle would never invoice it again.
     subscriptions.resumeAfterReactivation(tenantUid);
     return ApiResponse.ok(tenant, "Tenant reactivated");
+  }
+
+  /**
+   * Closes a pharmacy: nobody works in it, its admins may still read and export, and after the
+   * cooling-off ({@code pharmacy.tenancy.erase-after-days}, 30 by default) it may be erased.
+   */
+  @PostMapping("/tenants/{tenantUid}/close")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<TenantView> close(
+      @PathVariable UUID tenantUid, @RequestBody(required = false) ReasonRequest body) {
+    TenantView tenant =
+        tenants.close(tenantUid, body == null ? null : body.reason(), eraseAfterDays);
+    subscriptions.cancel(tenantUid);
+    return ApiResponse.ok(tenant, "Tenant closed");
+  }
+
+  @PostMapping("/tenants/{tenantUid}/reopen")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<TenantView> reopen(@PathVariable UUID tenantUid) {
+    TenantView tenant = tenants.reopen(tenantUid);
+    subscriptions.resumeAfterReactivation(tenantUid);
+    return ApiResponse.ok(tenant, "Tenant reopened");
+  }
+
+  /** A dispute, a regulator's or a court's order: the data may not be erased while it holds. */
+  @PostMapping("/tenants/{tenantUid}/legal-hold")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<TenantView> legalHold(
+      @PathVariable UUID tenantUid, @RequestBody(required = false) ReasonRequest body) {
+    return ApiResponse.ok(
+        tenants.legalHold(tenantUid, body == null ? null : body.reason()), "Legal hold placed");
+  }
+
+  @DeleteMapping("/tenants/{tenantUid}/legal-hold")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<TenantView> liftLegalHold(@PathVariable UUID tenantUid) {
+    return ApiResponse.ok(tenants.liftLegalHold(tenantUid), "Legal hold lifted");
+  }
+
+  @GetMapping("/tenants/{tenantUid}/export")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public void export(@PathVariable UUID tenantUid, HttpServletResponse response) {
+    tz.co.pharmacy.delivery.api.v1.admin.DataExports.write(
+        data, tenants, clock, tenantUid, response);
+  }
+
+  /** Erases a closed pharmacy's data for good. The body names its code, to confirm. */
+  @PostMapping("/tenants/{tenantUid}/erase")
+  @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
+  public ApiResponse<ErasedResponse> erase(
+      @PathVariable UUID tenantUid, @RequestBody(required = false) EraseRequest body) {
+    java.util.Map<String, Long> rows =
+        data.erase(tenantUid, body == null ? null : body.confirmCode());
+    return ApiResponse.ok(
+        new ErasedResponse(tenants.find(tenantUid).orElseThrow(), rows), "Tenant erased");
   }
 
   @GetMapping("/root-admins")
@@ -263,4 +330,9 @@ public class PlatformHandler {
 
   public record OverviewResponse(
       long tenants, long activeTenants, long suspendedTenants, long branches, long users) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record EraseRequest(String confirmCode) {}
+
+  public record ErasedResponse(TenantView tenant, java.util.Map<String, Long> rows) {}
 }

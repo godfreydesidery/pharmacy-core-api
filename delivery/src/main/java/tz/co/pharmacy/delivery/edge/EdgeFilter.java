@@ -162,7 +162,7 @@ public class EdgeFilter extends OncePerRequestFilter {
                           () -> memberships.resolve(principal.userUid(), tenantUid)))
               .filter(MembershipGrant::active)
               .orElseThrow(() -> Refusal.forbidden("forbidden", "You may not act in this tenant."));
-      if (tenant.status() == TenantStatus.SUSPENDED) {
+      if (tenant.status() != TenantStatus.ACTIVE) {
         suspended(tenant, grant, request);
       }
       permissions = Set.copyOf(grant.permissions());
@@ -268,6 +268,16 @@ public class EdgeFilter extends OncePerRequestFilter {
         grant.permissions().contains("settings.manage")
             || grant.permissions().contains("users.manage");
     boolean reading = "GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod());
+    if (tenant.status() == TenantStatus.ERASED) {
+      throw Refusal.forbidden("tenant_erased", "This pharmacy was closed and its data erased.");
+    }
+    if (tenant.status() == TenantStatus.CLOSED) {
+      // Closed: until it is erased its admins may still read and export (data portability).
+      if (admin && reading) {
+        return;
+      }
+      throw Refusal.forbidden("tenant_closed", "This pharmacy is closed.");
+    }
     if (tenant.suspensionKind()
             == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID
         && admin

@@ -21,4 +21,11 @@ public record TenantView(
     String address,
     boolean directUserCreation,
     /* Why it is suspended (null while active): UNPAID, DISPUTE, ABUSE or OTHER. */
-    SuspensionKind suspensionKind) {}
+    SuspensionKind suspensionKind,
+    /* Under a legal hold: its data may not be erased. */
+    boolean legalHold,
+    String legalHoldReason,
+    Instant closedAt,
+    /* When a closed tenant may be erased (its cooling-off ends). */
+    Instant eraseAfter,
+    Instant erasedAt) {}

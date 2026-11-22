@@ -45,6 +45,8 @@ class TenantServiceImpl implements TenantService {
   private final TenantActivity activity;
   private final SubscriptionsImpl subscriptions;
 
+  private final java.time.Clock clock;
+
   TenantServiceImpl(
       TenantRepository tenants,
       BranchRepository branches,
@@ -53,7 +55,9 @@ class TenantServiceImpl implements TenantService {
       DomainEventPublisher events,
       DataSource dataSource,
       TenantActivity activity,
-      SubscriptionsImpl subscriptions) {
+      SubscriptionsImpl subscriptions,
+      java.time.Clock clock) {
+    this.clock = clock;
     this.tenants = tenants;
     this.branches = branches;
     this.settings = settings;
@@ -170,7 +174,55 @@ class TenantServiceImpl implements TenantService {
   @Transactional
   public TenantView reactivate(UUID tenantUid) {
     Tenant tenant = required(tenantUid);
+    if (tenant.getStatus() != TenantStatus.SUSPENDED) {
+      throw Refusal.invalid(
+          "not_suspended", "Only a suspended pharmacy can be reactivated.", "status");
+    }
     tenant.reactivate();
+    return view(tenant);
+  }
+
+  @Override
+  @Transactional
+  public TenantView close(UUID tenantUid, String reason, int coolingOffDays) {
+    String why = Checks.text(reason, "reason", 500);
+    Tenant tenant = required(tenantUid);
+    if (tenant.getStatus() == TenantStatus.CLOSED || tenant.getStatus() == TenantStatus.ERASED) {
+      throw Refusal.invalid("already_closed", "The pharmacy is already closed.", "status");
+    }
+    java.time.Instant now = clock.instant();
+    tenant.close(why, now, now.plus(java.time.Duration.ofDays(coolingOffDays)));
+    return view(tenant);
+  }
+
+  @Override
+  @Transactional
+  public TenantView reopen(UUID tenantUid) {
+    Tenant tenant = required(tenantUid);
+    if (tenant.getStatus() != TenantStatus.CLOSED) {
+      throw Refusal.invalid("not_closed", "Only a closed pharmacy can be reopened.", "status");
+    }
+    tenant.reopen();
+    return view(tenant);
+  }
+
+  @Override
+  @Transactional
+  public TenantView legalHold(UUID tenantUid, String reason) {
+    String why = Checks.text(reason, "reason", 500);
+    Tenant tenant = required(tenantUid);
+    if (tenant.getStatus() == TenantStatus.ERASED) {
+      throw Refusal.invalid("erased", "The pharmacy's data is already erased.", "status");
+    }
+    tenant.placeLegalHold(why);
+    return view(tenant);
+  }
+
+  @Override
+  @Transactional
+  public TenantView liftLegalHold(UUID tenantUid) {
+    Tenant tenant = required(tenantUid);
+    tenant.liftLegalHold();
     return view(tenant);
   }
 
@@ -220,7 +272,12 @@ class TenantServiceImpl implements TenantService {
         tenant.getContactPhone(),
         tenant.getAddress(),
         tenant.isDirectUserCreation(),
-        tenant.getSuspensionKind());
+        tenant.getSuspensionKind(),
+        tenant.isLegalHold(),
+        tenant.getLegalHoldReason(),
+        tenant.getClosedAt(),
+        tenant.getEraseAfter(),
+        tenant.getErasedAt());
   }
 
   private static String country(String value) {
