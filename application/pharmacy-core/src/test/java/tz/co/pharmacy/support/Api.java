@@ -57,6 +57,52 @@ public final class Api {
     return send("DELETE", path, null);
   }
 
+  /** Posts one file as multipart/form-data, as a browser's file input does, under {@code file}. */
+  public Response upload(String path, String fileName, byte[] content) {
+    String boundary = "----pharmacy" + System.nanoTime();
+    String crlf = "\r\n";
+    byte[] head =
+        ("--"
+                + boundary
+                + crlf
+                + "Content-Disposition: form-data; name=\"file\"; filename=\""
+                + fileName
+                + "\""
+                + crlf
+                + "Content-Type: application/octet-stream"
+                + crlf
+                + crlf)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] tail =
+        (crlf + "--" + boundary + "--" + crlf).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] body = new byte[head.length + content.length + tail.length];
+    System.arraycopy(head, 0, body, 0, head.length);
+    System.arraycopy(content, 0, body, head.length, content.length);
+    System.arraycopy(tail, 0, body, head.length + content.length, tail.length);
+    HttpRequest.Builder request = request(path);
+    request.header("Content-Type", "multipart/form-data; boundary=" + boundary);
+    request.POST(HttpRequest.BodyPublishers.ofByteArray(body));
+    return call(request);
+  }
+
+  /** The body of a GET as bytes, such as a workbook; fails unless it answers 200. */
+  public byte[] download(String path) {
+    try {
+      HttpResponse<byte[]> response =
+          CLIENT.send(request(path).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+      if (response.statusCode() != 200) {
+        throw new AssertionError(
+            "expected 200 but was " + response.statusCode() + ": " + new String(response.body()));
+      }
+      return response.body();
+    } catch (IOException exception) {
+      throw new IllegalStateException(exception);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(exception);
+    }
+  }
+
   /** Signs in and returns the session token. */
   public String signIn(String email, String password) {
     Response response =
@@ -67,9 +113,9 @@ public final class Api {
     return response.string("$.data.token");
   }
 
-  private Response send(String method, String path, String json) {
+  private HttpRequest.Builder request(String path) {
     HttpRequest.Builder request =
-        HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(30));
+        HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(120));
     if (token != null) {
       request.header("Authorization", "Bearer " + token);
     }
@@ -79,12 +125,21 @@ public final class Api {
     if (branch != null) {
       request.header("X-Branch-Id", branch);
     }
+    return request;
+  }
+
+  private Response send(String method, String path, String json) {
+    HttpRequest.Builder request = request(path);
     if (json != null) {
       request.header("Content-Type", "application/json");
       request.method(method, HttpRequest.BodyPublishers.ofString(json));
     } else {
       request.method(method, HttpRequest.BodyPublishers.noBody());
     }
+    return call(request);
+  }
+
+  private static Response call(HttpRequest.Builder request) {
     try {
       HttpResponse<String> response =
           CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());

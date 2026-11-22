@@ -21,6 +21,8 @@ public interface ProductRepository
 
   boolean existsBySkuIgnoreCase(String sku);
 
+  Optional<Product> findBySkuIgnoreCase(String sku);
+
   boolean existsBySkuIgnoreCaseAndUidNot(String sku, UUID uid);
 
   boolean existsByGtin(String gtin);

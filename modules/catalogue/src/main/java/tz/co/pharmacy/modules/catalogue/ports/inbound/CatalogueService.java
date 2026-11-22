@@ -28,6 +28,9 @@ public interface CatalogueService {
 
   Optional<ProductView> product(UUID productUid);
 
+  /** The product with this code, in any case. */
+  Optional<ProductView> productByCode(String code);
+
   List<ProductView> products(Collection<UUID> productUids);
 
   /** Publishes product.changed; 409 duplicate_sku or duplicate_gtin. */

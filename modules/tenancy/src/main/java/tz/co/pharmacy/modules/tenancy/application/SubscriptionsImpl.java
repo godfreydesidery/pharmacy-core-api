@@ -297,13 +297,21 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
 
   @Override
   public void requireRoom(UUID tenantUid, PlanLimit limit) {
+    requireRoom(tenantUid, limit, 1);
+  }
+
+  @Override
+  public void requireRoom(UUID tenantUid, PlanLimit limit, long adding) {
+    if (adding <= 0) {
+      return;
+    }
     Plan plan = planOf(tenantUid);
     Integer cap = plan.cap(limit);
     if (cap == null) {
       return;
     }
     long used = usage.used(tenantUid, limit);
-    if (used >= cap) {
+    if (used + adding > cap) {
       throw Refusal.invalid(
           "plan_limit_reached",
           "The "
@@ -314,7 +322,9 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
               + label(limit)
               + " and "
               + used
-              + " are in use. Upgrade the subscription to add more.",
+              + " are in use"
+              + (adding > 1 ? "; the import would add " + adding : "")
+              + ". Upgrade the subscription to add more.",
           "plan");
     }
   }
