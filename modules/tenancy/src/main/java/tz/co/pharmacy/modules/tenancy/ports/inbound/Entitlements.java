@@ -10,4 +10,7 @@ public interface Entitlements {
 
   /** 422 plan_limit_reached when one more would go over the plan's cap. */
   void requireRoom(UUID tenantUid, PlanLimit limit);
+
+  /** 422 plan_limit_reached when {@code adding} more would go over the plan's cap (an import). */
+  void requireRoom(UUID tenantUid, PlanLimit limit, long adding);
 }

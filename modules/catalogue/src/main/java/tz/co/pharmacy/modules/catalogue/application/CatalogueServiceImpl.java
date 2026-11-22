@@ -258,6 +258,15 @@ class CatalogueServiceImpl implements CatalogueService {
 
   @Override
   @Transactional(readOnly = true)
+  public Optional<ProductView> productByCode(String code) {
+    if (code == null || code.isBlank()) {
+      return Optional.empty();
+    }
+    return products.findBySkuIgnoreCase(code.strip()).map(CatalogueServiceImpl::view);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public List<ProductView> products(Collection<UUID> productUids) {
     if (productUids == null || productUids.isEmpty()) {
       return List.of();
