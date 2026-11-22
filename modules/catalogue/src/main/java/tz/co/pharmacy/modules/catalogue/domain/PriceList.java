@@ -62,10 +62,21 @@ public class PriceList extends TenantEntity {
     this.active = active;
   }
 
-  /** Replaces the items. */
+  /**
+   * Replaces the items. An item of the same product and minimum quantity is kept and repriced, not
+   * deleted and inserted again: Hibernate inserts before it deletes, so re-adding it would break
+   * the unique (list, product, minimum quantity) key.
+   */
   public void items(List<PriceListItem> replacement) {
-    items.clear();
+    java.util.Map<String, PriceListItem> wanted = new java.util.LinkedHashMap<>();
     for (PriceListItem item : replacement) {
+      wanted.put(item.key(), item);
+    }
+    items.removeIf(item -> !wanted.containsKey(item.key()));
+    for (PriceListItem item : items) {
+      item.reprice(wanted.remove(item.key()).getPrice());
+    }
+    for (PriceListItem item : wanted.values()) {
       item.attachTo(this);
       items.add(item);
     }

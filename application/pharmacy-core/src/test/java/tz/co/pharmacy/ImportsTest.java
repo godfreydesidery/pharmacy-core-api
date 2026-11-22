@@ -218,4 +218,84 @@ class ImportsTest extends IntegrationTest {
         .upload("/api/v1/stock/opening/import/check", "stock.csv", csv("Code,Quantity", "PCM,1"))
         .expect(403);
   }
+
+  @Test
+  @DisplayName("a price list's items are repriced or added by Code and minimum quantity")
+  void priceList() {
+    admin
+        .upload(
+            "/api/v1/products/import",
+            "products.csv",
+            csv(
+                "Code,Name,Generic name,Dosage form,Cost,Price",
+                "PCM,Panadol 500mg,Paracetamol,TABLET,300,500",
+                "BRU,Brufen 400mg,Ibuprofen,TABLET,900,1500",
+                "AMX,Amoxil 250mg,Amoxicillin,CAPSULE,200,400"))
+        .expect(200);
+    String pcm = admin.get("/api/v1/products?q=PCM").expect(200).string("$.data.items[0].uid");
+    String amx = admin.get("/api/v1/products?q=AMX").expect(200).string("$.data.items[0].uid");
+    String list =
+        admin
+            .post(
+                "/api/v1/price-lists",
+                """
+                {"name":"Wholesale","customerType":"WHOLESALE","items":[
+                  {"productUid":"%s","minQuantity":1,"price":450},
+                  {"productUid":"%s","minQuantity":1,"price":350}]}
+                """
+                    .formatted(pcm, amx))
+            .expect(201)
+            .string("$.data.uid");
+    String base = "/api/v1/price-lists/" + list + "/import";
+
+    // Saving the list again with the same items reprices them in place (it used to break the
+    // unique product and minimum quantity key).
+    admin
+        .put(
+            "/api/v1/price-lists/" + list,
+            """
+            {"name":"Wholesale","customerType":"WHOLESALE","items":[
+              {"productUid":"%s","minQuantity":1,"price":460},
+              {"productUid":"%s","minQuantity":1,"price":350}]}
+            """
+                .formatted(pcm, amx))
+        .expect(200);
+
+    // The template holds the list's items, and imports back unchanged.
+    byte[] template = admin.download(base + "/template");
+    Api.Response same = admin.upload(base + "/check", "list.xlsx", template);
+    assertThat((Integer) same.json().read("$.data.updating")).isEqualTo(2);
+    assertThat((Integer) same.json().read("$.data.problemCount")).isZero();
+
+    // Problems by row and column; nothing changes.
+    Api.Response bad =
+        admin.upload(
+            base + "/check",
+            "list.csv",
+            csv("Code,Min quantity,Price", "PCM,0,abc", "NOPE,1,100", "BRU,5,1400", "bru,5,1300"));
+    List<String> reasons = bad.json().read("$.data.problems[*].reason");
+    assertThat(reasons)
+        .contains("invalid_quantity", "not_a_number", "product_not_found", "repeated_in_file");
+
+    // Reprice one, add a quantity break and a new product; the item not named stays.
+    Api.Response saved =
+        admin.upload(
+            base,
+            "list.csv",
+            csv("Code,Min quantity,Price", "PCM,1,420", "PCM,10,400", "BRU,,1400"));
+    assertThat((Boolean) saved.json().read("$.data.saved")).isTrue();
+    assertThat((Integer) saved.json().read("$.data.creating")).isEqualTo(2);
+    assertThat((Integer) saved.json().read("$.data.updating")).isEqualTo(1);
+    Api.Response lists = admin.get("/api/v1/price-lists").expect(200);
+    List<Object> items = lists.json().read("$.data[0].items");
+    assertThat(items).hasSize(4);
+    assertThat(lists.body()).contains("420", "400", "1400", "350");
+
+    admin
+        .upload(
+            "/api/v1/price-lists/" + UUID.randomUUID() + "/import/check",
+            "x.csv",
+            csv("Code,Price", "PCM,1"))
+        .expect(404);
+  }
 }

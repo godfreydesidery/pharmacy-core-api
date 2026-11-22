@@ -2,8 +2,10 @@ package tz.co.pharmacy.delivery.api.v1.imports;
 
 import java.io.IOException;
 import java.util.Locale;
+import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,12 +17,12 @@ import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
- * Imports from Excel (.xlsx) or CSV, for products, customers, suppliers and a branch's opening
- * stock. Each has a template ({@code …/import/template?lang=}), a check that writes nothing ({@code
- * POST …/import/check}) and the import itself ({@code POST …/import}), which writes every row in
- * one transaction or, when any row has a problem, nothing. Both answer an {@link ImportReport}: the
- * rows read, what they add and change, and every problem by row and column. Each takes the
- * permission of adding the record by hand.
+ * Imports from Excel (.xlsx) or CSV, for products, customers, suppliers, a branch's opening stock
+ * and a price list's items. Each has a template ({@code …/import/template?lang=}), a check that
+ * writes nothing ({@code POST …/import/check}) and the import itself ({@code POST …/import}), which
+ * writes every row in one transaction or, when any row has a problem, nothing. Both answer an
+ * {@link ImportReport}: the rows read, what they add and change, and every problem by row and
+ * column. Each takes the permission of adding the record by hand.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -31,18 +33,21 @@ public class ImportHandler {
   private final CustomerImport customers;
   private final SupplierImport suppliers;
   private final OpeningStockImport openingStock;
+  private final PriceListImport priceLists;
 
   ImportHandler(
       ImportEngine engine,
       ProductImport products,
       CustomerImport customers,
       SupplierImport suppliers,
-      OpeningStockImport openingStock) {
+      OpeningStockImport openingStock,
+      PriceListImport priceLists) {
     this.engine = engine;
     this.products = products;
     this.customers = customers;
     this.suppliers = suppliers;
     this.openingStock = openingStock;
+    this.priceLists = priceLists;
   }
 
   // products
@@ -131,6 +136,33 @@ public class ImportHandler {
   public ApiResponse<ImportReport> importOpeningStock(
       @RequestParam("file") MultipartFile file, @RequestParam(required = false) String lang) {
     return imported(engine.save(openingStock, sheet(file), swahili(lang)));
+  }
+
+  // a price list's items: re-priced or added by product Code and minimum quantity
+
+  @GetMapping("/price-lists/{uid}/import/template")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ResponseEntity<byte[]> priceListTemplate(
+      @PathVariable UUID uid, @RequestParam(required = false) String lang) {
+    return ImportTemplate.answer(priceLists.forList(uid), swahili(lang));
+  }
+
+  @PostMapping("/price-lists/{uid}/import/check")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<ImportReport> checkPriceList(
+      @PathVariable UUID uid,
+      @RequestParam("file") MultipartFile file,
+      @RequestParam(required = false) String lang) {
+    return checked(engine.check(priceLists.forList(uid), sheet(file), swahili(lang)));
+  }
+
+  @PostMapping("/price-lists/{uid}/import")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  public ApiResponse<ImportReport> importPriceList(
+      @PathVariable UUID uid,
+      @RequestParam("file") MultipartFile file,
+      @RequestParam(required = false) String lang) {
+    return imported(engine.save(priceLists.forList(uid), sheet(file), swahili(lang)));
   }
 
   private static SheetFile sheet(MultipartFile file) {

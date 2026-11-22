@@ -225,6 +225,11 @@ class ImportEngine {
                   return;
                 }
               }
+              try {
+                batch.finish();
+              } catch (RuntimeException refused) {
+                problems.add(problem(null, refused, columns, swahili));
+              }
             });
       } catch (RuntimeException failure) {
         // The rollback itself failed; report it on the file and stop trying.
@@ -252,6 +257,12 @@ class ImportEngine {
                 status.setRollbackOnly();
                 return problem(p.row(), refused, columns, swahili);
               }
+            }
+            try {
+              batch.finish();
+            } catch (RuntimeException refused) {
+              status.setRollbackOnly();
+              return problem(null, refused, columns, swahili);
             }
             return null;
           });

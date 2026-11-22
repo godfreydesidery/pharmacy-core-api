@@ -34,7 +34,7 @@ final class ImportTemplate {
 
   static byte[] workbook(Importer<?> importer, boolean swahili) {
     List<ImportColumn> columns = importer.columns();
-    List<Object> example = importer.example();
+    List<List<Object>> rows = importer.templateRows();
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     try {
       Workbook workbook = new Workbook(out, "Pharmacy Core", "1.0");
@@ -48,15 +48,20 @@ final class ImportTemplate {
         }
         style.set();
         sheet.width(c, Math.max(14, Math.min(40, heading.length() + 4)));
-        Object value = c < example.size() ? example.get(c) : null;
-        switch (value) {
-          case null -> {}
-          case Number number -> sheet.value(1, c, number);
-          case LocalDate day -> {
-            sheet.value(1, c, day);
-            sheet.style(1, c).format("yyyy-mm-dd").set();
+      }
+      for (int r = 0; r < rows.size(); r++) {
+        List<Object> row = rows.get(r);
+        for (int c = 0; c < columns.size(); c++) {
+          Object value = c < row.size() ? row.get(c) : null;
+          switch (value) {
+            case null -> {}
+            case Number number -> sheet.value(r + 1, c, number);
+            case LocalDate day -> {
+              sheet.value(r + 1, c, day);
+              sheet.style(r + 1, c).format("yyyy-mm-dd").set();
+            }
+            default -> sheet.value(r + 1, c, String.valueOf(value));
           }
-          default -> sheet.value(1, c, String.valueOf(value));
         }
       }
       sheet.freezePane(0, 1);

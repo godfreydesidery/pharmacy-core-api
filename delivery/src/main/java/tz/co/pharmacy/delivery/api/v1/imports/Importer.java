@@ -20,6 +20,11 @@ interface Importer<P> {
   /** One example row for the template, aligned with {@link #columns()}. */
   List<Object> example();
 
+  /** The template's rows: the example, or what the record holds now (a price list's items). */
+  default List<List<Object>> templateRows() {
+    return List.of(example());
+  }
+
   /** The plan cap the rows it creates count against, or null. */
   default PlanLimit limit() {
     return null;
@@ -43,6 +48,12 @@ interface Importer<P> {
 
     /** Writes the change; a {@code Refusal} names what the rules refuse. */
     void save(P plan);
+
+    /**
+     * After every row is saved, in the same transaction: for records saved whole (a price list and
+     * its items), which gather the rows in {@link #save} and write them here.
+     */
+    default void finish() {}
   }
 
   /** A value that must be unique in the file, and the column it is in. */

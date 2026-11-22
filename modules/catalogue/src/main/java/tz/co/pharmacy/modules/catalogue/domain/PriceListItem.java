@@ -36,4 +36,13 @@ public class PriceListItem extends TenantEntity {
   void attachTo(PriceList list) {
     this.priceList = list;
   }
+
+  /** The product and minimum quantity, unique on a list. */
+  String key() {
+    return productUid + ":" + minQuantity;
+  }
+
+  void reprice(BigDecimal newPrice) {
+    this.price = newPrice;
+  }
 }
