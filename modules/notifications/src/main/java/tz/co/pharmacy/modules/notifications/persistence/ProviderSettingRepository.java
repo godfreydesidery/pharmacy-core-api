@@ -1,9 +1,13 @@
 package tz.co.pharmacy.modules.notifications.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import tz.co.pharmacy.modules.notifications.domain.ProviderSetting;
 import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
 
@@ -13,11 +17,26 @@ import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
  */
 public interface ProviderSettingRepository extends JpaRepository<ProviderSetting, Long> {
 
-  Optional<ProviderSetting> findByTenantUidAndChannel(UUID tenantUid, Channel channel);
+  /** A pharmacy's own providers of a channel, in the order they are tried. */
+  List<ProviderSetting> findByTenantUidAndChannelOrderByPriorityAscIdAsc(
+      UUID tenantUid, Channel channel);
 
-  Optional<ProviderSetting> findByTenantUidIsNullAndChannel(Channel channel);
+  /** The platform's providers of a channel, in the order they are tried. */
+  List<ProviderSetting> findByTenantUidIsNullAndChannelOrderByPriorityAscIdAsc(Channel channel);
 
-  List<ProviderSetting> findByTenantUidIsNull();
+  Optional<ProviderSetting> findByUid(UUID uid);
 
-  List<ProviderSetting> findByTenantUid(UUID tenantUid);
+  /** A send through the provider worked: noted at most once a minute, with no version bump. */
+  @Modifying
+  @Query(
+      "update ProviderSetting p set p.lastSentAt = :at where p.uid = :uid"
+          + " and (p.lastSentAt is null or p.lastSentAt < :notBefore)")
+  int markSent(
+      @Param("uid") UUID uid, @Param("at") Instant at, @Param("notBefore") Instant notBefore);
+
+  /** A send through the provider failed. */
+  @Modifying
+  @Query(
+      "update ProviderSetting p set p.lastFailedAt = :at, p.lastError = :error where p.uid = :uid")
+  int markFailed(@Param("uid") UUID uid, @Param("at") Instant at, @Param("error") String error);
 }

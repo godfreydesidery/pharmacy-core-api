@@ -3,6 +3,7 @@ package tz.co.pharmacy.modules.notifications.providers;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -27,9 +28,10 @@ import tz.co.pharmacy.modules.notifications.ports.outbound.WhatsAppSender;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
- * Picks, per message, the provider a channel sends through: the pharmacy's own account (its row in
- * mode OWN), else the platform's (the row without a tenant), else the provider the environment
- * configured at start. Rows are read on every send, so a change applies to the next message.
+ * Picks, per message, the providers a channel sends through, in the order to try them: the
+ * pharmacy's own active providers, else the platform's, else the provider the environment
+ * configured at start. A provider whose circuit breaker is open ({@link ProviderHealth}) is tried
+ * after the healthy ones. Rows are read on every send, so a change applies to the next message.
  */
 @Component
 public class ProviderRouter {
@@ -48,18 +50,24 @@ public class ProviderRouter {
   }
 
   /**
-   * Where a channel's messages go: {@code provider} (such as beem), {@code source} (OWN, PLATFORM
-   * or ENVIRONMENT).
+   * One way a channel's messages can go: the provider row ({@code uid}, null for the
+   * environment's), its {@code name}, {@code provider} (such as beem) and {@code source} (OWN,
+   * PLATFORM or ENVIRONMENT).
    */
-  public record Route(String provider, String source, ChannelSender sender) {
+  public record Route(UUID uid, String name, String provider, String source, ChannelSender sender) {
 
-    /** The provider as the delivery log records it: "beem:own", "smtp:platform" or "log". */
+    /**
+     * The provider as the delivery log records it: "beem:own", "smtp:platform" or "log"; with the
+     * name when it is not just the provider's, so two accounts of one provider can be told apart.
+     */
     public String label() {
-      return switch (source) {
-        case SOURCE_OWN -> provider + ":own";
-        case SOURCE_PLATFORM -> provider + ":platform";
-        default -> provider;
-      };
+      String base =
+          switch (source) {
+            case SOURCE_OWN -> provider + ":own";
+            case SOURCE_PLATFORM -> provider + ":platform";
+            default -> provider;
+          };
+      return name == null || name.equalsIgnoreCase(provider) ? base : base + ":" + name;
     }
   }
 
@@ -69,6 +77,7 @@ public class ProviderRouter {
   private final EmailSender envEmail;
   private final SmsSender envSms;
   private final WhatsAppSender envWhatsApp;
+  private final ProviderHealth health;
   private final TransactionTemplate reads;
   private final Map<String, JavaMailSenderImpl> mailers = new ConcurrentHashMap<>();
 
@@ -79,6 +88,7 @@ public class ProviderRouter {
       EmailSender envEmail,
       SmsSender envSms,
       WhatsAppSender envWhatsApp,
+      ProviderHealth health,
       PlatformTransactionManager transactionManager) {
     this.settings = settings;
     this.seal = seal;
@@ -86,44 +96,75 @@ public class ProviderRouter {
     this.envEmail = envEmail;
     this.envSms = envSms;
     this.envWhatsApp = envWhatsApp;
+    this.health = health;
     this.reads = new TransactionTemplate(transactionManager);
     this.reads.setReadOnly(true);
     this.reads.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   /**
-   * The route for the current scope: the tenant's own account, the platform's, the environment's.
+   * The routes for the current scope, in the order to try them: the tenant's own active providers,
+   * else the platform's, else the environment's; healthy ones before tripped ones.
    */
-  public Route route(Channel channel) {
+  public List<Route> routes(Channel channel) {
     Optional<UUID> tenant = TenantContext.tenantUid();
-    Optional<ProviderSetting> chosen =
+    List<ProviderSetting> rows =
         reads.execute(
             status -> {
               if (tenant.isPresent()) {
-                Optional<ProviderSetting> own =
-                    settings
-                        .findByTenantUidAndChannel(tenant.get(), channel)
-                        .filter(ProviderSetting::own);
-                if (own.isPresent()) {
+                List<ProviderSetting> own =
+                    active(
+                        settings.findByTenantUidAndChannelOrderByPriorityAscIdAsc(
+                            tenant.get(), channel));
+                if (!own.isEmpty()) {
                   return own;
                 }
               }
-              return settings.findByTenantUidIsNullAndChannel(channel);
+              return active(
+                  settings.findByTenantUidIsNullAndChannelOrderByPriorityAscIdAsc(channel));
             });
-    if (chosen != null && chosen.isPresent()) {
-      ProviderSetting row = chosen.get();
-      return configured(row, row.getTenantUid() == null ? SOURCE_PLATFORM : SOURCE_OWN);
-    }
-    return environment(channel);
+    return chain(channel, rows);
   }
 
-  /** The platform's route, ignoring any tenant: its row, else the environment's provider. */
+  /** The first route for the current scope. */
+  public Route route(Channel channel) {
+    return routes(channel).getFirst();
+  }
+
+  /** The platform's routes, ignoring any tenant: its active providers, else the environment's. */
+  public List<Route> routesPlatform(Channel channel) {
+    List<ProviderSetting> rows =
+        reads.execute(
+            status ->
+                active(settings.findByTenantUidIsNullAndChannelOrderByPriorityAscIdAsc(channel)));
+    return chain(channel, rows);
+  }
+
   public Route routePlatform(Channel channel) {
-    Optional<ProviderSetting> row =
-        reads.execute(status -> settings.findByTenantUidIsNullAndChannel(channel));
-    return row != null && row.isPresent()
-        ? configured(row.get(), SOURCE_PLATFORM)
-        : environment(channel);
+    return routesPlatform(channel).getFirst();
+  }
+
+  /** The route of one provider row, whether or not it is active (to test it). */
+  public Route routeOf(ProviderSetting row) {
+    return configured(row, row.getTenantUid() == null ? SOURCE_PLATFORM : SOURCE_OWN);
+  }
+
+  private List<Route> chain(Channel channel, List<ProviderSetting> rows) {
+    if (rows == null || rows.isEmpty()) {
+      return List.of(environment(channel));
+    }
+    List<Route> healthy = new java.util.ArrayList<>();
+    List<Route> tripped = new java.util.ArrayList<>();
+    for (ProviderSetting row : rows) {
+      Route route = routeOf(row);
+      (health.tripped(row.getUid()) ? tripped : healthy).add(route);
+    }
+    healthy.addAll(tripped);
+    return healthy;
+  }
+
+  private static List<ProviderSetting> active(List<ProviderSetting> rows) {
+    return rows.stream().filter(ProviderSetting::isActive).toList();
   }
 
   /** The environment's provider for a channel: the bean chosen by configuration at start. */
@@ -131,17 +172,27 @@ public class ProviderRouter {
     return switch (channel) {
       case EMAIL ->
           new Route(
+              null,
+              envEmail.name(),
               envEmail.name(),
               SOURCE_ENVIRONMENT,
               (to, subject, html, text) -> envEmail.send(to, subject, html, text));
       case SMS ->
-          new Route(envSms.name(), SOURCE_ENVIRONMENT, (to, s, h, text) -> envSms.send(to, text));
+          new Route(
+              null,
+              envSms.name(),
+              envSms.name(),
+              SOURCE_ENVIRONMENT,
+              (to, s, h, text) -> envSms.send(to, text));
       case WHATSAPP ->
           new Route(
+              null,
+              envWhatsApp.name(),
               envWhatsApp.name(),
               SOURCE_ENVIRONMENT,
               (to, s, h, text) -> envWhatsApp.send(to, text));
-      case IN_APP -> new Route("in-app", SOURCE_ENVIRONMENT, (to, s, h, text) -> {});
+      case IN_APP ->
+          new Route(null, "in-app", "in-app", SOURCE_ENVIRONMENT, (to, s, h, text) -> {});
     };
   }
 
@@ -214,6 +265,8 @@ public class ProviderRouter {
     } catch (ProviderException unreadable) {
       // Still a route, so settings pages load; each send fails with the reason.
       return new Route(
+          row.getUid(),
+          row.getName(),
           code,
           source,
           (to, s, h, text) -> {
@@ -273,7 +326,7 @@ public class ProviderRouter {
                   : logSender("whatsapp", source);
           case IN_APP -> (to, s, h, text) -> {};
         };
-    return new Route(code, source, sender);
+    return new Route(row.getUid(), row.getName(), code, source, sender);
   }
 
   private static ChannelSender logSender(String channel, String source) {
