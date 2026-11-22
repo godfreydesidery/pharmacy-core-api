@@ -52,6 +52,9 @@ public interface AccessNotices {
       Instant usableAt,
       String cancelLink);
 
+  /** To the person: a pharmacy staff login ({@code signIn}) is now part of their account. */
+  void loginLinked(UUID userUid, String name, String email, String signIn, Instant at);
+
   /** To the new address: the link that completes a recovery, usable from {@code usableAt}. */
   void recoveryLink(String name, String newEmail, String link, Instant usableAt);
 }

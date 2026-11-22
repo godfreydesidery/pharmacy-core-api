@@ -306,6 +306,25 @@ final class TemplateCatalog {
         Map.of(
             "name", "Amina Hassan", "usableAt", "23 Nov 2026 10:15", "link", "/recover?token=..."));
     define(
+        TemplateKeys.ACCESS_LOGIN_LINKED,
+        new Default(
+            "A staff login was linked to your account",
+            "Hello {{name}}, the pharmacy staff login {{login}} was linked to your Pharmacy Core"
+                + " account on {{time}}. From now on you sign in to that pharmacy with your own"
+                + " account; the staff login no longer works. If this was not you, change your"
+                + " password and contact support at once.",
+            "Staff login {{login}} is now part of your Pharmacy Core account. Not you? Contact"
+                + " support."),
+        new Default(
+            "Akaunti ya mfanyakazi imeunganishwa na akaunti yako",
+            "Habari {{name}}, akaunti ya mfanyakazi {{login}} imeunganishwa na akaunti yako ya"
+                + " Pharmacy Core tarehe {{time}}. Kuanzia sasa unaingia kwenye famasia hiyo kwa"
+                + " akaunti yako; akaunti ya mfanyakazi haifanyi kazi tena. Kama si wewe, badilisha"
+                + " nenosiri na uwasiliane na msaada mara moja.",
+            "Akaunti ya mfanyakazi {{login}} sasa ni sehemu ya akaunti yako ya Pharmacy Core. Si"
+                + " wewe? Wasiliana na msaada."),
+        Map.of("name", "Juma Ali", "login", "juma@dawa", "time", "22 Nov 2026 10:15"));
+    define(
         TemplateKeys.TENANT_WELCOME,
         new Default(
             "Welcome to Pharmacy Core, {{pharmacyName}}",

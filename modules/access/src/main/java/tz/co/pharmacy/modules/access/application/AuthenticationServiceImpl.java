@@ -108,6 +108,12 @@ class AuthenticationServiceImpl implements AuthenticationService {
     User user = found == null ? null : found.orElse(null);
     guard.checkAccount(user, normalised, now);
     boolean matches = passwords.matches(password, user == null ? null : user.getPasswordHash());
+    if (user != null && matches && !user.isActive() && user.getLinkedToUid() != null) {
+      // Only someone who knows the login's password learns where it went.
+      throw Refusal.unauthenticated(
+          "login_linked",
+          "This staff login is now part of your own account: sign in with your email.");
+    }
     if (user == null || !matches || !user.isActive()) {
       boolean locked = recordFailure(user, normalised, from, now, "password");
       if (locked) {

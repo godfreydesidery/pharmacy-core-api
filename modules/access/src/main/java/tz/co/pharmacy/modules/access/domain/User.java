@@ -37,6 +37,11 @@ public class User extends MutableEntity {
   /** When the holder of {@code phone} typed the code sent to it; null while unverified. */
   private Instant phoneVerifiedAt;
 
+  /** A staff login its person linked to their personal account: that account, and when. */
+  private UUID linkedToUid;
+
+  private Instant linkedAt;
+
   private Instant lastSignInAt;
 
   private boolean twoFactorEnabled;
@@ -107,6 +112,13 @@ public class User extends MutableEntity {
 
   public boolean hasVerifiedPhone() {
     return phone != null && phoneVerifiedAt != null;
+  }
+
+  /** This staff login now belongs to {@code personalUid}: it is off for good. */
+  public void linkTo(UUID personalUid, Instant at) {
+    this.linkedToUid = personalUid;
+    this.linkedAt = at;
+    this.active = false;
   }
 
   /** A new sign-in email, confirmed from its mailbox. */

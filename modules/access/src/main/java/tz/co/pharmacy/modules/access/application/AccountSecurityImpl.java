@@ -63,6 +63,10 @@ class AccountSecurityImpl implements AccountSecurity {
   private final RecoveryCodeRepository recoveryCodes;
   private final Passwords passwords;
   private final TwoFactorServiceImpl twoFactor;
+  private final AuthenticationServiceImpl authentication;
+  private final SignInGuard guard;
+  private final tz.co.pharmacy.modules.access.persistence.MembershipRepository memberships;
+  private final tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch;
   private final AuditLog audit;
   private final ObjectProvider<AccessNotices> notices;
   private final TransactionTemplate writes;
@@ -77,6 +81,10 @@ class AccountSecurityImpl implements AccountSecurity {
       RecoveryCodeRepository recoveryCodes,
       Passwords passwords,
       TwoFactorServiceImpl twoFactor,
+      AuthenticationServiceImpl authentication,
+      SignInGuard guard,
+      tz.co.pharmacy.modules.access.persistence.MembershipRepository memberships,
+      tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch,
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
       PlatformTransactionManager transactionManager,
@@ -89,6 +97,10 @@ class AccountSecurityImpl implements AccountSecurity {
     this.recoveryCodes = recoveryCodes;
     this.passwords = passwords;
     this.twoFactor = twoFactor;
+    this.authentication = authentication;
+    this.guard = guard;
+    this.memberships = memberships;
+    this.tenantSwitch = tenantSwitch;
     this.audit = audit;
     this.notices = notices;
     this.writes = new TransactionTemplate(transactionManager);
@@ -409,6 +421,82 @@ class AccountSecurityImpl implements AccountSecurity {
     if (!ok[0]) {
       throw invalidCode();
     }
+  }
+
+  // ------------------------------------------------------- linking a login
+
+  @Override
+  public void linkStaffLogin(
+      UUID userUid,
+      String signIn,
+      String loginPassword,
+      String password,
+      String code,
+      ClientInfo client) {
+    Instant now = clock.instant();
+    ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
+    String login = signIn == null ? "" : signIn.trim().toLowerCase();
+    // The person first: their own password (and second factor), as for an email change.
+    User person =
+        writes.execute(
+            status -> {
+              User found = personal(userUid);
+              reauthenticate(found, password, code);
+              return found;
+            });
+    // Then the login: as hard to guess here as at the sign-in page.
+    User staff = users.findByEmail(login).orElse(null);
+    guard.checkAccount(staff, login, now);
+    boolean proved =
+        staff != null
+            && staff.isManaged()
+            && staff.isActive()
+            && passwords.matches(loginPassword, staff.getPasswordHash());
+    if (!proved) {
+      boolean locked = authentication.recordFailure(staff, login, from, now, "link");
+      if (locked) {
+        throw guard.locked(guard.lockFor());
+      }
+      throw Refusal.invalid("invalid_login", "The staff login or its password is wrong.", "signIn");
+    }
+    UUID pharmacy = staff.getManagedByTenantUid();
+    writes.executeWithoutResult(
+        status -> {
+          User target = users.findByUid(staff.getUid()).orElseThrow();
+          tenantSwitch.within(
+              pharmacy,
+              () -> {
+                if (memberships.existsByUserUidAndTenantUid(person.getUid(), pharmacy)) {
+                  throw Refusal.conflict(
+                      "already_a_member",
+                      "Your account is already in that pharmacy; ask its admin to remove one.");
+                }
+                memberships
+                    .findByUserUidAndTenantUid(target.getUid(), pharmacy)
+                    .ifPresent(membership -> membership.moveTo(person.getUid()));
+                // The pharmacy's record: its login now signs in as a personal account. Nothing
+                // about the account's other pharmacies.
+                audit.record(
+                    "STAFF_LOGIN_LINKED",
+                    "User",
+                    target.getUid(),
+                    null,
+                    Map.of("login", login, "personalAccount", person.getUid().toString()));
+                return null;
+              });
+          target.linkTo(person.getUid(), now);
+          int revoked = sessions.revokeAll(target.getUid(), now, null);
+          audit.record(
+              "STAFF_LOGIN_LINKED",
+              "User",
+              person.getUid(),
+              null,
+              Map.of("login", login, "sessionsEnded", revoked));
+          notices.ifAvailable(
+              notice ->
+                  notice.loginLinked(
+                      person.getUid(), person.getName(), person.getEmail(), login, now));
+        });
   }
 
   // --------------------------------------------------------------- recovery
