@@ -154,10 +154,15 @@ class TenantServiceImpl implements TenantService {
 
   @Override
   @Transactional
-  public TenantView suspend(UUID tenantUid, String reason) {
-    String why = Checks.text(reason, "reason", 500);
+  public TenantView suspend(
+      UUID tenantUid,
+      tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind kind,
+      String note) {
+    String why = Checks.text(note, "reason", 500);
     Tenant tenant = required(tenantUid);
-    tenant.suspend(why);
+    tenant.suspend(
+        kind == null ? tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.OTHER : kind,
+        why);
     return view(tenant);
   }
 
@@ -214,7 +219,8 @@ class TenantServiceImpl implements TenantService {
         tenant.getContactEmail(),
         tenant.getContactPhone(),
         tenant.getAddress(),
-        tenant.isDirectUserCreation());
+        tenant.isDirectUserCreation(),
+        tenant.getSuspensionKind());
   }
 
   private static String country(String value) {

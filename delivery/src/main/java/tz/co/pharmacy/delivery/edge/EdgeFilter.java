@@ -163,7 +163,7 @@ public class EdgeFilter extends OncePerRequestFilter {
               .filter(MembershipGrant::active)
               .orElseThrow(() -> Refusal.forbidden("forbidden", "You may not act in this tenant."));
       if (tenant.status() == TenantStatus.SUSPENDED) {
-        throw Refusal.forbidden("tenant_suspended", "This pharmacy's account is suspended.");
+        suspended(tenant, grant, request);
       }
       permissions = Set.copyOf(grant.permissions());
       allowedBranches = grant.allBranches() ? null : new HashSet<>(grant.branchUids());
@@ -255,6 +255,35 @@ public class EdgeFilter extends OncePerRequestFilter {
               throw Refusal.tooManyRequests(
                   "Too many sign-in attempts from this device; wait a moment.", seconds);
             });
+  }
+
+  /**
+   * A suspended pharmacy. Unpaid: its admins may still read (GET), to pay and take their data out
+   * (data portability); every change and everyone else is refused. Any other kind (a dispute's
+   * legal hold, abuse): nobody works in it.
+   */
+  private static void suspended(
+      TenantView tenant, MembershipGrant grant, HttpServletRequest request) {
+    boolean admin =
+        grant.permissions().contains("settings.manage")
+            || grant.permissions().contains("users.manage");
+    boolean reading = "GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod());
+    if (tenant.suspensionKind()
+            == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID
+        && admin
+        && reading) {
+      return;
+    }
+    if (tenant.suspensionKind()
+        == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID) {
+      throw Refusal.forbidden(
+          admin ? "tenant_suspended_read_only" : "tenant_suspended",
+          admin
+              ? "This pharmacy's subscription is unpaid: you can still see and export its data, but"
+                  + " not change it, until it is paid."
+              : "This pharmacy's subscription is unpaid; its admin can renew it.");
+    }
+    throw Refusal.forbidden("tenant_suspended", "This pharmacy's account is suspended.");
   }
 
   /** The client of a request (behind our proxies too), for sign-in records and device notices. */
