@@ -121,7 +121,8 @@ public class PlatformHandler {
                 body.contactName(),
                 body.contactEmail(),
                 body.contactPhone(),
-                body.address())),
+                body.address(),
+                body.directUserCreation())),
         "Tenant changed");
   }
 
@@ -233,7 +234,8 @@ public class PlatformHandler {
       String contactName,
       String contactEmail,
       String contactPhone,
-      String address) {}
+      String address,
+      Boolean directUserCreation) {}
 
   public record OverviewResponse(
       long tenants, long activeTenants, long suspendedTenants, long branches, long users) {}

@@ -17,4 +17,16 @@ public record MemberView(
     boolean active,
     Instant lastSignInAt,
     Instant createdAt,
-    String phone) {}
+    String phone,
+    boolean managed,
+    String contactEmail,
+    boolean passwordChangeRequired) {
+
+  /**
+   * Where mail to the member goes: their email, or a managed login's contact email ({@code email}
+   * is then the sign-in, username@code, which no mail reaches).
+   */
+  public String mailbox() {
+    return managed ? contactEmail : email;
+  }
+}

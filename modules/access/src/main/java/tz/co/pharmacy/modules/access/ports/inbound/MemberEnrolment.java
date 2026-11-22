@@ -14,5 +14,13 @@ public interface MemberEnrolment {
   record Invited(InvitationView invitation) implements Outcome {}
 
   /** 409 already_a_member; 422 as {@link UserAdministration#addMember} or the invitation. */
-  Outcome add(AddMemberCommand command);
+  default Outcome add(AddMemberCommand command) {
+    return add(command, true);
+  }
+
+  /**
+   * As {@link #add(AddMemberCommand)}; without {@code directCreation} (the pharmacy may only
+   * invite) even a new email is sent an invitation, and its password is ignored.
+   */
+  Outcome add(AddMemberCommand command, boolean directCreation);
 }

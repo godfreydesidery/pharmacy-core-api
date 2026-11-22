@@ -64,7 +64,7 @@ class NotificationDirectoryAdapter implements NotificationDirectory {
           .findFirst()
           .map(
               admin ->
-                  new Recipient(admin.uid(), admin.name(), admin.email(), admin.phone(), null));
+                  new Recipient(admin.uid(), admin.name(), admin.mailbox(), admin.phone(), null));
     }
     return members().stream()
         .filter(member -> member.userUid().equals(userUid))
@@ -86,6 +86,6 @@ class NotificationDirectoryAdapter implements NotificationDirectory {
   }
 
   private static Recipient recipient(MemberView member) {
-    return new Recipient(member.userUid(), member.name(), member.email(), member.phone(), null);
+    return new Recipient(member.userUid(), member.name(), member.mailbox(), member.phone(), null);
   }
 }

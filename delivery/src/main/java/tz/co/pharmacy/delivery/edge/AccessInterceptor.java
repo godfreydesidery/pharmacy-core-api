@@ -57,11 +57,17 @@ public class AccessInterceptor implements HandlerInterceptor {
                 () -> Refusal.unauthenticated("unauthenticated", "Sign in to use this route."));
     if (access.scope() != AccessScope.AUTHENTICATED
         && request.getAttribute(EdgeFilter.PRINCIPAL)
-            instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal
-        && principal.twoFactorSetupRequired()) {
-      throw Refusal.forbidden(
-          "two_factor_setup_required",
-          "Set up two-factor sign-in on your account before using the platform.");
+            instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal) {
+      if (principal.passwordChangeRequired()) {
+        throw Refusal.forbidden(
+            "password_change_required",
+            "Choose your own password before you start: yours was set by your pharmacy.");
+      }
+      if (principal.twoFactorSetupRequired()) {
+        throw Refusal.forbidden(
+            "two_factor_setup_required",
+            "Set up two-factor sign-in on your account before using the platform.");
+      }
     }
     switch (access.scope()) {
       case PLATFORM -> {

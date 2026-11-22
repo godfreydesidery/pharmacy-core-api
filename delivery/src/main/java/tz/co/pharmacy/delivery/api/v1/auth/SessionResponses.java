@@ -83,7 +83,8 @@ public class SessionResponses {
             principal.name(),
             principal.email(),
             principal.rootAdmin(),
-            principal.twoFactorSetupRequired()),
+            principal.twoFactorSetupRequired(),
+            principal.passwordChangeRequired()),
         memberships);
   }
 
@@ -113,7 +114,8 @@ public class SessionResponses {
             grant.roleName(),
             permissions,
             grant.allBranches(),
-            allowed));
+            allowed,
+            view.directUserCreation()));
   }
 
   /** {@code methods}: TOTP, RECOVERY_CODE and, when the user has one, PASSKEY. */

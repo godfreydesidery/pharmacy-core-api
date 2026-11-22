@@ -4,6 +4,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,6 +14,10 @@ import tz.co.pharmacy.platform.persistence.MutableEntity;
  * A person who signs in. Users are platform-wide: one email, one password, memberships in any
  * number of tenants. A root administrator acts above every tenant. A user may add a second factor
  * (a TOTP authenticator app) and passkeys; repeated failed sign-ins lock the account for a while.
+ *
+ * <p>A <em>managed login</em> belongs to one pharmacy, whose admin created it: it signs in as
+ * {@code username@CODE} (held in {@code email}, lower case), mail goes to its {@code contactEmail},
+ * and that admin may reset its password. Every other account belongs to the person.
  */
 @Getter
 @Entity
@@ -47,6 +52,15 @@ public class User extends MutableEntity {
   /** The WebAuthn user handle (base64url of 32 random bytes), set with the first passkey. */
   private String webauthnUserHandle;
 
+  /** The pharmacy a managed login belongs to; null for a person's own account. */
+  private UUID managedByTenantUid;
+
+  /** Where mail to a managed login goes; never used to sign in. */
+  private String contactEmail;
+
+  /** The person must choose their own password before working. */
+  private boolean passwordChangeRequired;
+
   public User(String email, String name, String passwordHash, boolean rootAdmin) {
     this.email = email;
     this.name = name;
@@ -77,8 +91,53 @@ public class User extends MutableEntity {
     this.rootAdmin = false;
   }
 
+  /** The person's own new password: any requirement to change it is met. */
   public void changePassword(String passwordHash) {
     this.passwordHash = passwordHash;
+    this.passwordChangeRequired = false;
+  }
+
+  /** A new managed login of {@code tenantUid}, with a temporary password to change at sign-in. */
+  public static User managed(
+      UUID tenantUid, String signIn, String name, String temporaryPasswordHash) {
+    User user = new User(signIn, name, temporaryPasswordHash, false);
+    user.managedByTenantUid = tenantUid;
+    user.passwordChangeRequired = true;
+    return user;
+  }
+
+  public boolean isManaged() {
+    return managedByTenantUid != null;
+  }
+
+  /** Whether this is a managed login of {@code tenantUid}. */
+  public boolean isManagedBy(UUID tenantUid) {
+    return managedByTenantUid != null && managedByTenantUid.equals(tenantUid);
+  }
+
+  /** The admin of the managed login's pharmacy set a temporary password: change it at sign-in. */
+  public void resetByAdmin(String temporaryPasswordHash) {
+    if (!isManaged()) {
+      throw new IllegalStateException("only a managed login's password is reset by an admin");
+    }
+    this.passwordHash = temporaryPasswordHash;
+    this.passwordChangeRequired = true;
+    unlock();
+  }
+
+  /** The contact details of a managed login, kept by its pharmacy. */
+  public void changeManagedContact(String name, String phone, String contactEmail) {
+    if (!isManaged()) {
+      throw new IllegalStateException("a person's own details are changed by the person");
+    }
+    this.name = name;
+    this.phone = phone;
+    this.contactEmail = contactEmail;
+  }
+
+  /** Where mail to this person goes: their email, or a managed login's contact email. */
+  public String mailbox() {
+    return isManaged() ? contactEmail : email;
   }
 
   /** Whether the account is locked at {@code at}. */

@@ -25,7 +25,9 @@ final class AccessViews {
         user.isActive(),
         user.getLastSignInAt(),
         user.getCreatedAt(),
-        user.getPhone());
+        user.getPhone(),
+        user.isManaged(),
+        user.getContactEmail());
   }
 
   static RoleView role(Role role) {
@@ -67,7 +69,10 @@ final class AccessViews {
         membership.isActive(),
         user == null ? null : user.getLastSignInAt(),
         membership.getCreatedAt(),
-        user == null ? null : user.getPhone());
+        user == null ? null : user.getPhone(),
+        user != null && user.isManaged(),
+        user == null ? null : user.getContactEmail(),
+        user != null && user.isPasswordChangeRequired());
   }
 
   /** Permissions in catalogue order. */
