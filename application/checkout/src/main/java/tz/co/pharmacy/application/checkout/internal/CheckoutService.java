@@ -87,7 +87,9 @@ class CheckoutService implements Checkout {
   public SaleView checkout(CheckoutCommand command) {
     String key = Checks.optionalText(command.idempotencyKey(), "idempotencyKey", 100);
     if (key != null) {
-      var existing = sales.findByIdempotencyKey(key);
+      // Same-key requests take turns, so a retry sent while the first is still running gets its
+      // sale back rather than a conflict.
+      var existing = sales.claimIdempotencyKey(key);
       if (existing.isPresent()) {
         return existing.get();
       }
