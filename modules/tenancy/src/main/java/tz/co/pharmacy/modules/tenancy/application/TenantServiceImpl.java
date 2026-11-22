@@ -145,6 +145,9 @@ class TenantServiceImpl implements TenantService {
     }
     tenant.change(
         name, legalName, country, timezone, contactName, contactEmail, contactPhone, address);
+    if (command.directUserCreation() != null) {
+      tenant.allowDirectUserCreation(command.directUserCreation());
+    }
     tenants.flush();
     return view(tenant);
   }
@@ -210,7 +213,8 @@ class TenantServiceImpl implements TenantService {
         tenant.getContactName(),
         tenant.getContactEmail(),
         tenant.getContactPhone(),
-        tenant.getAddress());
+        tenant.getAddress(),
+        tenant.isDirectUserCreation());
   }
 
   private static String country(String value) {

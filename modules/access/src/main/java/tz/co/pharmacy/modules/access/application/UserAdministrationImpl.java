@@ -172,10 +172,22 @@ class UserAdministrationImpl implements UserAdministration {
       throw Refusal.invalid(
           "cannot_deactivate_self", "You cannot deactivate your own membership.", "active");
     }
+    boolean wasActive = membership.isActive();
     membership.change(role, command.allBranches(), branches, command.active());
     User user = users.findByUid(membership.getUserUid()).orElse(null);
     String phone = phone(command.phone());
-    if (user != null && phone != null && user.getPhone() == null) {
+    if (user != null && user.isManagedBy(membership.getTenantUid())) {
+      // The pharmacy's own login: it keeps the details, and a deactivated login is out at once.
+      user.changeManagedContact(
+          command.name() == null || command.name().isBlank()
+              ? user.getName()
+              : Checks.text(command.name(), "name", 120),
+          phone,
+          ManagedLoginsImpl.contactEmail(command.contactEmail()));
+      if (wasActive && !command.active()) {
+        sessions.revokeAll(user.getUid(), clock.instant(), null);
+      }
+    } else if (user != null && phone != null && user.getPhone() == null) {
       user.changeProfile(user.getName(), phone);
     }
     return AccessViews.member(membership, user);

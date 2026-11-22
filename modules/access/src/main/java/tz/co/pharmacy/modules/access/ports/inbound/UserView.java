@@ -11,4 +11,12 @@ public record UserView(
     boolean active,
     Instant lastSignInAt,
     Instant createdAt,
-    String phone) {}
+    String phone,
+    boolean managed,
+    String contactEmail) {
+
+  /** Where mail to the user goes: their email, or a managed login's contact email. */
+  public String mailbox() {
+    return managed ? contactEmail : email;
+  }
+}

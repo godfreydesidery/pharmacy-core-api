@@ -67,6 +67,13 @@ class PasswordResetServiceImpl implements PasswordResetService {
   public void request(String email, ClientInfo client) {
     String normalised = email == null ? "" : email.trim().toLowerCase();
     Optional<User> found = users.findByEmail(normalised).filter(User::isActive);
+    if (found.isPresent() && found.get().isManaged()) {
+      // A managed login has no mailbox of its own to send a link to: its pharmacy's admin resets
+      // it. Same answer as for anyone else, so the sign-in name reveals nothing.
+      audit.record(
+          "PASSWORD_RESET_REQUESTED", "User", found.get().getUid(), null, Map.of("managed", true));
+      return;
+    }
     if (found.isEmpty()) {
       audit.record(
           "PASSWORD_RESET_REQUESTED",

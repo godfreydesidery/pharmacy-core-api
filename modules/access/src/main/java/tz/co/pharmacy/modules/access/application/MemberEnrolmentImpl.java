@@ -26,10 +26,10 @@ class MemberEnrolmentImpl implements MemberEnrolment {
 
   @Override
   @Transactional
-  public Outcome add(AddMemberCommand command) {
+  public Outcome add(AddMemberCommand command, boolean directCreation) {
     Checks.required(command, "user");
     String email = Checks.email(command.email(), "email");
-    if (users.findByEmail(email).isEmpty()) {
+    if (directCreation && users.findByEmail(email).isEmpty()) {
       return new Added(administration.addMember(command));
     }
     // The person already has an account: they join when they accept, with their own password.

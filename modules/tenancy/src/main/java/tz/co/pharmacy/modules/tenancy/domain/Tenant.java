@@ -40,6 +40,12 @@ public class Tenant extends MutableEntity {
 
   private String address;
 
+  /**
+   * Whether the pharmacy's admin may create staff logins directly (managed logins), rather than
+   * only invite people by email. Only the root administrator changes it.
+   */
+  private boolean directUserCreation = true;
+
   public Tenant(
       String code,
       String name,
@@ -74,6 +80,10 @@ public class Tenant extends MutableEntity {
     this.contactEmail = contactEmail;
     this.contactPhone = contactPhone;
     this.address = address;
+  }
+
+  public void allowDirectUserCreation(boolean allowed) {
+    this.directUserCreation = allowed;
   }
 
   public void changeCurrency(String currency) {
