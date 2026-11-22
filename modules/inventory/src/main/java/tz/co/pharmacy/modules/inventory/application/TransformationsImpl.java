@@ -210,7 +210,8 @@ class TransformationsImpl implements Transformations {
         transformations.findByBranchUidOrderByIdDesc(
             branch, PageRequest.of(0, query.offset() + query.limit() + 1));
     List<Transformation> rows = upTo.subList(Math.min(query.offset(), upTo.size()), upTo.size());
-    return Page.offset(rows, query).map(TransformationsImpl::view);
+    return Page.offset(rows, query, () -> transformations.countByBranchUid(branch))
+        .map(TransformationsImpl::view);
   }
 
   private static String prefix(TransformationType type) {

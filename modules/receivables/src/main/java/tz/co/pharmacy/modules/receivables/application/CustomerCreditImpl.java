@@ -317,7 +317,8 @@ class CustomerCreditImpl implements CustomerCredit {
     List<EntryView> slice =
         views.subList(
             Math.min(offset, views.size()), Math.min(offset + query.limit() + 1, views.size()));
-    return Page.offset(slice, query);
+    long total = views.size();
+    return Page.offset(slice, query, () -> total);
   }
 
   @Override
@@ -398,7 +399,24 @@ class CustomerCreditImpl implements CustomerCredit {
             pattern,
             query.limit() + 1,
             query.offset());
-    return Page.offset(rows, query);
+    return Page.offset(
+        rows,
+        query,
+        () -> {
+          // The accounts the same filter keeps, for a numbered page's total.
+          Long total =
+              jdbc.queryForObject(
+                  "select count(*) from (select a.id from receivables.accounts a"
+                      + " left join receivables.entries e on e.customer_uid = a.customer_uid"
+                      + " where (cast(? as text) is null or lower(a.customer_name) like cast(? as text))"
+                      + " group by a.id"
+                      + (withBalanceOnly ? " having coalesce(sum(e.amount), 0) <> 0" : "")
+                      + ") counted",
+                  Long.class,
+                  pattern,
+                  pattern);
+          return total == null ? 0 : total;
+        });
   }
 
   @Override
