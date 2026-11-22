@@ -54,22 +54,27 @@ final class AccessViews {
         membership.isActive());
   }
 
+  /**
+   * A member as the pharmacy sees them: as they are now while they work here, as they were when
+   * they left afterwards. Activity is this pharmacy's only.
+   */
   static MemberView member(Membership membership, User user) {
     Role role = membership.getRole();
+    boolean former = membership.isFormer();
     return new MemberView(
         membership.getUid(),
         membership.getUserUid(),
-        user == null ? null : user.getName(),
-        user == null ? null : user.getEmail(),
+        former ? membership.getFormerName() : user == null ? null : user.getName(),
+        former ? membership.getFormerEmail() : user == null ? null : user.getEmail(),
         role.getUid(),
         role.getCode(),
         role.getName(),
         membership.isAllBranches(),
         List.copyOf(membership.getBranchUids()),
         membership.isActive(),
-        user == null ? null : user.getLastSignInAt(),
+        membership.getLastActiveAt(),
         membership.getCreatedAt(),
-        user == null ? null : user.getPhone(),
+        former ? membership.getFormerPhone() : user == null ? null : user.getPhone(),
         user != null && user.isManaged(),
         user == null ? null : user.getContactEmail(),
         user != null && user.isPasswordChangeRequired());

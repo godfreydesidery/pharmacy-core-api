@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -13,10 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import tz.co.pharmacy.modules.access.domain.Membership;
 import tz.co.pharmacy.modules.access.domain.Session;
 import tz.co.pharmacy.modules.access.domain.User;
-import tz.co.pharmacy.modules.access.persistence.MembershipRepository;
 import tz.co.pharmacy.modules.access.persistence.SessionRepository;
 import tz.co.pharmacy.modules.access.persistence.UserRepository;
 import tz.co.pharmacy.modules.access.ports.inbound.ClientInfo;
@@ -41,7 +38,6 @@ class SessionIssuer {
 
   private final UserRepository users;
   private final SessionRepository sessions;
-  private final MembershipRepository memberships;
   private final TenantSwitch tenantSwitch;
   private final AuditLog audit;
   private final ObjectProvider<AccessNotices> notices;
@@ -55,7 +51,6 @@ class SessionIssuer {
   SessionIssuer(
       UserRepository users,
       SessionRepository sessions,
-      MembershipRepository memberships,
       TenantSwitch tenantSwitch,
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
@@ -68,7 +63,6 @@ class SessionIssuer {
     this.idle = idle;
     this.users = users;
     this.sessions = sessions;
-    this.memberships = memberships;
     this.tenantSwitch = tenantSwitch;
     this.audit = audit;
     this.notices = notices;
@@ -80,7 +74,6 @@ class SessionIssuer {
   /** Opens a session for {@code user}; {@code method} is PASSWORD, TWO_FACTOR, PASSKEY... */
   SignInResult issue(User user, ClientInfo client, String method) {
     ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
-    // As the user, the transaction sees their memberships in every pharmacy.
     return ExecutionContext.callAs(
         userFrame(user),
         () ->
@@ -112,15 +105,10 @@ class SessionIssuer {
                           details.put("method", method);
                           details.put("ip", from.ip());
                           details.put("userAgent", trim(from.userAgent(), 200));
+                          // The platform's record. Each pharmacy records the sign-in when this
+                          // session first works there (PharmacyVisits), so none learns when its
+                          // staff sign in to work somewhere else.
                           audit.record("SIGN_IN", "User", user.getUid(), null, details);
-                          for (UUID tenantUid : workplaces(user.getUid())) {
-                            tenantSwitch.within(
-                                tenantUid,
-                                () -> {
-                                  audit.record("SIGN_IN", "User", user.getUid(), null, details);
-                                  return null;
-                                });
-                          }
                           if (known && !sameDevice && from.userAgent() != null) {
                             notices.ifAvailable(
                                 notice ->
@@ -138,8 +126,8 @@ class SessionIssuer {
 
   /**
    * Ends a session that went unused for {@code idleMinutes}, audited as a SIGN_OUT with reason IDLE
-   * for the platform and in each pharmacy the user works for (beside their sign-ins). When several
-   * requests find it idle at once, only the one that ends it records it.
+   * for the platform and in each pharmacy the session worked in (beside their sign-ins). When
+   * several requests find it idle at once, only the one that ends it records it.
    */
   void endIdle(Long sessionId, User user, Integer idleMinutes) {
     // Outside the pharmacy the request may name (the app's own sign-out does), so the first entry
@@ -162,7 +150,7 @@ class SessionIssuer {
                                   details.put("reason", "IDLE");
                                   details.put("idleMinutes", idleMinutes);
                                   audit.record("SIGN_OUT", "User", user.getUid(), null, details);
-                                  for (UUID tenantUid : workplaces(user.getUid())) {
+                                  for (UUID tenantUid : sessions.enteredPharmacies(sessionId)) {
                                     tenantSwitch.within(
                                         tenantUid,
                                         () -> {
@@ -173,15 +161,6 @@ class SessionIssuer {
                                   }
                                   return null;
                                 }))));
-  }
-
-  /** The pharmacies the user is an active member of. */
-  private List<UUID> workplaces(UUID userUid) {
-    return memberships.findAllByUserUid(userUid).stream()
-        .filter(Membership::isActive)
-        .map(Membership::getTenantUid)
-        .distinct()
-        .toList();
   }
 
   Principal principal(User user) {

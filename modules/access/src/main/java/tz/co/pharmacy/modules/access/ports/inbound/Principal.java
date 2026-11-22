@@ -14,14 +14,31 @@ public record Principal(
     String email,
     boolean rootAdmin,
     boolean twoFactorSetupRequired,
-    boolean passwordChangeRequired) {
+    boolean passwordChangeRequired,
+    UUID sessionUid) {
+
+  public Principal(
+      UUID userUid,
+      String name,
+      String email,
+      boolean rootAdmin,
+      boolean twoFactorSetupRequired,
+      boolean passwordChangeRequired) {
+    this(userUid, name, email, rootAdmin, twoFactorSetupRequired, passwordChangeRequired, null);
+  }
 
   public Principal(
       UUID userUid, String name, String email, boolean rootAdmin, boolean twoFactorSetupRequired) {
-    this(userUid, name, email, rootAdmin, twoFactorSetupRequired, false);
+    this(userUid, name, email, rootAdmin, twoFactorSetupRequired, false, null);
   }
 
   public Principal(UUID userUid, String name, String email, boolean rootAdmin) {
-    this(userUid, name, email, rootAdmin, false, false);
+    this(userUid, name, email, rootAdmin, false, false, null);
+  }
+
+  /** The same principal, of session {@code uid}. */
+  public Principal inSession(UUID uid) {
+    return new Principal(
+        userUid, name, email, rootAdmin, twoFactorSetupRequired, passwordChangeRequired, uid);
   }
 }

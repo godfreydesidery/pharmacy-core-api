@@ -20,6 +20,7 @@ import tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService;
 import tz.co.pharmacy.modules.access.ports.inbound.ClientInfo;
 import tz.co.pharmacy.modules.access.ports.inbound.MembershipGrant;
 import tz.co.pharmacy.modules.access.ports.inbound.MembershipResolver;
+import tz.co.pharmacy.modules.access.ports.inbound.PharmacyVisits;
 import tz.co.pharmacy.modules.access.ports.inbound.Principal;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
@@ -66,6 +67,7 @@ public class EdgeFilter extends OncePerRequestFilter {
   private final BranchService branches;
   private final RateLimiter rateLimiter;
   private final RootActivity rootActivity;
+  private final PharmacyVisits visits;
   private final int authRequestsPerMinute;
 
   public EdgeFilter(
@@ -75,6 +77,7 @@ public class EdgeFilter extends OncePerRequestFilter {
       BranchService branches,
       RateLimiter rateLimiter,
       RootActivity rootActivity,
+      PharmacyVisits visits,
       @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute) {
     this.authentication = authentication;
     this.memberships = memberships;
@@ -82,6 +85,7 @@ public class EdgeFilter extends OncePerRequestFilter {
     this.branches = branches;
     this.rateLimiter = rateLimiter;
     this.rootActivity = rootActivity;
+    this.visits = visits;
     this.authRequestsPerMinute = authRequestsPerMinute;
   }
 
@@ -124,8 +128,16 @@ public class EdgeFilter extends OncePerRequestFilter {
     }
     request.setAttribute(PRINCIPAL, principal);
     Actor actor = Actor.user(principal.userUid(), principal.name(), principal.email());
-    UUID tenantUid = Uids.parse(streamFallback(request, TENANT_HEADER, "tenant"), "tenantId");
-    UUID branchUid = Uids.parse(request.getHeader(BRANCH_HEADER), "branchId");
+    // A person's own account (password, second factor, passkeys, sessions, profile) belongs to no
+    // pharmacy: its routes ignore the pharmacy the app names, so what happens to the account is
+    // never written into a pharmacy's audit. Only the activity report needs the pharmacy (its
+    // inactivity limit).
+    boolean accountRoute = accountRoute(request);
+    UUID tenantUid =
+        accountRoute
+            ? null
+            : Uids.parse(streamFallback(request, TENANT_HEADER, "tenant"), "tenantId");
+    UUID branchUid = accountRoute ? null : Uids.parse(request.getHeader(BRANCH_HEADER), "branchId");
     if (tenantUid == null) {
       if (branchUid != null) {
         throw Refusal.forbidden(
@@ -155,6 +167,7 @@ public class EdgeFilter extends OncePerRequestFilter {
       }
       permissions = Set.copyOf(grant.permissions());
       allowedBranches = grant.allBranches() ? null : new HashSet<>(grant.branchUids());
+      visits.working(principal.sessionUid(), principal.userUid(), tenantUid);
     }
 
     if (branchUid != null) {
@@ -175,6 +188,12 @@ public class EdgeFilter extends OncePerRequestFilter {
         permissions,
         allowedBranches == null ? null : Set.copyOf(allowedBranches),
         principal.rootAdmin());
+  }
+
+  /** A route of the person's own account, outside any pharmacy (all of /auth but the activity). */
+  static boolean accountRoute(HttpServletRequest request) {
+    String uri = request.getRequestURI();
+    return uri.startsWith(AUTH_PREFIX) && !uri.equals(AUTH_PREFIX + "activity");
   }
 
   /**

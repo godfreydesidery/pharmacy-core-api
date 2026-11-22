@@ -141,6 +141,8 @@ class IdleSignOutTest extends IntegrationTest {
   @Test
   @DisplayName("the app's own sign-out after the limit is audited as idle")
   void appSignOutIsAuditedAsIdle() {
+    // The admin worked in the pharmacy, then the app signed them out.
+    admin.get("/api/v1/settings").expect(200);
     admin.post("/api/v1/auth/sign-out", "{\"reason\":\"IDLE\"}").expect(200);
     admin.get("/api/v1/settings").expect(401);
     List<Map<String, Object>> idle =

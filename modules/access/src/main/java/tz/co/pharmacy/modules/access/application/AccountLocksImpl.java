@@ -63,6 +63,18 @@ class AccountLocksImpl implements AccountLocks {
         users
             .findByUid(membership.getUserUid())
             .orElseThrow(() -> Refusal.notFound("membership_not_found", "No such member."));
+    if (!user.isManagedBy(membership.getTenantUid())) {
+      // A person's own account is theirs: a lock that may have come from guessing at another
+      // pharmacy ends by itself, or when they reset their password; no pharmacy lifts it.
+      throw Refusal.invalid(
+          "not_managed",
+          user.getLockedUntil() == null
+              ? "This person's own account is not locked."
+              : "This person's own account unlocks by itself at "
+                  + user.getLockedUntil()
+                  + ", or as soon as they reset their password.",
+          "membershipUid");
+    }
     boolean wasLocked = user.lockedAt(clock.instant());
     user.unlock();
     audit.record("ACCOUNT_UNLOCKED", "User", user.getUid(), null, Map.of("wasLocked", wasLocked));

@@ -118,7 +118,16 @@ class UserAdministrationImpl implements UserAdministration {
           users.findAll(Specs.<User>containsAny(q, "name", "email")).stream()
               .map(User::getUid)
               .collect(Collectors.toSet());
-      filter = filter.and(Specs.in("userUid", matching));
+      // A former member is found by what the pharmacy kept, never by what they changed since.
+      Specification<Membership> former =
+          (root, criteria, cb) ->
+              cb.and(cb.isFalse(root.get("active")), cb.isNotNull(root.get("formerEmail")));
+      Specification<Membership> current = Specification.not(former);
+      filter =
+          filter.and(
+              current
+                  .and(Specs.in("userUid", matching))
+                  .or(former.and(Specs.<Membership>containsAny(q, "formerName", "formerEmail"))));
     }
     Page<Membership> page = Keyset.page(memberships, filter, query, Function.identity());
     Map<UUID, User> byUid = usersByUid(page.items().stream().map(Membership::getUserUid).toList());
@@ -189,6 +198,10 @@ class UserAdministrationImpl implements UserAdministration {
       }
     } else if (user != null && phone != null && user.getPhone() == null) {
       user.changeProfile(user.getName(), phone);
+    }
+    if (wasActive && !command.active() && user != null) {
+      // From now on the pharmacy sees the person as they are at this moment.
+      membership.left(user.getName(), user.getEmail(), user.getPhone());
     }
     return AccessViews.member(membership, user);
   }

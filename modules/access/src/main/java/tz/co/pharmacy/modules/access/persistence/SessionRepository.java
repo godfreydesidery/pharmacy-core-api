@@ -53,4 +53,24 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
           + " and (:keepHash is null or s.tokenHash <> :keepHash)")
   int revokeAll(
       @Param("userUid") UUID userUid, @Param("at") Instant at, @Param("keepHash") String keepHash);
+
+  /** The pharmacies session {@code id} has worked in. */
+  @Query(
+      value =
+          "select sp.tenant_uid from access.session_pharmacies sp"
+              + " join access.sessions s on s.uid = sp.session_uid where s.id = :id",
+      nativeQuery = true)
+  List<UUID> enteredPharmacies(@Param("id") Long id);
+
+  /**
+   * Records that session {@code sessionUid} works in {@code tenantUid}; 1 the first time, else 0.
+   */
+  @Modifying
+  @Query(
+      value =
+          "insert into access.session_pharmacies (session_uid, tenant_uid, entered_at)"
+              + " values (:session, :tenant, :at) on conflict do nothing",
+      nativeQuery = true)
+  int enter(
+      @Param("session") UUID sessionUid, @Param("tenant") UUID tenantUid, @Param("at") Instant at);
 }

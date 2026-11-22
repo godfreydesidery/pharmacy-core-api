@@ -15,7 +15,7 @@ public record MemberView(
     boolean allBranches,
     List<UUID> branchUids,
     boolean active,
-    Instant lastSignInAt,
+    Instant lastActiveAt,
     Instant createdAt,
     String phone,
     boolean managed,

@@ -53,6 +53,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
   private final SignInGuard guard;
   private final SessionIssuer issuer;
   private final IdlePolicy idle;
+  private final tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch;
   private final AuditLog audit;
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
@@ -69,11 +70,13 @@ class AuthenticationServiceImpl implements AuthenticationService {
       SignInGuard guard,
       SessionIssuer issuer,
       IdlePolicy idle,
+      tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch,
       AuditLog audit,
       PlatformTransactionManager transactionManager,
       Clock clock) {
     this.clock = clock;
     this.idle = idle;
+    this.tenantSwitch = tenantSwitch;
     this.users = users;
     this.sessions = sessions;
     this.memberships = memberships;
@@ -186,7 +189,12 @@ class AuthenticationServiceImpl implements AuthenticationService {
                             users
                                 .findByUid(session.getUserUid())
                                 .filter(User::isActive)
-                                .map(user -> new Live(session, user, issuer.principal(user)))));
+                                .map(
+                                    user ->
+                                        new Live(
+                                            session,
+                                            user,
+                                            issuer.principal(user).inSession(session.getUid())))));
     if (live == null || live.isEmpty()) {
       return Optional.empty();
     }
@@ -269,6 +277,15 @@ class AuthenticationServiceImpl implements AuthenticationService {
                     session -> {
                       session.revoke(clock.instant());
                       audit.record("SIGN_OUT", "User", session.getUserUid(), null, null);
+                      // And in each pharmacy this session worked in, beside its sign-in there.
+                      for (UUID tenantUid : sessions.enteredPharmacies(session.getId())) {
+                        tenantSwitch.within(
+                            tenantUid,
+                            () -> {
+                              audit.record("SIGN_OUT", "User", session.getUserUid(), null, null);
+                              return null;
+                            });
+                      }
                     }));
   }
 

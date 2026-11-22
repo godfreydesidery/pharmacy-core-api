@@ -6,7 +6,8 @@ import java.util.UUID;
 
 /**
  * Accounts locked after repeated failed sign-ins, as the current pharmacy's administrators see
- * them: who is locked until when, and the unlock that ends it early.
+ * them: who is locked until when, and, for the pharmacy's own staff logins, the unlock that ends it
+ * early.
  */
 public interface AccountLocks {
 
@@ -16,6 +17,9 @@ public interface AccountLocks {
   /** The current tenant's members locked now. */
   List<LockedMember> locked();
 
-  /** Unlocks the member's account and clears its failure count; 404 membership_not_found. */
+  /**
+   * Unlocks a managed login of this pharmacy and clears its failure count. 422 not_managed for a
+   * person's own account, which unlocks by itself or by a password reset; 404 membership_not_found.
+   */
   void unlock(UUID membershipUid);
 }
