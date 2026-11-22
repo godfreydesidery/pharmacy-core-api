@@ -3,36 +3,61 @@ package tz.co.pharmacy.modules.notifications.ports.inbound;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Which provider each channel (EMAIL, SMS, WHATSAPP) sends through. The platform's default is set
- * by a root administrator; a pharmacy uses it or connects its own account. Secrets are write-only:
- * views show them masked, and a save keeps any secret it does not name.
+ * The providers each channel (EMAIL, SMS, WHATSAPP) sends through. The platform keeps a list per
+ * channel, set by a root administrator; a pharmacy may keep its own list, used instead while any of
+ * it is active. A message tries a list's active providers in order until one accepts it (failover);
+ * a provider that keeps failing is tried last for a while. Secrets are write-only: views show them
+ * masked, and a change keeps any secret it does not name.
  */
 public interface ProviderSettings {
 
-  /** The platform's settings, per channel (a platform session). */
-  List<ProviderSettingView> platform();
+  /** The platform's providers per channel (a platform session). */
+  List<ChannelView> platform();
 
-  ProviderSettingView savePlatform(Channel channel, ProviderSettingCommand command);
+  /** Adds a provider at the end of the platform's list for the channel. */
+  ProviderView addPlatform(Channel channel, ProviderCommand command);
 
-  /** Sends a test message through the platform's provider for the channel. */
-  TestResult testPlatform(Channel channel, String to);
+  ProviderView changePlatform(UUID providerUid, ProviderCommand command);
 
-  /** The current pharmacy's settings, per channel, with the route its messages take. */
-  List<ProviderSettingView> tenant();
+  void removePlatform(UUID providerUid);
 
-  ProviderSettingView saveTenant(Channel channel, ProviderSettingCommand command);
-
-  /** Sends a test message the way the current pharmacy's messages go. */
-  TestResult testTenant(Channel channel, String to);
+  /** The platform's providers of the channel in a new order (every uid of the channel once). */
+  ChannelView reorderPlatform(Channel channel, List<UUID> order);
 
   /**
-   * {@code mode}: PLATFORM (a pharmacy using the platform's) or OWN. {@code secrets}: only the ones
-   * to set or replace; a blank value clears that secret.
+   * Sends a test message: through one provider ({@code providerUid}), or through the channel's list
+   * as messages go (null), stopping at the first that accepts it.
    */
-  record ProviderSettingCommand(
-      String mode, String provider, Map<String, String> settings, Map<String, String> secrets) {}
+  TestResult testPlatform(Channel channel, UUID providerUid, String to);
+
+  /** The current pharmacy's providers per channel, with where its messages go now. */
+  List<ChannelView> tenant();
+
+  ProviderView addTenant(Channel channel, ProviderCommand command);
+
+  ProviderView changeTenant(UUID providerUid, ProviderCommand command);
+
+  void removeTenant(UUID providerUid);
+
+  ChannelView reorderTenant(Channel channel, List<UUID> order);
+
+  TestResult testTenant(Channel channel, UUID providerUid, String to);
+
+  /**
+   * {@code name}: what people call this account ("Beem main", "Twilio backup"; the provider's code
+   * when empty). {@code active}: whether messages use it (true when null on add, unchanged when
+   * null on change). {@code secrets}: only the ones to set or replace; a blank value clears that
+   * secret.
+   */
+  record ProviderCommand(
+      String name,
+      String provider,
+      Boolean active,
+      Map<String, String> settings,
+      Map<String, String> secrets) {}
 
   /** A provider available on a channel and its fields. */
   record ProviderOption(String code, List<FieldView> fields) {}
@@ -40,26 +65,44 @@ public interface ProviderSettings {
   record FieldView(String key, boolean secret, boolean required) {}
 
   /**
-   * {@code secrets} masked ("••••1234"); {@code configured} when every required field has a value;
-   * {@code secretsUnreadable} when the saved secrets were sealed under another encryption key and
-   * must be entered again (they then count as missing); {@code effectiveProvider}/{@code
-   * effectiveSource} (OWN, PLATFORM or ENVIRONMENT) say where the channel's messages go now; the
-   * last send and failure come from the delivery log.
+   * One provider of a list. {@code secrets} masked ("••••1234"); {@code configured} when every
+   * required field has a value; {@code secretsUnreadable} when the saved secrets were sealed under
+   * another encryption key and must be entered again; {@code tripped} while its circuit breaker
+   * holds it back after repeated failures.
    */
-  record ProviderSettingView(
+  record ProviderView(
+      UUID uid,
       Channel channel,
-      String mode,
+      String name,
       String provider,
+      int priority,
+      boolean active,
       Map<String, String> settings,
       Map<String, String> secrets,
       boolean configured,
       boolean secretsUnreadable,
-      String effectiveProvider,
+      boolean tripped,
+      Instant lastSentAt,
+      Instant lastFailedAt,
+      String lastError) {}
+
+  /**
+   * A channel: {@code mode} OWN when a pharmacy uses its own list (or for the platform), PLATFORM
+   * when it uses the platform's; {@code effectiveSource} (OWN, PLATFORM or ENVIRONMENT) and {@code
+   * chain} (labels in the order tried) say where its messages go now; the last send and failure
+   * come from the delivery log.
+   */
+  record ChannelView(
+      Channel channel,
+      String mode,
       String effectiveSource,
+      List<String> chain,
+      List<ProviderView> providers,
       Instant lastSentAt,
       Instant lastFailedAt,
       String lastError,
       List<ProviderOption> options) {}
 
+  /** {@code provider}: the label of the provider that sent it (or tried last). */
   record TestResult(boolean ok, String provider, String source, String error) {}
 }

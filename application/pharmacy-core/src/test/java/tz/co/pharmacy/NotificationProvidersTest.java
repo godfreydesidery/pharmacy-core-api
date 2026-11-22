@@ -16,60 +16,71 @@ import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
 
 /**
- * Message providers kept in the database: the platform's default and a pharmacy's own account,
- * resolved per send; secrets sealed and never shown; test sends; the monthly usage count.
+ * Message providers kept in the database: several per channel for the platform and for a pharmacy,
+ * tried in order (failover); secrets sealed and never shown; test sends; the monthly usage count.
+ * No test reaches a real network: the failing provider is SMTP on a closed local port.
  */
 class NotificationProvidersTest extends IntegrationTest {
 
+  private static final String PLATFORM = "/api/v1/platform/notification-providers";
+  private static final String MINE = "/api/v1/notification-providers";
+
   @Autowired DataSource dataSource;
 
+  private static String channel(Response list, String channel, String path) {
+    return "$.data[?(@.channel == '" + channel + "')]" + path;
+  }
+
+  /** Every platform provider of the channel removed, then one log provider: the test baseline. */
+  private static void logOnly(Api root, String ch) {
+    Response list = root.get(PLATFORM).expect(200);
+    List<String> uids = list.read(channel(list, ch, ".providers[*].uid"), List.class);
+    for (String uid : uids) {
+      root.delete(PLATFORM + "/" + ch + "/" + uid).expect(200);
+    }
+    root.post(PLATFORM + "/" + ch, "{\"provider\":\"log\"}").expect(201);
+  }
+
   @Test
-  @DisplayName("platform default, pharmacy override, masked secrets, test send and usage")
+  @DisplayName("platform list, pharmacy's own list, masked secrets, test sends and usage")
   void providers() {
     Api anonymous = api();
     Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
 
-    // Out of the box every channel uses the environment's provider (log in tests).
-    Response initial = root.get("/api/v1/platform/notification-providers").expect(200);
-    assertThat(initial.read("$.data[?(@.channel == 'SMS')].effectiveSource", List.class))
-        .containsExactly("ENVIRONMENT");
-
-    // A Beem account for the platform: secrets come back masked, never in clear.
+    // A Beem account added to the platform's SMS list: secrets come back masked, never in clear.
     Response beem =
-        root.put(
-                "/api/v1/platform/notification-providers/SMS",
+        root.post(
+                PLATFORM + "/SMS",
                 """
-                {"provider":"beem","settings":{"senderId":"PHARMA"},
+                {"name":"Beem main","provider":"beem","settings":{"senderId":"PHARMA"},
                  "secrets":{"apiKey":"beem-key-123456","secretKey":"beem-secret-987654"}}
                 """)
-            .expect(200);
+            .expect(201);
+    String beemUid = beem.string("$.data.uid");
     assertThat(beem.string("$.data.secrets.apiKey")).isEqualTo("••••3456");
     assertThat(beem.read("$.data.configured", Boolean.class)).isTrue();
-    assertThat(beem.string("$.data.effectiveSource")).isEqualTo("PLATFORM");
-    String listed = root.get("/api/v1/platform/notification-providers").expect(200).body();
+    assertThat(beem.string("$.data.name")).isEqualTo("Beem main");
+    String listed = root.get(PLATFORM).expect(200).body();
     assertThat(listed).doesNotContain("beem-key-123456").doesNotContain("beem-secret-987654");
 
-    // A save that names no secret keeps the stored ones; a missing required field is refused.
+    // A change that names no secret keeps the stored ones; a missing required field is refused.
     Response renamed =
         root.put(
-                "/api/v1/platform/notification-providers/SMS",
+                PLATFORM + "/SMS/" + beemUid,
                 "{\"provider\":\"beem\",\"settings\":{\"senderId\":\"PHARMACY\"}}")
             .expect(200);
     assertThat(renamed.string("$.data.secrets.secretKey")).isEqualTo("••••7654");
     Response incomplete =
-        root.put(
-            "/api/v1/platform/notification-providers/SMS",
+        root.post(
+            PLATFORM + "/SMS",
             "{\"provider\":\"africastalking\",\"settings\":{\"username\":\"pharma\"}}");
     assertThat(incomplete.expect(422).string("$.reason")).isEqualTo("provider_incomplete");
 
-    // Back to log providers so no test reaches a real network; the platform's rows now route.
-    root.put("/api/v1/platform/notification-providers/SMS", "{\"provider\":\"log\"}").expect(200);
-    root.put("/api/v1/platform/notification-providers/EMAIL", "{\"provider\":\"log\"}").expect(200);
+    // Log providers only, so no test reaches a real network; the platform's rows now route.
+    logOnly(root, "SMS");
+    logOnly(root, "EMAIL");
     Response platformTest =
-        root.post(
-                "/api/v1/platform/notification-providers/EMAIL/test",
-                "{\"to\":\"ops@pharmacy.test\"}")
-            .expect(200);
+        root.post(PLATFORM + "/EMAIL/test", "{\"to\":\"ops@pharmacy.test\"}").expect(200);
     assertThat(platformTest.read("$.data.ok", Boolean.class)).isTrue();
     assertThat(platformTest.string("$.data.source")).isEqualTo("PLATFORM");
 
@@ -97,91 +108,185 @@ class NotificationProvidersTest extends IntegrationTest {
                 .body()
                 .contains("\"log:platform\""));
 
-    Response mine = admin.get("/api/v1/notification-providers").expect(200);
-    assertThat(mine.read("$.data[?(@.channel == 'SMS')].effectiveSource", List.class))
-        .containsExactly("PLATFORM");
-    assertThat(mine.read("$.data[?(@.channel == 'SMS')].mode", List.class))
+    Response mine = admin.get(MINE).expect(200);
+    assertThat(mine.read(channel(mine, "SMS", ".mode"), List.class)).containsExactly("PLATFORM");
+    assertThat(mine.read(channel(mine, "SMS", ".effectiveSource"), List.class))
         .containsExactly("PLATFORM");
 
-    // The pharmacy connects its own SMS account: its messages now go through it.
-    Response own =
+    // The pharmacy adds its own SMS provider: its messages now go through it.
+    String own =
         admin
-            .put("/api/v1/notification-providers/SMS", "{\"mode\":\"OWN\",\"provider\":\"log\"}")
-            .expect(200);
-    assertThat(own.string("$.data.effectiveSource")).isEqualTo("OWN");
-    Response test =
-        admin
-            .post("/api/v1/notification-providers/SMS/test", "{\"to\":\"0712345678\"}")
-            .expect(200);
+            .post(MINE + "/SMS", "{\"name\":\"Our SMS\",\"provider\":\"log\"}")
+            .expect(201)
+            .string("$.data.uid");
+    Response test = admin.post(MINE + "/SMS/test", "{\"to\":\"0712345678\"}").expect(200);
     assertThat(test.read("$.data.ok", Boolean.class)).isTrue();
     assertThat(test.string("$.data.source")).isEqualTo("OWN");
+    assertThat(test.string("$.data.provider")).isEqualTo("log:own:Our SMS");
     Response log = admin.get("/api/v1/notification-deliveries?channel=SMS").expect(200);
-    assertThat(log.read("$.data.items[0].provider", String.class)).isEqualTo("log:own");
+    assertThat(log.read("$.data.items[0].provider", String.class)).isEqualTo("log:own:Our SMS");
     assertThat(log.read("$.data.items[0].to", String.class)).isEqualTo("+255712345678");
-    Response bad =
-        admin.post("/api/v1/notification-providers/SMS/test", "{\"to\":\"not a phone\"}");
+    Response bad = admin.post(MINE + "/SMS/test", "{\"to\":\"not a phone\"}");
     assertThat(bad.expect(422).string("$.reason")).isEqualTo("invalid_phone");
 
-    // Back to the platform's: the own account is kept but no longer used.
-    admin.put("/api/v1/notification-providers/SMS", "{\"mode\":\"PLATFORM\"}").expect(200);
-    Response back = admin.get("/api/v1/notification-providers").expect(200);
-    assertThat(back.read("$.data[?(@.channel == 'SMS')].effectiveSource", List.class))
+    // Switched off, the pharmacy is back on the platform's list; its own is kept.
+    admin
+        .put(MINE + "/SMS/" + own, "{\"name\":\"Our SMS\",\"provider\":\"log\",\"active\":false}")
+        .expect(200);
+    Response back = admin.get(MINE).expect(200);
+    assertThat(back.read(channel(back, "SMS", ".effectiveSource"), List.class))
         .containsExactly("PLATFORM");
+    assertThat(back.read(channel(back, "SMS", ".providers.length()"), List.class))
+        .containsExactly(1);
 
     // Usage counts the sent SMS test this month.
     Response usage = admin.get("/api/v1/notification-usage").expect(200);
     assertThat(usage.read("$.data.SMS", Integer.class)).isGreaterThanOrEqualTo(1);
     assertThat(usage.read("$.data.EMAIL", Integer.class)).isGreaterThanOrEqualTo(1);
 
-    // A pharmacy cannot reach the platform's settings.
-    admin.get("/api/v1/platform/notification-providers").expect(403);
+    // A pharmacy cannot reach the platform's settings, nor touch a platform provider by its uid.
+    admin.get(PLATFORM).expect(403);
+    Response platformList = root.get(PLATFORM).expect(200);
+    List<String> platformSms =
+        platformList.read(channel(platformList, "SMS", ".providers[*].uid"), List.class);
+    admin.put(MINE + "/SMS/" + platformSms.getFirst(), "{\"provider\":\"log\"}").expect(404);
   }
 
   @Test
-  @DisplayName("secrets sealed under another key: the page loads, sends explain, a save recovers")
+  @DisplayName("several providers fail over in order; a failing one trips and goes last")
+  void failover() {
+    Api anonymous = api();
+    Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    logOnly(root, "EMAIL");
+    Response list = root.get(PLATFORM).expect(200);
+    List<String> emailUids = list.read(channel(list, "EMAIL", ".providers[*].uid"), List.class);
+    String backup = emailUids.getFirst();
+    root.put(PLATFORM + "/EMAIL/" + backup, "{\"name\":\"Backup\",\"provider\":\"log\"}")
+        .expect(200);
+    // A broken SMTP server (a closed local port), put first.
+    String broken =
+        root.post(
+                PLATFORM + "/EMAIL",
+                """
+                {"name":"Broken SMTP","provider":"smtp",
+                 "settings":{"host":"127.0.0.1","port":"1","from":"noreply@pharmacy.test"}}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+    Response ordered =
+        root.put(PLATFORM + "/EMAIL/order", "{\"order\":[\"%s\",\"%s\"]}".formatted(broken, backup))
+            .expect(200);
+    assertThat(ordered.read("$.data.chain", List.class))
+        .containsExactly("smtp:platform:Broken SMTP", "log:platform:Backup");
+    root.put(PLATFORM + "/EMAIL/order", "{\"order\":[\"%s\"]}".formatted(broken)).expect(422);
+
+    // The channel test goes as messages go: the broken one fails, the backup sends.
+    Response test =
+        root.post(PLATFORM + "/EMAIL/test", "{\"to\":\"ops@pharmacy.test\"}").expect(200);
+    assertThat(test.read("$.data.ok", Boolean.class)).isTrue();
+    assertThat(test.string("$.data.provider")).isEqualTo("log:platform:Backup");
+    // Testing the broken one alone reports its failure.
+    Response alone =
+        root.post(
+                PLATFORM + "/EMAIL/test",
+                "{\"to\":\"ops@pharmacy.test\",\"providerUid\":\"%s\"}".formatted(broken))
+            .expect(200);
+    assertThat(alone.read("$.data.ok", Boolean.class)).isFalse();
+
+    // Real messages (three new pharmacies' welcome emails) fail over to the backup...
+    for (int i = 0; i < 3; i++) {
+      String code = "FO" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+      String email = code.toLowerCase() + "@test.local";
+      String tenant =
+          root.post(
+                  "/api/v1/platform/tenants",
+                  """
+                  {"code":"%s","name":"Failover %s","legalName":"Failover %s Ltd","country":"TZ",
+                   "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
+                   "headOffice":{"code":"HQ","name":"Head Office"},
+                   "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                  """
+                      .formatted(code, code, code, email))
+              .expect(201)
+              .string("$.data.uid");
+      Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+      Api.eventually(
+          () ->
+              admin
+                  .get("/api/v1/notification-deliveries?channel=EMAIL")
+                  .expect(200)
+                  .body()
+                  .contains("\"log:platform:Backup\""));
+    }
+    // ...and the broken one, failing each time, has tripped: it is tried last now.
+    Api.eventually(
+        () -> {
+          Response after = root.get(PLATFORM).expect(200);
+          List<Boolean> tripped =
+              after.read(
+                  channel(after, "EMAIL", ".providers[?(@.name == 'Broken SMTP')].tripped"),
+                  List.class);
+          return tripped.equals(List.of(true));
+        });
+    Response after = root.get(PLATFORM).expect(200);
+    assertThat(after.read(channel(after, "EMAIL", ".chain"), List.class).toString())
+        .startsWith("[[\"log:platform:Backup\"");
+    assertThat(
+            after.read(
+                channel(after, "EMAIL", ".providers[?(@.name == 'Broken SMTP')].lastError"),
+                List.class))
+        .isNotEmpty();
+
+    logOnly(root, "EMAIL");
+  }
+
+  @Test
+  @DisplayName("secrets sealed under another key: the page loads, sends explain, a change recovers")
   void unreadableSecrets() {
     Api anonymous = api();
     Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
-    root.put(
-            "/api/v1/platform/notification-providers/WHATSAPP",
-            """
-            {"provider":"twilio","settings":{"accountSid":"AC123","from":"+14155238886"},
-             "secrets":{"authToken":"twilio-token-123456"}}
-            """)
-        .expect(200);
+    String twilio =
+        root.post(
+                PLATFORM + "/WHATSAPP",
+                """
+                {"provider":"twilio","settings":{"accountSid":"AC123","from":"+14155238886"},
+                 "secrets":{"authToken":"twilio-token-123456"}}
+                """)
+            .expect(201)
+            .string("$.data.uid");
 
     // As if the server's encryption key had changed since the save.
     new JdbcTemplate(dataSource)
         .update(
-            "update notifications.provider_settings set secrets = ?"
-                + " where tenant_uid is null and channel = 'WHATSAPP'",
-            Base64.getEncoder().encodeToString(new byte[48]));
+            "update notifications.provider_settings set secrets = ? where uid = ?::uuid",
+            Base64.getEncoder().encodeToString(new byte[48]),
+            twilio);
 
-    Response listed = root.get("/api/v1/platform/notification-providers").expect(200);
-    String whatsApp = "$.data[?(@.channel == 'WHATSAPP')]";
-    assertThat(listed.read(whatsApp + ".secretsUnreadable", List.class)).containsExactly(true);
-    assertThat(listed.read(whatsApp + ".configured", List.class)).containsExactly(false);
-    assertThat(listed.read(whatsApp + ".secrets", List.class)).containsExactly(Map.of());
+    Response listed = root.get(PLATFORM).expect(200);
+    String it = "$.data[?(@.channel == 'WHATSAPP')].providers[?(@.uid == '" + twilio + "')]";
+    assertThat(listed.read(it + ".secretsUnreadable", List.class)).containsExactly(true);
+    assertThat(listed.read(it + ".configured", List.class)).containsExactly(false);
+    assertThat(listed.read(it + ".secrets", List.class)).containsExactly(Map.of());
 
     // A send says what to do instead of failing obscurely (and reaches no network).
     Response test =
         root.post(
-                "/api/v1/platform/notification-providers/WHATSAPP/test",
-                "{\"to\":\"+255712345678\"}")
+                PLATFORM + "/WHATSAPP/test",
+                "{\"to\":\"+255712345678\",\"providerUid\":\"%s\"}".formatted(twilio))
             .expect(200);
     assertThat(test.read("$.data.ok", Boolean.class)).isFalse();
     assertThat(test.string("$.data.error")).contains("can no longer be read");
 
-    // A save without the secret asks for it; with it, the channel is whole again.
+    // A change without the secret asks for it; with it, the provider is whole again.
     Response missing =
         root.put(
-            "/api/v1/platform/notification-providers/WHATSAPP",
+            PLATFORM + "/WHATSAPP/" + twilio,
             "{\"provider\":\"twilio\",\"settings\":{\"accountSid\":\"AC123\","
                 + "\"from\":\"+14155238886\"}}");
     assertThat(missing.expect(422).string("$.field")).isEqualTo("secrets.authToken");
     Response saved =
         root.put(
-                "/api/v1/platform/notification-providers/WHATSAPP",
+                PLATFORM + "/WHATSAPP/" + twilio,
                 """
                 {"provider":"twilio","settings":{"accountSid":"AC123","from":"+14155238886"},
                  "secrets":{"authToken":"twilio-token-654321"}}
@@ -191,7 +296,6 @@ class NotificationProvidersTest extends IntegrationTest {
     assertThat(saved.read("$.data.configured", Boolean.class)).isTrue();
     assertThat(saved.string("$.data.secrets.authToken")).isEqualTo("••••4321");
 
-    root.put("/api/v1/platform/notification-providers/WHATSAPP", "{\"provider\":\"log\"}")
-        .expect(200);
+    logOnly(root, "WHATSAPP");
   }
 }

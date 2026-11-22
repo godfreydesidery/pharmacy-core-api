@@ -2,6 +2,7 @@ package tz.co.pharmacy.modules.notifications.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -28,7 +29,9 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 /**
  * Sends queued messages. A message is claimed in one short transaction, sent with no transaction
  * open (a slow provider holds no connection), and its outcome recorded in another. The claim makes
- * the after-commit sender and the retry job safe to run at the same time.
+ * the after-commit sender and the retry job safe to run at the same time. A channel's providers are
+ * tried in order until one accepts the message (failover); when all fail, the message is retried
+ * later with backoff, from the first provider again.
  */
 @Component
 class Dispatcher {
@@ -39,6 +42,9 @@ class Dispatcher {
   private final MessageRepository messages;
   private final InboxRepository inbox;
   private final ProviderRouter router;
+  private final tz.co.pharmacy.modules.notifications.providers.ProviderHealth health;
+  private final tz.co.pharmacy.modules.notifications.persistence.ProviderSettingRepository
+      providers;
   private final PendingScopes pending;
   private final ApplicationEventPublisher events;
   private final ExecutorService senders;
@@ -51,6 +57,8 @@ class Dispatcher {
       MessageRepository messages,
       InboxRepository inbox,
       ProviderRouter router,
+      tz.co.pharmacy.modules.notifications.providers.ProviderHealth health,
+      tz.co.pharmacy.modules.notifications.persistence.ProviderSettingRepository providers,
       PendingScopes pending,
       ApplicationEventPublisher events,
       @Qualifier("notificationSenders") ExecutorService senders,
@@ -60,6 +68,8 @@ class Dispatcher {
     this.messages = messages;
     this.inbox = inbox;
     this.router = router;
+    this.health = health;
+    this.providers = providers;
     this.pending = pending;
     this.events = events;
     this.senders = senders;
@@ -112,29 +122,39 @@ class Dispatcher {
     Message message = found.get();
     String provider = message.getChannel() == Channel.IN_APP ? "in-app" : null;
     String error = null;
-    try {
-      if (message.getChannel() != Channel.IN_APP) {
-        // The pharmacy's own account, else the platform's, else the environment's provider.
-        ProviderRouter.Route route = router.route(message.getChannel());
+    if (message.getChannel() != Channel.IN_APP) {
+      // Failover: the providers in order (the pharmacy's own, else the platform's, else the
+      // environment's); the first that accepts the message sends it.
+      List<String> failures = new ArrayList<>();
+      for (ProviderRouter.Route route : router.routes(message.getChannel())) {
         provider = route.label();
-        route
-            .sender()
-            .send(
-                message.getToAddress(),
-                message.getSubject(),
-                message.getHtmlBody(),
-                message.getBody());
+        try {
+          route
+              .sender()
+              .send(
+                  message.getToAddress(),
+                  message.getSubject(),
+                  message.getHtmlBody(),
+                  message.getBody());
+          noteSent(route);
+          error = null;
+          break;
+        } catch (RuntimeException failure) {
+          // The delivery log gets plain words; the raw failure stays in the server log.
+          String readable =
+              tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(
+                  failure, route.provider());
+          failures.add(route.label() + ": " + readable);
+          error = String.join(" | ", failures);
+          noteFailed(route, readable);
+          log.warn(
+              "Notification {} via {} failed (attempt {}): {}",
+              message.getUid(),
+              route.label(),
+              message.getAttempts() + 1,
+              failure.toString());
+        }
       }
-    } catch (RuntimeException failure) {
-      // The delivery log gets plain words; the raw failure stays in the server log.
-      error =
-          tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(failure, provider);
-      log.warn(
-          "Notification {} via {} failed (attempt {}): {}",
-          message.getUid(),
-          provider,
-          message.getAttempts() + 1,
-          failure.toString());
     }
     String outcome = error;
     String used = provider == null ? "unresolved" : provider;
@@ -153,6 +173,53 @@ class Dispatcher {
                             clock.instant().plus(Backoff.after(row.getAttempts() + 1)));
                       }
                     }));
+  }
+
+  /** A provider accepted a message: its circuit closes and its row notes the success. */
+  private void noteSent(ProviderRouter.Route route) {
+    if (route.uid() == null) {
+      return;
+    }
+    health.succeeded(route.uid());
+    Instant now = clock.instant();
+    inScopeOf(
+        route,
+        () ->
+            transactions.executeWithoutResult(
+                status -> providers.markSent(route.uid(), now, now.minusSeconds(60))));
+  }
+
+  /** A provider refused or failed: counted toward its circuit breaker and noted on its row. */
+  private void noteFailed(ProviderRouter.Route route, String error) {
+    if (route.uid() == null) {
+      return;
+    }
+    health.failed(route.uid());
+    String trimmed = error != null && error.length() > 500 ? error.substring(0, 500) : error;
+    inScopeOf(
+        route,
+        () ->
+            transactions.executeWithoutResult(
+                status -> providers.markFailed(route.uid(), clock.instant(), trimmed)));
+  }
+
+  /** The platform's providers are written in the platform's scope, a pharmacy's in its own. */
+  private static void inScopeOf(ProviderRouter.Route route, Runnable work) {
+    try {
+      if (ProviderRouter.SOURCE_PLATFORM.equals(route.source())) {
+        TenantContext.callAs(
+            null,
+            () -> {
+              work.run();
+              return null;
+            });
+      } else {
+        work.run();
+      }
+    } catch (RuntimeException ignored) {
+      // A status note must never stop a delivery.
+      log.debug("could not note the provider status of {}", route.label(), ignored);
+    }
   }
 
   /** Recomputes when the scope next has a message due, for the retry job. */

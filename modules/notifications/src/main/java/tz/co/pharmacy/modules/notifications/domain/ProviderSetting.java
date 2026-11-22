@@ -5,15 +5,17 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
 
 /**
- * The provider a channel sends through: the platform's default (no tenant) or a pharmacy's own
- * account (mode OWN), or a pharmacy's choice of the platform's (mode PLATFORM). {@code settings} is
- * JSON of the plain fields; {@code secrets} the sealed JSON of the secret ones.
+ * One provider of a channel, in the platform's list (no tenant) or a pharmacy's own. A channel's
+ * providers are tried in {@code priority} order, lowest first, and the first that accepts a message
+ * sends it. {@code settings} is JSON of the plain fields; {@code secrets} the sealed JSON of the
+ * secret ones. The last success and failure are kept for the settings page.
  */
 @Getter
 @Entity
@@ -21,7 +23,7 @@ import tz.co.pharmacy.modules.notifications.ports.inbound.Channel;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProviderSetting extends ScopedEntity {
 
-  public static final String PLATFORM = "PLATFORM";
+  /** Kept for rows written before lists: every row is now a provider of its own scope. */
   public static final String OWN = "OWN";
 
   @Enumerated(EnumType.STRING)
@@ -35,24 +37,48 @@ public class ProviderSetting extends ScopedEntity {
   private String provider;
 
   @Column(nullable = false)
+  private String name;
+
+  private int priority;
+
+  private boolean active;
+
+  @Column(nullable = false)
   private String settings = "{}";
 
   private String secrets;
 
-  public ProviderSetting(Channel channel) {
+  // Written by the dispatcher with bulk updates (no version bump), read by the settings page.
+  @Column(insertable = false, updatable = false)
+  private Instant lastSentAt;
+
+  @Column(insertable = false, updatable = false)
+  private Instant lastFailedAt;
+
+  @Column(insertable = false, updatable = false)
+  private String lastError;
+
+  public ProviderSetting(Channel channel, int priority) {
     this.channel = channel;
     this.mode = OWN;
     this.provider = "log";
+    this.name = "log";
+    this.priority = priority;
+    this.active = true;
   }
 
-  public void change(String mode, String provider, String settings, String secrets) {
-    this.mode = mode;
+  public void change(String name, String provider, String settings, String secrets) {
+    this.name = name;
     this.provider = provider;
     this.settings = settings;
     this.secrets = secrets;
   }
 
-  public boolean own() {
-    return OWN.equals(mode);
+  public void activate(boolean active) {
+    this.active = active;
+  }
+
+  public void moveTo(int priority) {
+    this.priority = priority;
   }
 }

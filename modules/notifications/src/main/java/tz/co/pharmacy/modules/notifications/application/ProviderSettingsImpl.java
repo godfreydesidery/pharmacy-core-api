@@ -1,11 +1,14 @@
 package tz.co.pharmacy.modules.notifications.application;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -21,6 +24,7 @@ import tz.co.pharmacy.modules.notifications.ports.inbound.ProviderSettings;
 import tz.co.pharmacy.modules.notifications.providers.ProviderCatalog;
 import tz.co.pharmacy.modules.notifications.providers.ProviderCatalog.Definition;
 import tz.co.pharmacy.modules.notifications.providers.ProviderCatalog.Field;
+import tz.co.pharmacy.modules.notifications.providers.ProviderHealth;
 import tz.co.pharmacy.modules.notifications.providers.ProviderRouter;
 import tz.co.pharmacy.modules.notifications.providers.ProviderRouter.Route;
 import tz.co.pharmacy.platform.kernel.Checks;
@@ -36,9 +40,13 @@ class ProviderSettingsImpl implements ProviderSettings {
   /** The channels a provider sends; IN_APP needs none. */
   static final List<Channel> CHANNELS = List.of(Channel.EMAIL, Channel.SMS, Channel.WHATSAPP);
 
+  /** The most providers one list may hold. */
+  static final int MAX_PER_CHANNEL = 10;
+
   private final ProviderSettingRepository settings;
   private final MessageRepository messages;
   private final ProviderRouter router;
+  private final ProviderHealth health;
   private final TransactionTemplate transactions;
   private final String defaultCountryCode;
 
@@ -46,114 +54,230 @@ class ProviderSettingsImpl implements ProviderSettings {
       ProviderSettingRepository settings,
       MessageRepository messages,
       ProviderRouter router,
+      ProviderHealth health,
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode) {
     this.settings = settings;
     this.messages = messages;
     this.router = router;
+    this.health = health;
     this.transactions = new TransactionTemplate(transactionManager);
     this.transactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     this.defaultCountryCode = defaultCountryCode;
   }
 
+  // ---------------------------------------------------------------- platform
+
   @Override
-  public List<ProviderSettingView> platform() {
+  public List<ChannelView> platform() {
     return asPlatform(
         () ->
             transactions.execute(
                 status -> {
-                  List<ProviderSettingView> out = new ArrayList<>();
+                  List<ChannelView> out = new ArrayList<>();
                   for (Channel channel : CHANNELS) {
-                    Optional<ProviderSetting> row =
-                        settings.findByTenantUidIsNullAndChannel(channel);
-                    out.add(view(channel, row, router.routePlatform(channel), "OWN"));
+                    out.add(
+                        channelView(
+                            channel,
+                            platformRows(channel),
+                            ProviderSetting.OWN,
+                            router.routesPlatform(channel)));
                   }
                   return out;
                 }));
   }
 
   @Override
-  public ProviderSettingView savePlatform(Channel channel, ProviderSettingCommand command) {
+  public ProviderView addPlatform(Channel channel, ProviderCommand command) {
     Channel ch = sending(channel);
-    asPlatform(
+    return asPlatform(() -> add(ch, command, platformRows(ch).size()));
+  }
+
+  @Override
+  public ProviderView changePlatform(UUID providerUid, ProviderCommand command) {
+    return asPlatform(() -> change(platformRow(providerUid), command));
+  }
+
+  @Override
+  public void removePlatform(UUID providerUid) {
+    asPlatform(() -> remove(platformRow(providerUid)));
+  }
+
+  @Override
+  public ChannelView reorderPlatform(Channel channel, List<UUID> order) {
+    Channel ch = sending(channel);
+    asPlatform(() -> reorder(ch, order, () -> platformRows(ch)));
+    return platform().stream().filter(view -> view.channel() == ch).findFirst().orElseThrow();
+  }
+
+  @Override
+  public TestResult testPlatform(Channel channel, UUID providerUid, String to) {
+    Channel ch = sending(channel);
+    return asPlatform(
         () ->
-            transactions.execute(
-                status -> {
-                  ProviderSetting row =
-                      settings
-                          .findByTenantUidIsNullAndChannel(ch)
-                          .orElseGet(() -> new ProviderSetting(ch));
-                  apply(row, ProviderSetting.OWN, command);
-                  settings.saveAndFlush(row);
-                  return null;
-                }));
-    // Read back after the commit, so the route reflects the saved row.
-    return platform().stream().filter(v -> v.channel() == ch).findFirst().orElseThrow();
+            test(
+                ch,
+                to,
+                providerUid == null
+                    ? router.routesPlatform(ch)
+                    : List.of(router.routeOf(platformRow(providerUid)))));
   }
 
-  @Override
-  public TestResult testPlatform(Channel channel, String to) {
-    Channel ch = sending(channel);
-    return asPlatform(() -> test(ch, to, router.routePlatform(ch)));
-  }
+  // ------------------------------------------------------------------ tenant
 
   @Override
-  public List<ProviderSettingView> tenant() {
+  public List<ChannelView> tenant() {
     UUID tenant = TenantContext.requireTenant();
     return transactions.execute(
         status -> {
-          List<ProviderSettingView> out = new ArrayList<>();
+          List<ChannelView> out = new ArrayList<>();
           for (Channel channel : CHANNELS) {
+            List<ProviderSetting> own = tenantRows(tenant, channel);
+            boolean usesOwn = own.stream().anyMatch(ProviderSetting::isActive);
             out.add(
-                view(
+                channelView(
                     channel,
-                    settings.findByTenantUidAndChannel(tenant, channel),
-                    router.route(channel),
-                    ProviderSetting.PLATFORM));
+                    own,
+                    usesOwn ? ProviderSetting.OWN : "PLATFORM",
+                    router.routes(channel)));
           }
           return out;
         });
   }
 
   @Override
-  public ProviderSettingView saveTenant(Channel channel, ProviderSettingCommand command) {
+  public ProviderView addTenant(Channel channel, ProviderCommand command) {
     Channel ch = sending(channel);
     UUID tenant = TenantContext.requireTenant();
-    String mode =
-        command == null || command.mode() == null
-            ? ProviderSetting.OWN
-            : command.mode().trim().toUpperCase();
-    if (!ProviderSetting.OWN.equals(mode) && !ProviderSetting.PLATFORM.equals(mode)) {
-      throw Refusal.invalid("invalid_mode", "mode must be PLATFORM or OWN.", "mode");
-    }
-    ProviderSettingView view =
-        transactions.execute(
-            status -> {
-              ProviderSetting row =
-                  settings
-                      .findByTenantUidAndChannel(tenant, ch)
-                      .orElseGet(() -> new ProviderSetting(ch));
-              if (ProviderSetting.PLATFORM.equals(mode)) {
-                // Keep the pharmacy's own details for later; just stop using them.
-                row.change(mode, row.getProvider(), row.getSettings(), row.getSecrets());
-              } else {
-                apply(row, mode, command);
-              }
-              settings.saveAndFlush(row);
-              return null;
-            });
-    return tenant().stream().filter(v -> v.channel() == ch).findFirst().orElse(view);
+    return add(ch, command, tenantRows(tenant, ch).size());
   }
 
   @Override
-  public TestResult testTenant(Channel channel, String to) {
-    Channel ch = sending(channel);
-    TenantContext.requireTenant();
-    return test(ch, to, router.route(ch));
+  public ProviderView changeTenant(UUID providerUid, ProviderCommand command) {
+    return change(tenantRow(providerUid), command);
   }
 
-  /** Validates and applies a command to a row: the provider, its plain fields, its secrets. */
-  private void apply(ProviderSetting row, String mode, ProviderSettingCommand command) {
+  @Override
+  public void removeTenant(UUID providerUid) {
+    remove(tenantRow(providerUid));
+  }
+
+  @Override
+  public ChannelView reorderTenant(Channel channel, List<UUID> order) {
+    Channel ch = sending(channel);
+    UUID tenant = TenantContext.requireTenant();
+    reorder(ch, order, () -> tenantRows(tenant, ch));
+    return tenant().stream().filter(view -> view.channel() == ch).findFirst().orElseThrow();
+  }
+
+  @Override
+  public TestResult testTenant(Channel channel, UUID providerUid, String to) {
+    Channel ch = sending(channel);
+    TenantContext.requireTenant();
+    return test(
+        ch,
+        to,
+        providerUid == null ? router.routes(ch) : List.of(router.routeOf(tenantRow(providerUid))));
+  }
+
+  // ------------------------------------------------------------------ shared
+
+  private ProviderView add(Channel channel, ProviderCommand command, int existing) {
+    if (existing >= MAX_PER_CHANNEL) {
+      throw Refusal.invalid(
+          "too_many_providers",
+          "A channel holds at most " + MAX_PER_CHANNEL + " providers.",
+          "provider");
+    }
+    UUID uid =
+        transactions.execute(
+            status -> {
+              ProviderSetting row = new ProviderSetting(channel, existing + 1);
+              apply(row, command);
+              row.activate(command.active() == null || command.active());
+              return settings.saveAndFlush(row).getUid();
+            });
+    return view(found(uid));
+  }
+
+  private ProviderView change(ProviderSetting found, ProviderCommand command) {
+    transactions.executeWithoutResult(
+        status -> {
+          ProviderSetting row =
+              settings.findByUid(found.getUid()).orElseThrow(ProviderSettingsImpl::notFound);
+          apply(row, command);
+          if (command.active() != null) {
+            row.activate(command.active());
+          }
+          settings.saveAndFlush(row);
+        });
+    health.succeeded(found.getUid());
+    return view(found(found.getUid()));
+  }
+
+  private Void remove(ProviderSetting found) {
+    transactions.executeWithoutResult(
+        status -> settings.findByUid(found.getUid()).ifPresent(settings::delete));
+    health.succeeded(found.getUid());
+    return null;
+  }
+
+  private Void reorder(Channel channel, List<UUID> order, Supplier<List<ProviderSetting>> current) {
+    transactions.executeWithoutResult(
+        status -> {
+          List<ProviderSetting> rows = current.get();
+          Set<UUID> known = new HashSet<>();
+          rows.forEach(row -> known.add(row.getUid()));
+          if (order == null || order.size() != rows.size() || !known.equals(new HashSet<>(order))) {
+            throw Refusal.invalid(
+                "invalid_order",
+                "Name every " + channel.name() + " provider of the list once, in the new order.",
+                "order");
+          }
+          for (ProviderSetting row : rows) {
+            row.moveTo(order.indexOf(row.getUid()) + 1);
+          }
+          settings.saveAllAndFlush(rows);
+        });
+    return null;
+  }
+
+  private List<ProviderSetting> platformRows(Channel channel) {
+    return settings.findByTenantUidIsNullAndChannelOrderByPriorityAscIdAsc(channel);
+  }
+
+  private List<ProviderSetting> tenantRows(UUID tenant, Channel channel) {
+    return settings.findByTenantUidAndChannelOrderByPriorityAscIdAsc(tenant, channel);
+  }
+
+  /** One of the platform's providers (a platform session). */
+  private ProviderSetting platformRow(UUID uid) {
+    return transactions.execute(
+        status ->
+            settings
+                .findByUid(Checks.required(uid, "providerUid"))
+                .filter(row -> row.getTenantUid() == null)
+                .orElseThrow(ProviderSettingsImpl::notFound));
+  }
+
+  /** One of the current pharmacy's own providers: never the platform's. */
+  private ProviderSetting tenantRow(UUID uid) {
+    UUID tenant = TenantContext.requireTenant();
+    return transactions.execute(
+        status ->
+            settings
+                .findByUid(Checks.required(uid, "providerUid"))
+                .filter(row -> tenant.equals(row.getTenantUid()))
+                .orElseThrow(ProviderSettingsImpl::notFound));
+  }
+
+  private ProviderSetting found(UUID uid) {
+    return transactions.execute(
+        status -> settings.findByUid(uid).orElseThrow(ProviderSettingsImpl::notFound));
+  }
+
+  /** Validates and applies a command to a row: its name, provider, plain fields and secrets. */
+  private void apply(ProviderSetting row, ProviderCommand command) {
     if (command == null) {
       throw Refusal.malformed("The request needs a body.");
     }
@@ -166,6 +290,10 @@ class ProviderSettingsImpl implements ProviderSettings {
                         "unknown_provider",
                         code + " cannot send " + row.getChannel().name().toLowerCase() + ".",
                         "provider"));
+    String name =
+        command.name() == null || command.name().isBlank()
+            ? code
+            : Checks.text(command.name(), "name", 60);
     Map<String, String> given = command.settings() == null ? Map.of() : command.settings();
     Map<String, String> plain = new LinkedHashMap<>();
     for (Field field : definition.plain()) {
@@ -205,26 +333,41 @@ class ProviderSettingsImpl implements ProviderSettings {
             (field.secret() ? "secrets." : "settings.") + field.key());
       }
     }
-    row.change(mode, code, ProviderRouter.write(plain), router.sealSecrets(secrets));
+    row.change(name, code, ProviderRouter.write(plain), router.sealSecrets(secrets));
   }
 
-  private TestResult test(Channel channel, String to, Route route) {
+  /**
+   * Sends a test message through the routes in order, as a message would go, and logs it: the first
+   * that accepts it ends the test.
+   */
+  private TestResult test(Channel channel, String to, List<Route> routes) {
     String address = address(channel, to);
     String subject = "Pharmacy Core test message / Ujumbe wa majaribio";
-    String text =
-        "This is a test message from Pharmacy Core through "
-            + route.provider()
-            + ". / Huu ni ujumbe wa majaribio kutoka Pharmacy Core.";
+    List<String> failures = new ArrayList<>();
+    Route used = routes.getFirst();
     String error = null;
-    try {
-      route.sender().send(address, subject, "<p>" + text + "</p>", text);
-    } catch (RuntimeException failure) {
-      error =
-          tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(
-              failure, route.provider());
-      LOG.warn("Provider test via {} failed: {}", route.label(), failure.toString());
+    for (Route route : routes) {
+      used = route;
+      String text =
+          "This is a test message from Pharmacy Core through "
+              + route.label()
+              + ". / Huu ni ujumbe wa majaribio kutoka Pharmacy Core.";
+      try {
+        route.sender().send(address, subject, "<p>" + text + "</p>", text);
+        error = null;
+        break;
+      } catch (RuntimeException failure) {
+        String readable =
+            tz.co.pharmacy.modules.notifications.providers.ProviderErrors.readable(
+                failure, route.provider());
+        failures.add(route.label() + ": " + readable);
+        error = String.join(" | ", failures);
+        LOG.warn("Provider test via {} failed: {}", route.label(), failure.toString());
+      }
     }
     String outcome = error;
+    Route sentBy = used;
+    String text = "Pharmacy Core test message through " + sentBy.label() + ".";
     transactions.executeWithoutResult(
         status -> {
           Message message =
@@ -242,13 +385,13 @@ class ProviderSettingsImpl implements ProviderSettings {
                   null,
                   null);
           if (outcome == null) {
-            message.sent(route.label());
+            message.sent(sentBy.label());
           } else {
-            message.failed(route.label(), outcome, null);
+            message.failed(sentBy.label(), outcome, null);
           }
           messages.save(message);
         });
-    return new TestResult(error == null, route.provider(), route.source(), error);
+    return new TestResult(error == null, sentBy.label(), sentBy.source(), error);
   }
 
   private String address(Channel channel, String to) {
@@ -266,41 +409,17 @@ class ProviderSettingsImpl implements ProviderSettings {
     return phone;
   }
 
-  private ProviderSettingView view(
-      Channel channel, Optional<ProviderSetting> row, Route route, String defaultMode) {
-    Optional<Definition> definition =
-        row.flatMap(r -> ProviderCatalog.find(channel, r.getProvider()));
-    Map<String, String> plain = row.map(ProviderRouter::plain).orElse(Map.of());
-    boolean secretsUnreadable = row.map(r -> !router.secretsReadable(r)).orElse(false);
-    Map<String, String> secrets =
-        secretsUnreadable ? Map.of() : row.map(router::secrets).orElse(Map.of());
-    Map<String, String> masked = new LinkedHashMap<>();
-    secrets.forEach((k, v) -> masked.put(k, mask(v)));
-    boolean configured =
-        definition
-            .map(
-                d ->
-                    d.fields().stream()
-                        .filter(Field::required)
-                        .allMatch(
-                            f ->
-                                f.secret()
-                                    ? secrets.containsKey(f.key())
-                                    : plain.containsKey(f.key())))
-            .orElse(row.isEmpty());
+  private ChannelView channelView(
+      Channel channel, List<ProviderSetting> rows, String mode, List<Route> routes) {
     Optional<Message> lastSent =
         messages.findFirstByChannelAndStatusOrderBySentAtDesc(channel, MessageStatus.SENT);
     Optional<Message> lastFailed = messages.latestByStatus(channel, MessageStatus.FAILED);
-    return new ProviderSettingView(
+    return new ChannelView(
         channel,
-        row.map(ProviderSetting::getMode).orElse(defaultMode),
-        row.map(ProviderSetting::getProvider).orElse(route.provider()),
-        plain,
-        masked,
-        configured,
-        secretsUnreadable,
-        route.provider(),
-        route.source(),
+        mode,
+        routes.getFirst().source(),
+        routes.stream().map(Route::label).toList(),
+        rows.stream().map(this::view).toList(),
         lastSent.map(Message::getSentAt).orElse(null),
         lastFailed
             .map(m -> m.getUpdatedAt() == null ? m.getCreatedAt() : m.getUpdatedAt())
@@ -315,6 +434,42 @@ class ProviderSettingsImpl implements ProviderSettings {
                             .map(f -> new FieldView(f.key(), f.secret(), f.required()))
                             .toList()))
             .toList());
+  }
+
+  private ProviderView view(ProviderSetting row) {
+    Optional<Definition> definition = ProviderCatalog.find(row.getChannel(), row.getProvider());
+    Map<String, String> plain = ProviderRouter.plain(row);
+    boolean secretsUnreadable = !router.secretsReadable(row);
+    Map<String, String> secrets = secretsUnreadable ? Map.of() : router.secrets(row);
+    Map<String, String> masked = new LinkedHashMap<>();
+    secrets.forEach((k, v) -> masked.put(k, mask(v)));
+    boolean configured =
+        definition
+            .map(
+                d ->
+                    d.fields().stream()
+                        .filter(Field::required)
+                        .allMatch(
+                            f ->
+                                f.secret()
+                                    ? secrets.containsKey(f.key())
+                                    : plain.containsKey(f.key())))
+            .orElse(false);
+    return new ProviderView(
+        row.getUid(),
+        row.getChannel(),
+        row.getName(),
+        row.getProvider(),
+        row.getPriority(),
+        row.isActive(),
+        plain,
+        masked,
+        configured,
+        secretsUnreadable,
+        health.tripped(row.getUid()),
+        row.getLastSentAt(),
+        row.getLastFailedAt(),
+        row.getLastError());
   }
 
   static String mask(String secret) {
@@ -332,8 +487,12 @@ class ProviderSettingsImpl implements ProviderSettings {
     return ch;
   }
 
+  private static Refusal notFound() {
+    return Refusal.notFound("provider_not_found", "No such provider.");
+  }
+
   /** Runs work in the platform scope (no tenant), where the platform's rows are written. */
-  private static <T> T asPlatform(java.util.function.Supplier<T> work) {
+  private static <T> T asPlatform(Supplier<T> work) {
     return TenantContext.callAs(null, work);
   }
 }
