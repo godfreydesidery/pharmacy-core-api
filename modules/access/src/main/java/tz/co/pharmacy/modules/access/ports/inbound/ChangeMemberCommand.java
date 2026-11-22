@@ -15,7 +15,20 @@ public record ChangeMemberCommand(
     boolean active,
     String phone,
     String name,
-    String contactEmail) {
+    String contactEmail,
+    /* The pharmacy's own details of the person (G15); null keeps them, a blank field clears it. */
+    StaffDetails staff) {
+
+  public ChangeMemberCommand(
+      UUID roleUid,
+      boolean allBranches,
+      List<UUID> branchUids,
+      boolean active,
+      String phone,
+      String name,
+      String contactEmail) {
+    this(roleUid, allBranches, branchUids, active, phone, name, contactEmail, null);
+  }
 
   public ChangeMemberCommand(
       UUID roleUid, boolean allBranches, List<UUID> branchUids, boolean active, String phone) {

@@ -115,6 +115,25 @@ class MigrationSafetyTest {
   }
 
   @Test
+  @DisplayName("no two migrations of a schema share a version")
+  void versionsAreUnique() throws IOException {
+    java.util.Map<String, Path> seen = new java.util.HashMap<>();
+    List<String> problems = new ArrayList<>();
+    for (Path file : migrations()) {
+      Matcher m = Pattern.compile("^V([0-9_]+)__").matcher(file.getFileName().toString());
+      if (!m.find()) {
+        continue;
+      }
+      String key = file.getParent().getFileName() + "/V" + m.group(1);
+      Path earlier = seen.putIfAbsent(key, file);
+      if (earlier != null) {
+        problems.add(key + ": " + earlier.getFileName() + " and " + file.getFileName());
+      }
+    }
+    assertThat(problems).as("migration versions used twice").isEmpty();
+  }
+
+  @Test
   @DisplayName("a lifted force is put back in the same migration")
   void forceIsRestored() throws IOException {
     List<String> problems = new ArrayList<>();

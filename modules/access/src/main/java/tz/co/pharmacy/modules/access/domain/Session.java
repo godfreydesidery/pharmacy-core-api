@@ -40,6 +40,9 @@ public class Session extends MutableEntity {
   private Instant activeAt;
   private Integer idleMinutes;
 
+  /** A pharmacy set {@code idleMinutes}: only a stricter one may change it now. */
+  private boolean idlePinned;
+
   public Session(
       String tokenHash,
       UUID userUid,

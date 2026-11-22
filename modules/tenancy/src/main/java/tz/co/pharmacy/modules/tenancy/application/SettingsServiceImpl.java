@@ -77,6 +77,7 @@ class SettingsServiceImpl implements SettingsService {
     row.changePricesIncludeTax(command.pricesIncludeTax());
     row.changeLook(look(command.look()));
     row.changeIdleMinutes(command.idleMinutes());
+    row.changeRequireTwoFactor(command.requireTwoFactor());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     return view(tenant, row);
@@ -154,6 +155,7 @@ class SettingsServiceImpl implements SettingsService {
         accepted(tenant, row),
         row.isPricesIncludeTax(),
         row.getLook(),
-        row.getIdleMinutes());
+        row.getIdleMinutes(),
+        row.isRequireTwoFactor());
   }
 }

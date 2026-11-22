@@ -45,12 +45,14 @@ class SessionIssuer {
   private final Duration sessionLength;
   private final boolean twoFactorRequiredForRoot;
   private final IdlePolicy idle;
+  private final tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys;
 
   private final Clock clock;
 
   SessionIssuer(
       UserRepository users,
       SessionRepository sessions,
+      tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys,
       TenantSwitch tenantSwitch,
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
@@ -63,6 +65,7 @@ class SessionIssuer {
     this.idle = idle;
     this.users = users;
     this.sessions = sessions;
+    this.passkeys = passkeys;
     this.tenantSwitch = tenantSwitch;
     this.audit = audit;
     this.notices = notices;
@@ -170,7 +173,9 @@ class SessionIssuer {
         user.getEmail(),
         user.isRootAdmin(),
         twoFactorRequired(user) && !user.isTwoFactorEnabled(),
-        user.isPasswordChangeRequired());
+        user.isPasswordChangeRequired(),
+        null,
+        user.isTwoFactorEnabled() || passkeys.countByUserUid(user.getUid()) > 0);
   }
 
   boolean twoFactorRequired(User user) {

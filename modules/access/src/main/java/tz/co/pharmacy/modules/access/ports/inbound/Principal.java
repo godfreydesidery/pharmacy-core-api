@@ -6,7 +6,8 @@ import java.util.UUID;
  * The signed-in user a session belongs to. {@code twoFactorSetupRequired} is true for a root
  * administrator without two-factor when the platform requires it; {@code passwordChangeRequired}
  * for a managed login still on a temporary password. Until they act, the edge lets them reach only
- * their own account routes.
+ * their own account routes. {@code secondFactor}: the account has an authenticator app or a
+ * passkey, as a pharmacy that requires two-factor asks (G16).
  */
 public record Principal(
     UUID userUid,
@@ -15,7 +16,27 @@ public record Principal(
     boolean rootAdmin,
     boolean twoFactorSetupRequired,
     boolean passwordChangeRequired,
-    UUID sessionUid) {
+    UUID sessionUid,
+    boolean secondFactor) {
+
+  public Principal(
+      UUID userUid,
+      String name,
+      String email,
+      boolean rootAdmin,
+      boolean twoFactorSetupRequired,
+      boolean passwordChangeRequired,
+      UUID sessionUid) {
+    this(
+        userUid,
+        name,
+        email,
+        rootAdmin,
+        twoFactorSetupRequired,
+        passwordChangeRequired,
+        sessionUid,
+        false);
+  }
 
   public Principal(
       UUID userUid,
@@ -39,6 +60,13 @@ public record Principal(
   /** The same principal, of session {@code uid}. */
   public Principal inSession(UUID uid) {
     return new Principal(
-        userUid, name, email, rootAdmin, twoFactorSetupRequired, passwordChangeRequired, uid);
+        userUid,
+        name,
+        email,
+        rootAdmin,
+        twoFactorSetupRequired,
+        passwordChangeRequired,
+        uid,
+        secondFactor);
   }
 }

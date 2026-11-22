@@ -23,7 +23,8 @@ class AccessInterceptorTest {
     public void stream() {}
   }
 
-  private final AccessInterceptor interceptor = new AccessInterceptor(mock(Entitlements.class));
+  private final AccessInterceptor interceptor =
+      new AccessInterceptor(mock(Entitlements.class), mock(TenantPolicies.class));
 
   private HandlerMethod handler() throws NoSuchMethodException {
     return new HandlerMethod(new Streams(), Streams.class.getMethod("stream"));

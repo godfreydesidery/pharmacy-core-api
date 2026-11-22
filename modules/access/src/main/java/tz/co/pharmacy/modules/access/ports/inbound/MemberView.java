@@ -20,7 +20,8 @@ public record MemberView(
     String phone,
     boolean managed,
     String contactEmail,
-    boolean passwordChangeRequired) {
+    boolean passwordChangeRequired,
+    StaffDetails staff) {
 
   /**
    * Where mail to the member goes: their email, or a managed login's contact email ({@code email}

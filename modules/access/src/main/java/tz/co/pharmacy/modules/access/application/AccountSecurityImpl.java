@@ -499,6 +499,62 @@ class AccountSecurityImpl implements AccountSecurity {
         });
   }
 
+  // ------------------------------------------------------ leaving a pharmacy
+
+  @Override
+  public void leavePharmacy(UUID userUid, UUID tenantUid, String password, String code) {
+    UUID pharmacy = tz.co.pharmacy.platform.kernel.Checks.required(tenantUid, "tenantUid");
+    writes.executeWithoutResult(
+        status -> {
+          User person = personal(userUid);
+          reauthenticate(person, password, code);
+          tenantSwitch.within(
+              pharmacy,
+              () -> {
+                tz.co.pharmacy.modules.access.domain.Membership membership =
+                    memberships
+                        .findByUserUidAndTenantUid(person.getUid(), pharmacy)
+                        .filter(tz.co.pharmacy.modules.access.domain.Membership::isActive)
+                        .orElseThrow(
+                            () ->
+                                Refusal.notFound(
+                                    "membership_not_found", "You do not work in that pharmacy."));
+                if (managesPeople(membership)
+                    && memberships.findAll().stream()
+                        .filter(other -> pharmacy.equals(other.getTenantUid()))
+                        .filter(tz.co.pharmacy.modules.access.domain.Membership::isActive)
+                        .filter(other -> !other.getUid().equals(membership.getUid()))
+                        .noneMatch(AccountSecurityImpl::managesPeople)) {
+                  throw Refusal.conflict(
+                      "last_admin",
+                      "You are the only one who can manage this pharmacy's people: give the role"
+                          + " to someone else first.");
+                }
+                membership.change(
+                    membership.getRole(),
+                    membership.isAllBranches(),
+                    membership.getBranchUids(),
+                    false);
+                membership.left(person.getName(), person.getEmail(), person.getPhone());
+                audit.record("MEMBER_LEFT", "User", person.getUid(), null, Map.of("by", "self"));
+                return null;
+              });
+          audit.record(
+              "LEFT_PHARMACY",
+              "User",
+              person.getUid(),
+              null,
+              Map.of("tenant", pharmacy.toString()));
+        });
+  }
+
+  private static boolean managesPeople(tz.co.pharmacy.modules.access.domain.Membership membership) {
+    return membership
+        .getRole()
+        .getPermissions()
+        .contains(tz.co.pharmacy.modules.access.ports.inbound.Permissions.USERS_MANAGE);
+  }
+
   // --------------------------------------------------------------- recovery
 
   @Override

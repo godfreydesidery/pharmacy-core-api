@@ -127,7 +127,9 @@ class UserAdministrationImpl implements UserAdministration {
           filter.and(
               current
                   .and(Specs.in("userUid", matching))
-                  .or(former.and(Specs.<Membership>containsAny(q, "formerName", "formerEmail"))));
+                  .or(former.and(Specs.<Membership>containsAny(q, "formerName", "formerEmail")))
+                  // The pharmacy's own details find a member too.
+                  .or(Specs.<Membership>containsAny(q, "staffNumber", "jobTitle")));
     }
     Page<Membership> page = Keyset.page(memberships, filter, query, Function.identity());
     Map<UUID, User> byUid = usersByUid(page.items().stream().map(Membership::getUserUid).toList());
@@ -193,6 +195,9 @@ class UserAdministrationImpl implements UserAdministration {
       if (wasActive && !command.active()) {
         sessions.revokeAll(user.getUid(), clock.instant(), null);
       }
+    }
+    if (command.staff() != null) {
+      staff(membership, command.staff());
     }
     if (wasActive && !command.active() && user != null) {
       // From now on the pharmacy sees the person as they are at this moment.
@@ -411,6 +416,26 @@ class UserAdministrationImpl implements UserAdministration {
   }
 
   /** E.164 (+ then 8 to 15 digits); blank is none. Spaces and dashes are ignored. */
+  /** Checks and applies the pharmacy's own details of a member (G15). */
+  private void staff(
+      Membership membership, tz.co.pharmacy.modules.access.ports.inbound.StaffDetails d) {
+    String number = Checks.optionalText(d.staffNumber(), "staffNumber", 40);
+    if (number != null
+        && memberships.existsByTenantUidAndStaffNumberIgnoreCaseAndUidNot(
+            membership.getTenantUid(), number, membership.getUid())) {
+      throw Refusal.conflict(
+          "duplicate_staff_number", "Another member already has staff number " + number + ".");
+    }
+    String workEmail =
+        d.workEmail() == null || d.workEmail().isBlank()
+            ? null
+            : Checks.email(d.workEmail(), "workEmail");
+    String workPhone =
+        d.workPhone() == null || d.workPhone().isBlank() ? null : Phones.normalise(d.workPhone());
+    membership.changeStaff(
+        number, Checks.optionalText(d.jobTitle(), "jobTitle", 80), workPhone, workEmail);
+  }
+
   static String phone(String value) {
     if (value == null || value.isBlank()) {
       return null;

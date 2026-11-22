@@ -19,4 +19,6 @@ public record SettingsView(
     /* How the web app looks for everyone in the pharmacy: PREMIUM or CLASSIC. */
     String look,
     /* Minutes without use that sign a person out of this pharmacy. */
-    int idleMinutes) {}
+    int idleMinutes,
+    /* Everyone who works here needs a second factor (an authenticator app or a passkey). */
+    boolean requireTwoFactor) {}
