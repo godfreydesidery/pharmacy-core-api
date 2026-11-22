@@ -1,0 +1,11 @@
+# Railway deployment settings (https://docs.railway.com/reference/config-as-code).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Readiness turns UP once migrations have run and the context has started.
+healthcheckPath = "/actuator/health/readiness"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
