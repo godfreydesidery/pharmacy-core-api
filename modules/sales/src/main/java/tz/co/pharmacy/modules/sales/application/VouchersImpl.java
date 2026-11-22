@@ -2,7 +2,6 @@ package tz.co.pharmacy.modules.sales.application;
 
 import java.math.BigDecimal;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -19,8 +18,12 @@ import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.TenantCalendar;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
 
 @Service
 @RequiredArgsConstructor
@@ -88,8 +91,8 @@ class VouchersImpl implements Vouchers {
 
   @Override
   @Transactional(readOnly = true)
-  public List<VoucherView> list() {
-    return vouchers.findTop200ByOrderByIdDesc().stream().map(VouchersImpl::view).toList();
+  public Page<VoucherView> list(PageQuery query) {
+    return Keyset.page(vouchers, Specs.all(), query, VouchersImpl::view);
   }
 
   @Override

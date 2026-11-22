@@ -447,16 +447,13 @@ class InsuranceImpl implements Insurance {
 
   @Override
   @Transactional(readOnly = true)
-  public List<ClaimBatchView> batches(UUID payerUid) {
+  public Page<ClaimBatchView> batches(UUID payerUid, PageQuery query) {
     Map<UUID, Payer> byUid = payersByUid();
-    List<ClaimBatch> rows =
-        payerUid == null
-            ? batches.findAllByOrderByIdDesc()
-            : batches.findByPayerUidOrderByIdDesc(payerUid);
-    return rows.stream()
-        .map(
-            b -> view(b, byUid.get(b.getPayerUid()), claims.findByBatchUidOrderByIdAsc(b.getUid())))
-        .toList();
+    return Keyset.page(
+        batches,
+        Specs.<ClaimBatch>equal("payerUid", payerUid),
+        query,
+        b -> view(b, byUid.get(b.getPayerUid()), claims.findByBatchUidOrderByIdAsc(b.getUid())));
   }
 
   @Override
@@ -687,35 +684,32 @@ class InsuranceImpl implements Insurance {
 
   @Override
   @Transactional(readOnly = true)
-  public List<RemittanceView> remittances(UUID payerUid) {
+  public Page<RemittanceView> remittances(UUID payerUid, PageQuery query) {
     Map<UUID, Payer> byUid = payersByUid();
-    List<Remittance> rows =
-        payerUid == null
-            ? remittances.findAllByOrderByIdDesc()
-            : remittances.findByPayerUidOrderByIdDesc(payerUid);
-    return rows.stream()
-        .map(
-            r -> {
-              Map<String, BigDecimal> allocations = new LinkedHashMap<>();
-              for (String part : split(r.getAllocations())) {
-                String[] kv = part.split("=");
-                if (kv.length == 2) {
-                  allocations.put(kv[0], new BigDecimal(kv[1]));
-                }
-              }
-              Payer payer = byUid.get(r.getPayerUid());
-              return new RemittanceView(
-                  r.getUid(),
-                  r.getNumber(),
-                  r.getPayerUid(),
-                  payer == null ? null : payer.getName(),
-                  r.getAmount(),
-                  r.getReference(),
-                  r.getRemittedOn(),
-                  allocations,
-                  r.getCreatedAt());
-            })
-        .toList();
+    return Keyset.page(
+        remittances,
+        Specs.<Remittance>equal("payerUid", payerUid),
+        query,
+        r -> {
+          Map<String, BigDecimal> allocations = new LinkedHashMap<>();
+          for (String part : split(r.getAllocations())) {
+            String[] kv = part.split("=");
+            if (kv.length == 2) {
+              allocations.put(kv[0], new BigDecimal(kv[1]));
+            }
+          }
+          Payer payer = byUid.get(r.getPayerUid());
+          return new RemittanceView(
+              r.getUid(),
+              r.getNumber(),
+              r.getPayerUid(),
+              payer == null ? null : payer.getName(),
+              r.getAmount(),
+              r.getReference(),
+              r.getRemittedOn(),
+              allocations,
+              r.getCreatedAt());
+        });
   }
 
   @Override

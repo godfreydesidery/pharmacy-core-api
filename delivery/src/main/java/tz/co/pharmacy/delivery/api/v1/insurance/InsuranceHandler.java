@@ -239,8 +239,12 @@ public class InsuranceHandler {
   @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/batches")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
-  public ApiResponse<List<ClaimBatchView>> batches(@RequestParam(required = false) UUID payerUid) {
-    return ApiResponse.ok(insurance.batches(payerUid), "Batches retrieved");
+  public ApiResponse<Page<ClaimBatchView>> batches(
+      @RequestParam(required = false) UUID payerUid,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        insurance.batches(payerUid, Pages.of(cursor, limit)), "Batches retrieved");
   }
 
   /** Gathers the payer's draft claims of the period into a batch and submits them. */
@@ -276,9 +280,12 @@ public class InsuranceHandler {
   @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/remittances")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
-  public ApiResponse<List<RemittanceView>> remittances(
-      @RequestParam(required = false) UUID payerUid) {
-    return ApiResponse.ok(insurance.remittances(payerUid), "Remittances retrieved");
+  public ApiResponse<Page<RemittanceView>> remittances(
+      @RequestParam(required = false) UUID payerUid,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        insurance.remittances(payerUid, Pages.of(cursor, limit)), "Remittances retrieved");
   }
 
   /** A payer's payment, spread over claims as given or oldest approved first. */

@@ -18,8 +18,12 @@ import tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingDirectory;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
 
 @Service
 @RequiredArgsConstructor
@@ -130,13 +134,14 @@ class SupplierReturnsImpl implements SupplierReturns {
 
   @Override
   @Transactional(readOnly = true)
-  public List<SupplierReturnView> list(UUID supplierUid) {
+  public Page<SupplierReturnView> list(UUID supplierUid, PageQuery query) {
     UUID branch = ExecutionContext.requireBranch();
-    List<SupplierReturn> found =
-        supplierUid == null
-            ? returns.findTop100ByBranchUidOrderByIdDesc(branch)
-            : returns.findTop100ByBranchUidAndSupplierUidOrderByIdDesc(branch, supplierUid);
-    return found.stream().map(SupplierReturnsImpl::view).toList();
+    return Keyset.page(
+        returns,
+        Specs.<SupplierReturn>equal("branchUid", branch)
+            .and(Specs.equal("supplierUid", supplierUid)),
+        query,
+        SupplierReturnsImpl::view);
   }
 
   @Override

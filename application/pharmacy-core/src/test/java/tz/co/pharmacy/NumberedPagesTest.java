@@ -101,6 +101,25 @@ class NumberedPagesTest extends IntegrationTest {
   }
 
   @Test
+  @DisplayName("short lists page too, and stay whole for pickers without a page number")
+  void shortAndRecordLists() {
+    for (int i = 1; i <= 7; i++) {
+      admin.post("/api/v1/manufacturers", "{\"name\":\"Maker %02d\"}".formatted(i)).expect(201);
+    }
+    Response page = admin.get("/api/v1/manufacturers?page=2&limit=5").expect(200);
+    assertThat(page.read("$.data.total", Integer.class)).isEqualTo(7);
+    assertThat(page.read("$.data.items.length()", Integer.class)).isEqualTo(2);
+    assertThat(
+            admin.get("/api/v1/manufacturers").expect(200).read("$.data.length()", Integer.class))
+        .isEqualTo(7);
+    // A record list that used to stop at its newest 100 now pages through all of it.
+    Response vouchers = admin.get("/api/v1/vouchers?page=1&limit=5").expect(200);
+    assertThat(vouchers.read("$.data.total", Integer.class)).isZero();
+    Response shifts = till.get("/api/v1/shifts?page=1&limit=5").expect(200);
+    assertThat(shifts.read("$.data.total", Integer.class)).isZero();
+  }
+
+  @Test
   @DisplayName("without a page number a list still pages by cursor, and page 0 is refused")
   void cursorStillWorks() {
     Response first = admin.get("/api/v1/customers?limit=5").expect(200);

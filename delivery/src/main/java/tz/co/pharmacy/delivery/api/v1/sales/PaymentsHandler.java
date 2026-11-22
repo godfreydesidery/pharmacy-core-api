@@ -12,11 +12,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Payments;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Payments.IntentView;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Payments.MethodTypeCommand;
@@ -29,6 +31,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.Vouchers;
 import tz.co.pharmacy.modules.sales.ports.inbound.Vouchers.IssueVoucherCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.Vouchers.VoucherView;
 import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
@@ -45,8 +48,8 @@ public class PaymentsHandler {
 
   @GetMapping("/platform/payment-methods")
   @Access(scope = AccessScope.PLATFORM, permission = "platform.manage")
-  public ApiResponse<List<MethodTypeView>> registry() {
-    return ApiResponse.ok(payments.methodTypes(), "Payment methods retrieved");
+  public ApiResponse<?> registry() {
+    return ApiResponse.ok(Pages.slice(payments.methodTypes()), "Payment methods retrieved");
   }
 
   @PutMapping("/platform/payment-methods")
@@ -60,8 +63,8 @@ public class PaymentsHandler {
 
   @GetMapping("/payment-methods")
   @Access(scope = AccessScope.TENANT, permission = "settings.manage")
-  public ApiResponse<List<TenantMethodView>> tenantMethods() {
-    return ApiResponse.ok(payments.tenantMethods(), "Payment methods retrieved");
+  public ApiResponse<?> tenantMethods() {
+    return ApiResponse.ok(Pages.slice(payments.tenantMethods()), "Payment methods retrieved");
   }
 
   @PutMapping("/payment-methods")
@@ -97,8 +100,10 @@ public class PaymentsHandler {
 
   @GetMapping("/vouchers")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "sales.view")
-  public ApiResponse<List<VoucherView>> vouchers() {
-    return ApiResponse.ok(vouchers.list(), "Vouchers retrieved");
+  public ApiResponse<Page<VoucherView>> vouchers(
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(vouchers.list(Pages.of(cursor, limit)), "Vouchers retrieved");
   }
 
   public record VoucherRequest(

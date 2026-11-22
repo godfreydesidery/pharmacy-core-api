@@ -154,7 +154,9 @@ class StockOperationsTest extends IntegrationTest {
                 .read("$.data[0].paid", Double.class))
         .isEqualTo(1_100.0);
     assertThat(
-            hq.get("/api/v1/supplier-returns").expect(200).read("$.data.length()", Integer.class))
+            hq.get("/api/v1/supplier-returns")
+                .expect(200)
+                .read("$.data.items.length()", Integer.class))
         .isEqualTo(1);
     hq.get("/api/v1/supplier-returns/" + returned.string("$.data.uid")).expect(200);
 
@@ -238,7 +240,7 @@ class StockOperationsTest extends IntegrationTest {
     assertThat(destroyed.read("$.data.totalCost", Double.class)).isEqualTo(800.0);
     assertThat(destroyed.string("$.data.branchName")).isEqualTo("Head Office");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(9);
-    assertThat(hq.get("/api/v1/destructions").expect(200).string("$.data[0].witnessName"))
+    assertThat(hq.get("/api/v1/destructions").expect(200).string("$.data.items[0].witnessName"))
         .isEqualTo("Dr. Juma Ally");
     hq.get("/api/v1/destructions/" + destroyed.string("$.data.uid")).expect(200);
   }

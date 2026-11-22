@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService.BranchPriceView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService.PriceListCommand;
@@ -43,8 +44,8 @@ public class PricingHandler {
 
   @GetMapping("/price-lists")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
-  public ApiResponse<List<PriceListView>> priceLists() {
-    return ApiResponse.ok(pricing.priceLists(), "Price lists retrieved");
+  public ApiResponse<?> priceLists() {
+    return ApiResponse.ok(Pages.slice(pricing.priceLists()), "Price lists retrieved");
   }
 
   @PostMapping("/price-lists")
@@ -89,8 +90,8 @@ public class PricingHandler {
 
   @GetMapping("/promotions")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
-  public ApiResponse<List<PromotionView>> promotions() {
-    return ApiResponse.ok(pricing.promotions(), "Promotions retrieved");
+  public ApiResponse<?> promotions() {
+    return ApiResponse.ok(Pages.slice(pricing.promotions()), "Promotions retrieved");
   }
 
   @PostMapping("/promotions")

@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /**
  * Stock-takes at the current branch: a count sheet of every batch on hand, the quantities counted,
@@ -15,7 +17,7 @@ public interface StockCounts {
 
   StockCountView start(String note);
 
-  List<StockCountView> list();
+  Page<StockCountView> list(PageQuery query);
 
   StockCountView get(UUID uid);
 

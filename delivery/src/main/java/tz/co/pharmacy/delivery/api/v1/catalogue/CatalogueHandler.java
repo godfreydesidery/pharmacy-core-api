@@ -51,8 +51,8 @@ public class CatalogueHandler {
 
   @GetMapping("/categories")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
-  public ApiResponse<List<CategoryView>> categories() {
-    return ApiResponse.ok(catalogue.categories(), "Categories retrieved");
+  public ApiResponse<?> categories() {
+    return ApiResponse.ok(Pages.slice(catalogue.categories()), "Categories retrieved");
   }
 
   @PostMapping("/categories")
@@ -79,8 +79,8 @@ public class CatalogueHandler {
 
   @GetMapping("/manufacturers")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
-  public ApiResponse<List<ManufacturerView>> manufacturers() {
-    return ApiResponse.ok(catalogue.manufacturers(), "Manufacturers retrieved");
+  public ApiResponse<?> manufacturers() {
+    return ApiResponse.ok(Pages.slice(catalogue.manufacturers()), "Manufacturers retrieved");
   }
 
   @PostMapping("/manufacturers")

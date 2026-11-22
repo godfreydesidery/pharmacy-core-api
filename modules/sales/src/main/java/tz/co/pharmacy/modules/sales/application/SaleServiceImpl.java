@@ -317,6 +317,7 @@ class SaleServiceImpl implements SaleService {
             .and(Specs.containsAny(f.q(), "number", "customerName"))
             .and(Specs.equal("status", f.status()))
             .and(Specs.atLeast("createdAt", startOf(f.from())))
+            .and(Specs.atLeast("createdAt", f.since()))
             .and(Specs.before("createdAt", f.to() == null ? null : startOf(f.to().plusDays(1))));
     return Keyset.page(sales, spec, query, SaleServiceImpl::summary);
   }

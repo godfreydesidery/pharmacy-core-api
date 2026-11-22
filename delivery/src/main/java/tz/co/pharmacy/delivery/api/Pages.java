@@ -19,6 +19,35 @@ public final class Pages {
     return PageQuery.of(cursor, limit, page());
   }
 
+  /**
+   * A short list (reference data such as categories or payment methods, which screens also need
+   * whole for their pickers): with {@code ?page=} one numbered page of it and its total, without it
+   * the whole list as before.
+   */
+  public static Object slice(java.util.List<?> all) {
+    Integer page = page();
+    if (page == null) {
+      return all;
+    }
+    PageQuery query = PageQuery.of(null, limit(), page);
+    int from = Math.min(query.offset(), all.size());
+    int to = Math.min(from + query.limit(), all.size());
+    return tz.co.pharmacy.platform.kernel.Page.numbered(all.subList(from, to), all.size());
+  }
+
+  private static Integer limit() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    if (!(attributes instanceof ServletRequestAttributes servlet)) {
+      return null;
+    }
+    String value = servlet.getRequest().getParameter("limit");
+    try {
+      return value == null || value.isBlank() ? null : Integer.valueOf(value.trim());
+    } catch (NumberFormatException notANumber) {
+      throw Refusal.invalid("invalid_limit", "limit must be between 1 and 100.", "limit");
+    }
+  }
+
   /** The request's {@code page} parameter, or null when it pages by cursor. */
   static Integer page() {
     RequestAttributes attributes = RequestContextHolder.getRequestAttributes();

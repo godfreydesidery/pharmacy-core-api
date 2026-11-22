@@ -1,6 +1,5 @@
 package tz.co.pharmacy.delivery.api.v1.purchasing;
 
-import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,8 +16,10 @@ import tz.co.pharmacy.application.receiving.ports.inbound.Receiving.ReturnToSupp
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.SupplierReturns;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.SupplierReturns.SupplierReturnView;
+import tz.co.pharmacy.platform.kernel.Page;
 
 /**
  * Returns to suppliers (debit notes) of the request's branch; recording one takes the stock out.
@@ -33,9 +34,12 @@ public class SupplierReturnHandler {
 
   @GetMapping
   @Access(scope = AccessScope.BRANCH, permission = "purchasing.view")
-  public ApiResponse<List<SupplierReturnView>> list(
-      @RequestParam(required = false) UUID supplierUid) {
-    return ApiResponse.ok(supplierReturns.list(supplierUid), "Supplier returns retrieved");
+  public ApiResponse<Page<SupplierReturnView>> list(
+      @RequestParam(required = false) UUID supplierUid,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        supplierReturns.list(supplierUid, Pages.of(cursor, limit)), "Supplier returns retrieved");
   }
 
   @GetMapping("/{uid}")

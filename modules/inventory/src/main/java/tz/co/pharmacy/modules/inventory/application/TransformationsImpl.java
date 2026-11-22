@@ -251,6 +251,7 @@ class TransformationsImpl implements Transformations {
   }
 
   private ProductRecord product(UUID productUid, String field) {
+    products.lockSnapshot(productUid);
     return products
         .findByProductUid(productUid)
         .orElseGet(

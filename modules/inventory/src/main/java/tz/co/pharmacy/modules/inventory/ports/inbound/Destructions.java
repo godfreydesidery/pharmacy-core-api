@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /**
  * The destruction register of the current branch: expired or damaged stock destroyed before a
@@ -19,7 +21,7 @@ public interface Destructions {
   DestructionView record(DestructionCommand command);
 
   /** The current branch's destructions, newest first (100 at most). */
-  List<DestructionView> list();
+  Page<DestructionView> list(PageQuery query);
 
   /** 404 destruction_not_found. */
   DestructionView get(UUID uid);

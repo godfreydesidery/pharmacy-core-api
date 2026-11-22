@@ -34,7 +34,11 @@ import tz.co.pharmacy.modules.access.ports.inbound.SignInOutcome;
 import tz.co.pharmacy.modules.access.ports.outbound.AccessNotices;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 import tz.co.pharmacy.platform.persistence.TenantSwitch;
 import tz.co.pharmacy.platform.persistence.audit.AuditLog;
@@ -140,11 +144,20 @@ class InvitationServiceImpl implements InvitationService {
 
   @Override
   @Transactional(readOnly = true)
-  public List<InvitationView> list() {
+  public Page<InvitationView> list(boolean pendingOnly, PageQuery query) {
     Instant now = clock.instant();
-    return invitations.findTop100ByTenantUidOrderByIdDesc(TenantContext.requireTenant()).stream()
-        .map(invitation -> view(invitation, now))
-        .toList();
+    org.springframework.data.jpa.domain.Specification<Invitation> filter =
+        Specs.equal("tenantUid", TenantContext.requireTenant());
+    if (pendingOnly) {
+      filter =
+          filter.and(
+              (root, criteria, cb) ->
+                  cb.and(
+                      cb.isNull(root.get("acceptedAt")),
+                      cb.isNull(root.get("revokedAt")),
+                      cb.greaterThan(root.get("expiresAt"), now)));
+    }
+    return Keyset.page(invitations, filter, query, invitation -> view(invitation, now));
   }
 
   @Override
