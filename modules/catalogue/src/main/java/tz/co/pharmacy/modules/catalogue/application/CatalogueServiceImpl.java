@@ -56,6 +56,7 @@ class CatalogueServiceImpl implements CatalogueService {
   private final ProductRepository products;
   private final DomainEventPublisher events;
   private final ProductStock stock;
+  private final tz.co.pharmacy.platform.persistence.DocumentNumbers numbers;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -305,9 +306,30 @@ class CatalogueServiceImpl implements CatalogueService {
     return view(product);
   }
 
+  /** The next free automatic code of the pharmacy: P00001, P00002… past any already taken. */
+  private String nextCode() {
+    while (true) {
+      String code = "P" + String.format("%05d", numbers.next("product-code"));
+      if (!products.existsBySkuIgnoreCase(code)) {
+        return code;
+      }
+    }
+  }
+
   private Product.Details details(ProductCommand c, UUID existingUid) {
     String name = Checks.text(c.name(), "name", 200);
+    // Every product has a code, unique in the pharmacy: left empty, a new product gets the next
+    // free P00001-style code and a product being changed keeps the one it has.
     String sku = Checks.optionalText(c.sku(), "sku", 64);
+    if (sku == null) {
+      sku =
+          existingUid == null
+              ? null
+              : products.findByUid(existingUid).map(Product::getSku).orElse(null);
+      if (sku == null) {
+        sku = nextCode();
+      }
+    }
     String gtin = Checks.optionalText(c.gtin(), "gtin", 14);
     if (gtin != null && !GTIN.matcher(gtin).matches()) {
       throw Refusal.invalid("invalid_gtin", "gtin must be 8 to 14 digits (GS1 GTIN).", "gtin");
@@ -324,7 +346,7 @@ class CatalogueServiceImpl implements CatalogueService {
         && (existingUid == null
             ? products.existsBySkuIgnoreCase(sku)
             : products.existsBySkuIgnoreCaseAndUidNot(sku, existingUid))) {
-      throw Refusal.conflict("duplicate_sku", "Another product already has SKU " + sku + ".");
+      throw Refusal.conflict("duplicate_sku", "Another product already has the code " + sku + ".");
     }
     if (gtin != null
         && (existingUid == null
