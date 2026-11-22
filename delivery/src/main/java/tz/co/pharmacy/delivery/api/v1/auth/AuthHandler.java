@@ -21,8 +21,10 @@ import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.edge.EdgeFilter;
 import tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService;
 import tz.co.pharmacy.modules.access.ports.inbound.Principal;
+import tz.co.pharmacy.modules.access.ports.inbound.SessionActivity;
 import tz.co.pharmacy.modules.access.ports.inbound.SessionView;
 import tz.co.pharmacy.modules.access.ports.inbound.TwoFactorService;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantStatus;
 import tz.co.pharmacy.platform.kernel.Actor;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -38,14 +40,17 @@ public class AuthHandler {
   private final AuthenticationService authentication;
   private final TwoFactorService twoFactor;
   private final SessionResponses responses;
+  private final SettingsService settings;
 
   public AuthHandler(
       AuthenticationService authentication,
       TwoFactorService twoFactor,
-      SessionResponses responses) {
+      SessionResponses responses,
+      SettingsService settings) {
     this.authentication = authentication;
     this.twoFactor = twoFactor;
     this.responses = responses;
+    this.settings = settings;
   }
 
   /**
@@ -89,15 +94,38 @@ public class AuthHandler {
     return ApiResponse.ok(responses.session(null, null, principal), "Session retrieved");
   }
 
+  /**
+   * {@code {"reason": "IDLE"}}: the app signed the person out after the inactivity limit, and the
+   * audit log says so; without a body, they signed out themselves.
+   */
   @PostMapping("/sign-out")
   @Access(scope = AccessScope.AUTHENTICATED)
   public ApiResponse<Void> signOut(
-      @RequestHeader(name = "Authorization", required = false) String authorization) {
+      @RequestHeader(name = "Authorization", required = false) String authorization,
+      @RequestBody(required = false) SignOutRequest body) {
     String token = bearer(authorization);
     if (token != null) {
-      authentication.signOut(token);
+      authentication.signOut(token, body != null && "IDLE".equalsIgnoreCase(body.reason()));
     }
     return ApiResponse.ok("Signed out");
+  }
+
+  /**
+   * The person used the app (a key, a click, a touch), reported by the web app at most every half
+   * minute: the inactivity clock restarts. In a pharmacy ({@code X-Tenant-Id}) its own limit
+   * applies, otherwise the platform's. Other requests never restart the clock, as background ones
+   * run with nobody at the screen.
+   */
+  @PostMapping("/activity")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<SessionActivity> activity(
+      @RequestHeader(name = "Authorization", required = false) String authorization) {
+    Integer pharmacyMinutes =
+        ExecutionContext.tenantUid().isPresent() && !ExecutionContext.rootAdmin()
+            ? settings.current().idleMinutes()
+            : null;
+    return ApiResponse.ok(
+        authentication.recordActivity(bearer(authorization), pharmacyMinutes), "Activity recorded");
   }
 
   /** Changes the password and signs out every other session. */
@@ -148,6 +176,9 @@ public class AuthHandler {
     }
     return null;
   }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record SignOutRequest(String reason) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record SignInRequest(String email, String password) {}

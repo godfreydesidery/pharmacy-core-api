@@ -34,7 +34,22 @@ public interface AuthenticationService {
    */
   Optional<Principal> authenticate(String token);
 
-  void signOut(String token);
+  /**
+   * The person used the app (a key, a click, a touch): the inactivity clock restarts, with the
+   * limit of the pharmacy they work in ({@code pharmacyIdleMinutes}; null before one is chosen).
+   * Requests alone never restart it. 401 session_expired when the session is no longer live.
+   */
+  SessionActivity recordActivity(String token, Integer pharmacyIdleMinutes);
+
+  default void signOut(String token) {
+    signOut(token, false);
+  }
+
+  /**
+   * Ends the session. {@code idleTimeout}: the app signed the person out after its inactivity
+   * limit, audited as such (a SIGN_OUT with reason IDLE).
+   */
+  void signOut(String token, boolean idleTimeout);
 
   /** 422 invalid_current_password; 422 weak_password. */
   void changePassword(UUID userUid, String currentPassword, String newPassword);

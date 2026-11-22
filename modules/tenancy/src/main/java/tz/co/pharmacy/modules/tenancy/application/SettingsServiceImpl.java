@@ -16,6 +16,11 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 @Service
 class SettingsServiceImpl implements SettingsService {
 
+  /** The inactivity limits a pharmacy may choose, in minutes. */
+  static final int MIN_IDLE_MINUTES = 5;
+
+  static final int MAX_IDLE_MINUTES = 60;
+
   private final SettingsRepository settings;
   private final TenantRepository tenants;
 
@@ -46,6 +51,13 @@ class SettingsServiceImpl implements SettingsService {
           "expiryAlertDays must be between 1 and 730.",
           "expiryAlertDays");
     }
+    if (command.idleMinutes() != null
+        && (command.idleMinutes() < MIN_IDLE_MINUTES || command.idleMinutes() > MAX_IDLE_MINUTES)) {
+      throw Refusal.invalid(
+          "invalid_idle_minutes",
+          "idleMinutes must be between " + MIN_IDLE_MINUTES + " and " + MAX_IDLE_MINUTES + ".",
+          "idleMinutes");
+    }
     String footer =
         command.receiptFooter() == null || command.receiptFooter().isBlank()
             ? command.receiptFooter()
@@ -64,6 +76,7 @@ class SettingsServiceImpl implements SettingsService {
     row.changeSmsReceipts(command.smsReceipts());
     row.changePricesIncludeTax(command.pricesIncludeTax());
     row.changeLook(look(command.look()));
+    row.changeIdleMinutes(command.idleMinutes());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     return view(tenant, row);
@@ -140,6 +153,7 @@ class SettingsServiceImpl implements SettingsService {
         row.isSmsReceipts(),
         accepted(tenant, row),
         row.isPricesIncludeTax(),
-        row.getLook());
+        row.getLook(),
+        row.getIdleMinutes());
   }
 }

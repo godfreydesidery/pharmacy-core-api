@@ -48,6 +48,10 @@ pharmacy:
     migrations-enabled: ${PHARMACY_DB_MIGRATIONS_ENABLED:true}
   access:
     session-hours: ${PHARMACY_SESSION_HOURS:12}
+    # Sign out after this many minutes without use (keys, mouse, touch): the limit before a
+    # pharmacy is chosen and for root administrators; each pharmacy sets its own (5-60) in Settings.
+    idle-minutes: ${PHARMACY_IDLE_MINUTES:15}
+    idle-timeout-enabled: ${PHARMACY_IDLE_TIMEOUT_ENABLED:true}
   edge:
     cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
   bootstrap:

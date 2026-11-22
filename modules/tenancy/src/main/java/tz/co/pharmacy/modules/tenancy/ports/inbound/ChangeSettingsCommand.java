@@ -16,4 +16,6 @@ public record ChangeSettingsCommand(
     /* Selling prices include VAT, or have it added on top; null keeps the current rule. */
     Boolean pricesIncludeTax,
     /* PREMIUM or CLASSIC; null keeps the current look. */
-    String look) {}
+    String look,
+    /* Minutes without use that sign a person out, 5 to 60; null keeps the current limit. */
+    Integer idleMinutes) {}
