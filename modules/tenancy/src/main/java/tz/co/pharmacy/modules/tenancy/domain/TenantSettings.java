@@ -37,6 +37,9 @@ public class TenantSettings extends TenantEntity {
   /** Minutes without use after which a person is signed out (5 to 60). */
   private int idleMinutes;
 
+  /** Everyone who works here needs a second factor (an authenticator app or a passkey). */
+  private boolean requireTwoFactor;
+
   /** The looks a pharmacy can choose. */
   public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
 
@@ -77,6 +80,12 @@ public class TenantSettings extends TenantEntity {
   public void changeIdleMinutes(Integer idleMinutes) {
     if (idleMinutes != null) {
       this.idleMinutes = idleMinutes;
+    }
+  }
+
+  public void changeRequireTwoFactor(Boolean requireTwoFactor) {
+    if (requireTwoFactor != null) {
+      this.requireTwoFactor = requireTwoFactor;
     }
   }
 

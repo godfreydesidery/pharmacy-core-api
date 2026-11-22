@@ -242,8 +242,18 @@ class AuthenticationServiceImpl implements AuthenticationService {
       throw Refusal.unauthenticated("session_expired", "Your session has expired; sign in again.");
     }
     Session session = live.session();
-    Integer minutes = idle.minutesFor(live.user().isRootAdmin(), pharmacyIdleMinutes);
-    writes.executeWithoutResult(status -> sessions.markActive(session.getId(), now, minutes));
+    Integer offered = idle.minutesFor(live.user().isRootAdmin(), pharmacyIdleMinutes);
+    boolean fromPharmacy =
+        offered != null && pharmacyIdleMinutes != null && !live.user().isRootAdmin();
+    Integer minutes =
+        writes.execute(
+            status -> {
+              sessions.markActive(session.getId(), now, offered, fromPharmacy);
+              return sessions
+                  .findById(session.getId())
+                  .map(Session::getIdleMinutes)
+                  .orElse(offered);
+            });
     return new SessionActivity(
         minutes,
         minutes == null ? null : now.plus(Duration.ofMinutes(minutes)),

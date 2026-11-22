@@ -54,6 +54,7 @@ class DemoCurrencySeed {
                   List.of("USD", "KES"),
                   null,
                   null,
+                  null,
                   null));
           LocalDate today = LocalDate.now(Clocks.clock());
           rates.record(new RateCommand("USD", "TZS", new BigDecimal("2650"), today));

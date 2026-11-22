@@ -31,16 +31,28 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
   int touch(@Param("id") Long id, @Param("at") Instant at);
 
   /**
-   * The person used the app: the inactivity clock restarts, with the limit of the pharmacy they
-   * work in. Without a version bump or an audit entry; the web app calls it at most every half
-   * minute.
+   * The person used the app: the inactivity clock restarts. The limit (G17) is the strictest of the
+   * pharmacies the session has worked in ({@code fromPharmacy}): the first pharmacy sets it, a
+   * stricter one lowers it, a laxer one leaves it, so two tabs in two pharmacies do not flip it.
+   * Before any pharmacy, the platform's limit applies. Without a version bump or an audit entry;
+   * the web app calls it at most every half minute.
    */
   @Modifying
   @Query(
-      "update Session s set s.activeAt = :at, s.lastSeenAt = :at, s.idleMinutes = :idleMinutes"
+      "update Session s set s.activeAt = :at, s.lastSeenAt = :at,"
+          + " s.idleMinutes = case"
+          + "   when :fromPharmacy = false and s.idlePinned = true then s.idleMinutes"
+          + "   when :fromPharmacy = false then :idleMinutes"
+          + "   when s.idlePinned = false or s.idleMinutes is null then :idleMinutes"
+          + "   when :idleMinutes < s.idleMinutes then :idleMinutes"
+          + "   else s.idleMinutes end,"
+          + " s.idlePinned = case when :fromPharmacy = true then true else s.idlePinned end"
           + " where s.id = :id")
   int markActive(
-      @Param("id") Long id, @Param("at") Instant at, @Param("idleMinutes") Integer idleMinutes);
+      @Param("id") Long id,
+      @Param("at") Instant at,
+      @Param("idleMinutes") Integer idleMinutes,
+      @Param("fromPharmacy") boolean fromPharmacy);
 
   /** Revokes the session unless already revoked; 1 when this call ended it. */
   @Modifying

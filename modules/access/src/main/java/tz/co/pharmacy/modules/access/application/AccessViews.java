@@ -78,7 +78,12 @@ final class AccessViews {
         former ? membership.getFormerPhone() : user == null ? null : user.getPhone(),
         user != null && user.isManaged(),
         user == null ? null : user.getContactEmail(),
-        user != null && user.isPasswordChangeRequired());
+        user != null && user.isPasswordChangeRequired(),
+        new tz.co.pharmacy.modules.access.ports.inbound.StaffDetails(
+            membership.getStaffNumber(),
+            membership.getJobTitle(),
+            membership.getWorkPhone(),
+            membership.getWorkEmail()));
   }
 
   /** Permissions in catalogue order. */

@@ -123,6 +123,20 @@ public class AccountSecurityHandler {
     return ApiResponse.ok("The staff login is now part of your account");
   }
 
+  /** Leaves a pharmacy (G14), with the password. */
+  @PostMapping("/pharmacies/{tenantUid}/leave")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<Void> leavePharmacy(
+      @org.springframework.web.bind.annotation.PathVariable UUID tenantUid,
+      @RequestBody LeaveRequest body) {
+    security.leavePharmacy(
+        self(),
+        tenantUid,
+        body == null ? null : body.password(),
+        body == null ? null : body.code());
+    return ApiResponse.ok("You no longer work in that pharmacy");
+  }
+
   @GetMapping("/security/history")
   @Access(scope = AccessScope.AUTHENTICATED)
   public ApiResponse<Page<SecurityEventView>> history(
@@ -159,6 +173,9 @@ public class AccountSecurityHandler {
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record LinkRequest(String signIn, String loginPassword, String password, String code) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record LeaveRequest(String password, String code) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record PhoneResetRequest(String phone, String code, String newPassword) {}

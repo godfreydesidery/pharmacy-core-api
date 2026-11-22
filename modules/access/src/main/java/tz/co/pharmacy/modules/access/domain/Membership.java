@@ -35,6 +35,11 @@ public class Membership extends TenantEntity {
 
   private UUID userUid;
 
+  private String staffNumber;
+  private String jobTitle;
+  private String workPhone;
+  private String workEmail;
+
   @ManyToOne(fetch = FetchType.EAGER, optional = false)
   @JoinColumn(name = "role_id")
   private Role role;
@@ -62,6 +67,14 @@ public class Membership extends TenantEntity {
   }
 
   /** The person linked the staff login holding this membership to their personal account. */
+  /** The pharmacy's own details of the person (G15), already checked. */
+  public void changeStaff(String staffNumber, String jobTitle, String workPhone, String workEmail) {
+    this.staffNumber = staffNumber;
+    this.jobTitle = jobTitle;
+    this.workPhone = workPhone;
+    this.workEmail = workEmail;
+  }
+
   public void moveTo(UUID personalUid) {
     this.userUid = personalUid;
   }

@@ -27,8 +27,11 @@ public class AccessInterceptor implements HandlerInterceptor {
 
   private final Entitlements entitlements;
 
-  public AccessInterceptor(Entitlements entitlements) {
+  private final TenantPolicies policies;
+
+  public AccessInterceptor(Entitlements entitlements, TenantPolicies policies) {
     this.entitlements = entitlements;
+    this.policies = policies;
   }
 
   @Override
@@ -67,6 +70,17 @@ public class AccessInterceptor implements HandlerInterceptor {
         throw Refusal.forbidden(
             "two_factor_setup_required",
             "Set up two-factor sign-in on your account before using the platform.");
+      }
+      // G16: a pharmacy that requires a second factor of its staff. Root administrators answer to
+      // the platform's own rule above.
+      if (!principal.rootAdmin()
+          && !principal.secondFactor()
+          && frame.tenantUid() != null
+          && policies.requiresTwoFactor(frame.tenantUid())) {
+        throw Refusal.forbidden(
+            "two_factor_required_by_pharmacy",
+            "This pharmacy requires two-factor sign-in: set up an authenticator app or a passkey"
+                + " on your account first.");
       }
     }
     switch (access.scope()) {

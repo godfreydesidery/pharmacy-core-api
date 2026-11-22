@@ -98,6 +98,14 @@ public interface AccountSecurity {
       String code,
       ClientInfo client);
 
+  /**
+   * The person leaves a pharmacy themselves (G14), with their password (and second-factor code):
+   * the membership ends and the pharmacy keeps them as they were when they left. 404
+   * membership_not_found; 409 last_admin when no one else could manage the pharmacy's people; 422
+   * managed_login (a staff login's pharmacy switches it off instead).
+   */
+  void leavePharmacy(UUID userUid, UUID tenantUid, String password, String code);
+
   /** A root admin looks up an account by its sign-in email, to recover it. 404 user_not_found. */
   UserView account(String email);
 

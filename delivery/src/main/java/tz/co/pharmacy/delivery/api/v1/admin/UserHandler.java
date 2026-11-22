@@ -25,6 +25,7 @@ import tz.co.pharmacy.modules.access.ports.inbound.ManagedLogins;
 import tz.co.pharmacy.modules.access.ports.inbound.MemberEnrolment;
 import tz.co.pharmacy.modules.access.ports.inbound.MemberView;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
+import tz.co.pharmacy.modules.access.ports.inbound.StaffDetails;
 import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
@@ -162,7 +163,14 @@ public class UserHandler {
                 body.active() == null || body.active(),
                 body.phone(),
                 body.name(),
-                body.contactEmail())),
+                body.contactEmail(),
+                body.staffNumber() == null
+                        && body.jobTitle() == null
+                        && body.workPhone() == null
+                        && body.workEmail() == null
+                    ? null
+                    : new StaffDetails(
+                        body.staffNumber(), body.jobTitle(), body.workPhone(), body.workEmail()))),
         "User changed");
   }
 
@@ -185,7 +193,11 @@ public class UserHandler {
       Boolean active,
       String phone,
       String name,
-      String contactEmail) {}
+      String contactEmail,
+      String staffNumber,
+      String jobTitle,
+      String workPhone,
+      String workEmail) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ManagedLoginRequest(

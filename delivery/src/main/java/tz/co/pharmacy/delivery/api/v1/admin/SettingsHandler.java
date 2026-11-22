@@ -25,8 +25,13 @@ public class SettingsHandler {
 
   private final SettingsService settings;
   private final Entitlements entitlements;
+  private final tz.co.pharmacy.delivery.edge.TenantPolicies policies;
 
-  public SettingsHandler(SettingsService settings, Entitlements entitlements) {
+  public SettingsHandler(
+      SettingsService settings,
+      Entitlements entitlements,
+      tz.co.pharmacy.delivery.edge.TenantPolicies policies) {
+    this.policies = policies;
     this.settings = settings;
     this.entitlements = entitlements;
   }
@@ -41,11 +46,24 @@ public class SettingsHandler {
   /** {@code currency} and {@code timezone} are fixed at registration and ignored here. */
   @PutMapping
   @Access(scope = AccessScope.TENANT, permission = Permissions.SETTINGS_MANAGE)
-  public ApiResponse<SettingsView> change(@RequestBody SettingsRequest body) {
+  public ApiResponse<SettingsView> change(
+      @RequestBody SettingsRequest body, jakarta.servlet.http.HttpServletRequest request) {
     if (body == null) {
       throw Refusal.malformed("Settings are required.");
     }
+    if (Boolean.TRUE.equals(body.requireTwoFactor())
+        && request.getAttribute(tz.co.pharmacy.delivery.edge.EdgeFilter.PRINCIPAL)
+            instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal
+        && !principal.rootAdmin()
+        && !principal.secondFactor()) {
+      // Turning it on without one would lock the admin out of these very settings.
+      throw Refusal.invalid(
+          "two_factor_needed_first",
+          "Set up two-factor on your own account before requiring it of everyone.",
+          "requireTwoFactor");
+    }
     requireMultiCurrencyFor(body.acceptedCurrencies());
+    ExecutionContext.tenantUid().ifPresent(policies::forget);
     return ApiResponse.ok(
         settings.change(
             new ChangeSettingsCommand(
@@ -59,7 +77,8 @@ public class SettingsHandler {
                 body.acceptedCurrencies(),
                 body.pricesIncludeTax(),
                 body.look(),
-                body.idleMinutes())),
+                body.idleMinutes(),
+                body.requireTwoFactor())),
         "Settings changed");
   }
 
@@ -116,5 +135,6 @@ public class SettingsHandler {
       java.util.List<String> acceptedCurrencies,
       Boolean pricesIncludeTax,
       String look,
-      Integer idleMinutes) {}
+      Integer idleMinutes,
+      Boolean requireTwoFactor) {}
 }

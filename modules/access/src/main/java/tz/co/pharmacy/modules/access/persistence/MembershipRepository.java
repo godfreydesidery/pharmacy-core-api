@@ -20,6 +20,10 @@ public interface MembershipRepository
 
   boolean existsByUserUidAndTenantUid(UUID userUid, UUID tenantUid);
 
+  /** Another member of the pharmacy already has this staff number (any case). */
+  boolean existsByTenantUidAndStaffNumberIgnoreCaseAndUidNot(
+      UUID tenantUid, String staffNumber, UUID uid);
+
   List<Membership> findAllByUserUid(UUID userUid);
 
   /**

@@ -18,4 +18,6 @@ public record ChangeSettingsCommand(
     /* PREMIUM or CLASSIC; null keeps the current look. */
     String look,
     /* Minutes without use that sign a person out, 5 to 60; null keeps the current limit. */
-    Integer idleMinutes) {}
+    Integer idleMinutes,
+    /* Require a second factor of everyone who works here; null keeps the current rule. */
+    Boolean requireTwoFactor) {}
