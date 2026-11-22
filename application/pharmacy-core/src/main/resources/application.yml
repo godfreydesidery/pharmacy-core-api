@@ -61,6 +61,10 @@ pharmacy:
     idle-timeout-enabled: ${PHARMACY_IDLE_TIMEOUT_ENABLED:true}
   edge:
     cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
+    # Fair share: requests one pharmacy may have in progress at once (keep it under the database
+    # pool size), and how long one over the limit waits for a slot before a 429.
+    tenant-concurrency: ${PHARMACY_TENANT_CONCURRENCY:10}
+    tenant-wait-ms: ${PHARMACY_TENANT_WAIT_MS:2000}
   bootstrap:
     # The first root administrator, created at start when none exists (then change the password).
     root-name: ${PHARMACY_ROOT_NAME:Root Administrator}

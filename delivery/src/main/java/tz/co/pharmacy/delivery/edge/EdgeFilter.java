@@ -68,6 +68,7 @@ public class EdgeFilter extends OncePerRequestFilter {
   private final RateLimiter rateLimiter;
   private final RootActivity rootActivity;
   private final PharmacyVisits visits;
+  private final TenantConcurrency fairShare;
   private final int authRequestsPerMinute;
 
   public EdgeFilter(
@@ -78,7 +79,9 @@ public class EdgeFilter extends OncePerRequestFilter {
       RateLimiter rateLimiter,
       RootActivity rootActivity,
       PharmacyVisits visits,
+      TenantConcurrency fairShare,
       @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute) {
+    this.fairShare = fairShare;
     this.authentication = authentication;
     this.memberships = memberships;
     this.tenants = tenants;
@@ -111,7 +114,17 @@ public class EdgeFilter extends OncePerRequestFilter {
         rootActivity.note(
             frame.actor().uid(), frame.tenantUid(), request.getMethod(), request.getRequestURI());
       }
-      chain.doFilter(request, response);
+      // Fair share: a pharmacy's own requests count against its limit (not the live stream, which
+      // stays open, nor a root administrator's support work).
+      if (frame.tenantUid() != null
+          && !frame.rootAdmin()
+          && !STREAM_PATH.equals(request.getRequestURI())) {
+        try (TenantConcurrency.Slot slot = fairShare.acquire(frame.tenantUid())) {
+          chain.doFilter(request, response);
+        }
+      } else {
+        chain.doFilter(request, response);
+      }
     } catch (Refusal refusal) {
       Problems.write(response, refusal, correlationId);
     } finally {
