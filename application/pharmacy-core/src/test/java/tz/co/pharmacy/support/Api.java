@@ -152,6 +152,18 @@ public final class Api {
     }
   }
 
+  /** Polls until {@code value} gives something other than null, and returns it. */
+  public static <T> T eventuallyValue(java.util.function.Supplier<T> value) {
+    java.util.concurrent.atomic.AtomicReference<T> found =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    eventually(
+        () -> {
+          found.set(value.get());
+          return found.get() != null;
+        });
+    return found.get();
+  }
+
   /** Polls until the condition holds: event listeners run after commit, on their own threads. */
   public static void eventually(BooleanSupplier condition) {
     long deadline = System.currentTimeMillis() + 15_000;

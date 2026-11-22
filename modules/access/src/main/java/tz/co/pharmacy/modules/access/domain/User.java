@@ -34,6 +34,9 @@ public class User extends MutableEntity {
   /** E.164, such as +255754000111; null when not given. */
   private String phone;
 
+  /** When the holder of {@code phone} typed the code sent to it; null while unverified. */
+  private Instant phoneVerifiedAt;
+
   private Instant lastSignInAt;
 
   private boolean twoFactorEnabled;
@@ -76,10 +79,39 @@ public class User extends MutableEntity {
     lockedUntil = null;
   }
 
-  /** The person's own name and phone. */
+  /** The person's own name and phone. A different phone is no longer verified. */
   public void changeProfile(String name, String phone) {
     this.name = name;
+    if (phone == null ? this.phone != null : !phone.equals(this.phone)) {
+      this.phoneVerifiedAt = null;
+    }
     this.phone = phone;
+  }
+
+  /** The person's name only (their phone changes through verification). */
+  public void rename(String name) {
+    this.name = name;
+  }
+
+  /** The holder of {@code phone} proved it with a code: it is this account's verified phone. */
+  public void verifyPhone(String phone, Instant at) {
+    this.phone = phone;
+    this.phoneVerifiedAt = at;
+  }
+
+  /** The phone was verified by another account since (a recycled number): it is dropped here. */
+  public void losePhone() {
+    this.phone = null;
+    this.phoneVerifiedAt = null;
+  }
+
+  public boolean hasVerifiedPhone() {
+    return phone != null && phoneVerifiedAt != null;
+  }
+
+  /** A new sign-in email, confirmed from its mailbox. */
+  public void changeEmail(String email) {
+    this.email = email;
   }
 
   public void activate(boolean active) {

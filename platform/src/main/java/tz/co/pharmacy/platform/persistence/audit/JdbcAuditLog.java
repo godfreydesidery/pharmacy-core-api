@@ -111,6 +111,41 @@ public class JdbcAuditLog implements AuditLog {
     return Page.keyset(labelled(rows), query, AuditEntryView::uid);
   }
 
+  @Override
+  @Transactional(readOnly = true)
+  public Page<AuditEntryView> securityEvents(UUID userUid, PageQuery query) {
+    String filtered =
+        "select uid, at, actor, action, entity_type, entity_uid, tenant_uid, branch_uid,"
+            + " before::text as before_json, after::text as after_json, correlation_id, label"
+            + " from audit.entries where entity_type = 'User' and entity_uid = ?"
+            + " and action not in ('CREATE', 'UPDATE', 'DELETE')";
+    if (query.numbered()) {
+      Long total =
+          jdbc.queryForObject(
+              "select count(*) from (" + filtered + ") counted", Long.class, userUid);
+      List<AuditEntryView> rows =
+          jdbc.query(
+              filtered + " order by uid desc limit ? offset ?",
+              this::row,
+              userUid,
+              query.limit(),
+              query.offset());
+      return Page.numbered(rows, total == null ? 0 : total);
+    }
+    UUID after = query.afterUid();
+    List<AuditEntryView> rows =
+        after == null
+            ? jdbc.query(
+                filtered + " order by uid desc limit ?", this::row, userUid, query.limit() + 1)
+            : jdbc.query(
+                filtered + " and uid < ? order by uid desc limit ?",
+                this::row,
+                userUid,
+                after,
+                query.limit() + 1);
+    return Page.keyset(rows, query, AuditEntryView::uid);
+  }
+
   /** Fills in the label of entries written without one, from the module owning the record. */
   private List<AuditEntryView> labelled(List<AuditEntryView> rows) {
     Map<String, Set<UUID>> missing = new HashMap<>();

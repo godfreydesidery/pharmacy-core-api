@@ -148,6 +148,11 @@ class PasswordResetServiceImpl implements PasswordResetService {
                     user.getUid(),
                     null,
                     Map.of("sessionsRevoked", revoked));
+                String phone = target.hasVerifiedPhone() ? target.getPhone() : null;
+                notices.ifAvailable(
+                    notice ->
+                        notice.passwordChanged(
+                            target.getUid(), target.getName(), target.getEmail(), phone, now));
               });
           return null;
         });

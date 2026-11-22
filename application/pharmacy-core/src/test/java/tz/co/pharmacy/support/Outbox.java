@@ -40,6 +40,53 @@ public final class Outbox {
     return token.get();
   }
 
+  /**
+   * The body of the latest platform message (no pharmacy) of {@code templateKey} sent on {@code
+   * channel} (EMAIL, SMS) to {@code address}, waiting for it; or null when {@code wait} is false
+   * and there is none.
+   */
+  public String platformMessage(String templateKey, String channel, String address, boolean wait) {
+    AtomicReference<String> body = new AtomicReference<>();
+    if (!wait) {
+      return latest(templateKey, channel, address);
+    }
+    Api.eventually(
+        () -> {
+          body.set(latest(templateKey, channel, address));
+          return body.get() != null;
+        });
+    return body.get();
+  }
+
+  /** The {@code token=} of a link in a message body. */
+  public static String token(String body) {
+    Matcher matcher = TOKEN.matcher(body);
+    return matcher.find() ? matcher.group(1) : null;
+  }
+
+  /** The 6-digit code in a message body. */
+  public static String code(String body) {
+    Matcher matcher = Pattern.compile("\\b(\\d{6})\\b").matcher(body);
+    return matcher.find() ? matcher.group(1) : null;
+  }
+
+  private String latest(String templateKey, String channel, String address) {
+    try (Connection connection = DriverManager.getConnection(url, user, password);
+        PreparedStatement query =
+            connection.prepareStatement(
+                "select body from notifications.messages where template_key = ? and channel = ?"
+                    + " and to_address = ? order by id desc limit 1")) {
+      query.setString(1, templateKey);
+      query.setString(2, channel);
+      query.setString(3, address);
+      try (ResultSet rows = query.executeQuery()) {
+        return rows.next() ? rows.getString(1) : null;
+      }
+    } catch (SQLException exception) {
+      throw new IllegalStateException(exception);
+    }
+  }
+
   private String read(String tenantUid, String email) {
     try (Connection connection = DriverManager.getConnection(url, user, password)) {
       try (PreparedStatement tenant =

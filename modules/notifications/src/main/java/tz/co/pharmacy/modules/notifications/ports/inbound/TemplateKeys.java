@@ -14,6 +14,14 @@ public final class TemplateKeys {
   public static final String ACCESS_PASSWORD_RESET = "access.password_reset";
   public static final String ACCESS_NEW_SIGN_IN = "access.new_sign_in";
   public static final String ACCESS_TWO_FACTOR_CODE = "access.two_factor_code";
+  public static final String ACCESS_VERIFICATION_CODE = "access.verification_code";
+  public static final String ACCESS_EMAIL_CONFIRM = "access.email_confirm";
+  public static final String ACCESS_EMAIL_IN_USE = "access.email_in_use";
+  public static final String ACCESS_EMAIL_CHANGED = "access.email_changed";
+  public static final String ACCESS_PASSWORD_CHANGED = "access.password_changed";
+  public static final String ACCESS_PHONE_REMOVED = "access.phone_removed";
+  public static final String ACCESS_RECOVERY_STARTED = "access.recovery_started";
+  public static final String ACCESS_RECOVERY_LINK = "access.recovery_link";
   public static final String TENANT_WELCOME = "tenant.welcome";
   public static final String SUBSCRIPTION_DUE = "tenant.subscription_due";
   public static final String SUBSCRIPTION_PAST_DUE = "tenant.subscription_past_due";
@@ -29,6 +37,14 @@ public final class TemplateKeys {
           ACCESS_PASSWORD_RESET,
           ACCESS_NEW_SIGN_IN,
           ACCESS_TWO_FACTOR_CODE,
+          ACCESS_VERIFICATION_CODE,
+          ACCESS_EMAIL_CONFIRM,
+          ACCESS_EMAIL_IN_USE,
+          ACCESS_EMAIL_CHANGED,
+          ACCESS_PASSWORD_CHANGED,
+          ACCESS_PHONE_REMOVED,
+          ACCESS_RECOVERY_STARTED,
+          ACCESS_RECOVERY_LINK,
           TENANT_WELCOME,
           SUBSCRIPTION_DUE,
           SUBSCRIPTION_PAST_DUE);

@@ -238,7 +238,13 @@ public class EdgeFilter extends OncePerRequestFilter {
       return;
     }
     String path = request.getRequestURI().substring(AUTH_PREFIX.length());
-    if (path.equals("sign-out") || path.startsWith("2fa/") || path.startsWith("change-password")) {
+    if (path.equals("sign-out")
+        || path.startsWith("2fa/")
+        || path.startsWith("change-password")
+        // Signed-in changes to one's own account, limited on their own (codes an hour).
+        || path.equals("email-change")
+        || path.equals("phone")
+        || path.startsWith("phone/")) {
       return;
     }
     rateLimiter

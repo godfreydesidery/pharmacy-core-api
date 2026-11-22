@@ -134,25 +134,22 @@ class AdminDataTest extends IntegrationTest {
   }
 
   @Test
-  @DisplayName("M-07 a person sets their phone (E.164); members show it")
+  @DisplayName("M-07 a person's phone changes only by its SMS code (G9); the name changes freely")
   void staffPhone() {
+    assertThat(
+            admin
+                .put("/api/v1/auth/profile", "{\"name\":\"Admin\",\"phone\":\"not a phone\"}")
+                .expect(422)
+                .string("$.reason"))
+        .isEqualTo("invalid_phone");
     assertThat(
             admin
                 .put("/api/v1/auth/profile", "{\"name\":\"Admin\",\"phone\":\"0754 000 111\"}")
                 .expect(422)
                 .string("$.reason"))
-        .isEqualTo("invalid_phone");
-    Response saved =
-        admin
-            .put(
-                "/api/v1/auth/profile",
-                "{\"name\":\"Admin Person\",\"phone\":\"+255 754-000-111\"}")
-            .expect(200);
-    assertThat(saved.string("$.data.phone")).isEqualTo("+255754000111");
+        .isEqualTo("phone_needs_verification");
+    Response saved = admin.put("/api/v1/auth/profile", "{\"name\":\"Admin Person\"}").expect(200);
     assertThat(saved.string("$.data.name")).isEqualTo("Admin Person");
-    List<String> phones =
-        admin.get("/api/v1/users").expect(200).json().read("$.data.items[*].phone");
-    assertThat(phones).contains("+255754000111");
   }
 
   @Test

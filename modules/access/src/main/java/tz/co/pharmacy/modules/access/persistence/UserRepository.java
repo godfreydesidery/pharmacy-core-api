@@ -12,6 +12,9 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
   Optional<User> findByEmail(String email);
 
+  /** The account whose verified phone this is (at most one). */
+  Optional<User> findByPhoneAndPhoneVerifiedAtIsNotNull(String phone);
+
   Optional<User> findByUid(UUID uid);
 
   List<User> findAllByUidIn(Collection<UUID> uids);
