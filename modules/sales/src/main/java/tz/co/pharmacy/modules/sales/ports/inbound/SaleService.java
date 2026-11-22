@@ -16,6 +16,14 @@ public interface SaleService {
   Optional<SaleView> findByIdempotencyKey(String key);
 
   /**
+   * Takes the idempotency key for the caller's transaction, then returns the sale already made with
+   * it, if any. A second request with the same key, sent before the first has finished (a double
+   * tap, a till retrying after a timeout), waits for the first and gets its sale instead of a
+   * conflict.
+   */
+  Optional<SaleView> claimIdempotencyKey(String key);
+
+  /**
    * Records a priced sale. Per line: gross = unitPrice × quantity, discount = gross ×
    * discountPercent %, tax = (gross − discount) × taxRate %, lineTotal = gross − discount + tax.
    * Refuses 422 {@code prescription_required}, {@code discount_not_allowed}, {@code

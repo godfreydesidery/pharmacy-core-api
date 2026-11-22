@@ -93,6 +93,16 @@ class SaleServiceImpl implements SaleService {
 
   @Override
   @Transactional
+  public Optional<SaleView> claimIdempotencyKey(String key) {
+    if (key == null || key.isBlank()) {
+      return Optional.empty();
+    }
+    sales.holdLock("sale:" + ExecutionContext.requireTenant() + ":" + key.trim());
+    return sales.findByIdempotencyKey(key.trim()).map(SaleServiceImpl::view);
+  }
+
+  @Override
+  @Transactional
   public SaleView record(RecordSaleCommand command) {
     UUID branch = ExecutionContext.requireBranch();
     String number = Checks.text(command.number(), "number", 40);
