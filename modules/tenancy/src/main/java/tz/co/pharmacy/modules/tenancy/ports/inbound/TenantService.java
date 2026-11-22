@@ -27,7 +27,11 @@ public interface TenantService {
    */
   TenantView change(UUID tenantUid, ChangeTenantCommand command);
 
-  TenantView suspend(UUID tenantUid, String reason);
+  /**
+   * Suspends a pharmacy for {@code kind} (OTHER when null), with a note saying why (required). A
+   * DISPUTE suspension is a legal hold: the pharmacy's data may not be erased until it is lifted.
+   */
+  TenantView suspend(UUID tenantUid, SuspensionKind kind, String reason);
 
   TenantView reactivate(UUID tenantUid);
 

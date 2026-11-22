@@ -115,8 +115,15 @@ class SubscriptionPlansTest extends IntegrationTest {
     Response suspended = root.get("/api/v1/platform/tenants/" + tenant).expect(200);
     assertThat(suspended.string("$.data.status")).isEqualTo("SUSPENDED");
     assertThat(suspended.string("$.data.statusReason")).isEqualTo("Subscription unpaid");
-    assertThat(admin.get("/api/v1/customers").expect(403).string("$.reason"))
-        .isEqualTo("tenant_suspended");
+    assertThat(suspended.string("$.data.suspensionKind")).isEqualTo("UNPAID");
+    // Unpaid: the admin can still read (to pay and take the data out), not change anything.
+    admin.get("/api/v1/customers").expect(200);
+    assertThat(
+            admin
+                .post("/api/v1/customers", "{\"name\":\"Late\",\"phone\":\"+255700000009\"}")
+                .expect(403)
+                .string("$.reason"))
+        .isEqualTo("tenant_suspended_read_only");
 
     // Paying the invoice reactivates the pharmacy for the invoiced period.
     root.post(

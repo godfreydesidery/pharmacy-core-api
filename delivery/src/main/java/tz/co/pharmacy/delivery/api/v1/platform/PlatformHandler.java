@@ -44,12 +44,15 @@ public class PlatformHandler {
   private final TenantOnboarding onboarding;
   private final UserAdministration users;
   private final PasswordResetService passwordResets;
+  private final tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions;
 
   public PlatformHandler(
       TenantService tenants,
       TenantOnboarding onboarding,
       UserAdministration users,
-      PasswordResetService passwordResets) {
+      PasswordResetService passwordResets,
+      tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions) {
+    this.subscriptions = subscriptions;
     this.tenants = tenants;
     this.onboarding = onboarding;
     this.users = users;
@@ -133,14 +136,24 @@ public class PlatformHandler {
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> suspend(
       @PathVariable UUID tenantUid, @RequestBody(required = false) ReasonRequest body) {
+    tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind kind =
+        body == null || body.kind() == null || body.kind().isBlank()
+            ? null
+            : tz.co.pharmacy.platform.kernel.Checks.oneOf(
+                tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.class,
+                body.kind(),
+                "kind");
     return ApiResponse.ok(
-        tenants.suspend(tenantUid, body == null ? null : body.reason()), "Tenant suspended");
+        tenants.suspend(tenantUid, kind, body == null ? null : body.reason()), "Tenant suspended");
   }
 
   @PostMapping("/tenants/{tenantUid}/reactivate")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> reactivate(@PathVariable UUID tenantUid) {
-    return ApiResponse.ok(tenants.reactivate(tenantUid), "Tenant reactivated");
+    TenantView tenant = tenants.reactivate(tenantUid);
+    // Its subscription goes on too, or the lifecycle would never invoice it again.
+    subscriptions.resumeAfterReactivation(tenantUid);
+    return ApiResponse.ok(tenant, "Tenant reactivated");
   }
 
   @GetMapping("/root-admins")
@@ -225,7 +238,8 @@ public class PlatformHandler {
   public record AdminRequest(String name, String email, String password) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public record ReasonRequest(String reason) {}
+  /** {@code kind}: UNPAID, DISPUTE (a legal hold), ABUSE or OTHER (the default). */
+  public record ReasonRequest(String reason, String kind) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ChangeTenantRequest(

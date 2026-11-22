@@ -32,6 +32,9 @@ public class Tenant extends MutableEntity {
 
   private String statusReason;
 
+  @Enumerated(EnumType.STRING)
+  private tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind suspensionKind;
+
   private String contactName;
 
   private String contactEmail;
@@ -90,13 +93,22 @@ public class Tenant extends MutableEntity {
     this.currency = currency;
   }
 
-  public void suspend(String reason) {
+  public void suspend(
+      tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind kind, String note) {
     status = TenantStatus.SUSPENDED;
-    statusReason = reason;
+    suspensionKind = kind;
+    statusReason = note;
   }
 
   public void reactivate() {
     status = TenantStatus.ACTIVE;
+    suspensionKind = null;
     statusReason = null;
+  }
+
+  /** Under a legal hold: its data may not be erased. */
+  public boolean onLegalHold() {
+    return status == TenantStatus.SUSPENDED
+        && suspensionKind == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.DISPUTE;
   }
 }

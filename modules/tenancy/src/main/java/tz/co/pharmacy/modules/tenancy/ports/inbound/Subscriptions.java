@@ -43,6 +43,13 @@ public interface Subscriptions {
    */
   List<String> runLifecycle(LocalDate today);
 
+  /**
+   * After a root admin reactivated the pharmacy by hand: a suspended subscription goes on (past due
+   * with a fresh grace period when an invoice is unpaid, else active), so the lifecycle keeps
+   * invoicing it.
+   */
+  void resumeAfterReactivation(UUID tenantUid);
+
   /** As {@link #runLifecycle(LocalDate)} for one tenant only. */
   List<String> runLifecycle(LocalDate today, UUID tenantUid);
 

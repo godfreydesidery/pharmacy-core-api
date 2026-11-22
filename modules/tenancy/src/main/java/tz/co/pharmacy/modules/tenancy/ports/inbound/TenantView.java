@@ -19,4 +19,6 @@ public record TenantView(
     String contactEmail,
     String contactPhone,
     String address,
-    boolean directUserCreation) {}
+    boolean directUserCreation,
+    /* Why it is suspended (null while active): UNPAID, DISPUTE, ABUSE or OTHER. */
+    SuspensionKind suspensionKind) {}

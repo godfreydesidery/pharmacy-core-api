@@ -473,7 +473,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
     if (s.getGraceEnds() != null && day.isAfter(s.getGraceEnds())) {
       s.suspended();
       if (tenant.getStatus() == TenantStatus.ACTIVE) {
-        tenant.suspend(UNPAID);
+        tenant.suspend(tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID, UNPAID);
       }
       log.add(tenant.getCode() + ": suspended for non-payment");
     }
@@ -483,8 +483,34 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
   private void liftUnpaidSuspension(UUID tenantUid) {
     tenants
         .findByUid(tenantUid)
-        .filter(t -> t.getStatus() == TenantStatus.SUSPENDED && UNPAID.equals(t.getStatusReason()))
+        .filter(
+            t ->
+                t.getStatus() == TenantStatus.SUSPENDED
+                    && t.getSuspensionKind()
+                        == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID)
         .ifPresent(Tenant::reactivate);
+  }
+
+  @Override
+  public void resumeAfterReactivation(UUID tenantUid) {
+    // A root admin lifted the suspension by hand: the subscription goes on, or the lifecycle would
+    // skip it for good. An unpaid invoice gets a fresh grace period; otherwise it is active.
+    tx.executeWithoutResult(
+        status ->
+            subscriptions
+                .findByTenantUid(tenantUid)
+                .filter(s -> s.getStatus() == SubscriptionStatus.SUSPENDED)
+                .ifPresent(
+                    s -> {
+                      boolean owing =
+                          invoices.findByTenantUidOrderByIdDesc(tenantUid).stream()
+                              .anyMatch(SubscriptionInvoice::open);
+                      if (owing) {
+                        s.pastDue(today().plusDays(graceDays));
+                      } else {
+                        s.resume();
+                      }
+                    }));
   }
 
   // ------------------------------------------------------------------ helpers

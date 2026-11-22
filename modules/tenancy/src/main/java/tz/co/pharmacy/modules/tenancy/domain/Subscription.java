@@ -86,6 +86,12 @@ public class Subscription extends MutableEntity {
     this.status = SubscriptionStatus.SUSPENDED;
   }
 
+  /** Back in good standing after a suspension was lifted with nothing owed. */
+  public void resume() {
+    this.status = SubscriptionStatus.ACTIVE;
+    this.graceEnds = null;
+  }
+
   public void reminded(String key) {
     this.lastReminder = key;
   }
