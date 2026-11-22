@@ -12,4 +12,10 @@ public interface WebhookDeliveryRepository
   Optional<WebhookDelivery> findByUid(UUID uid);
 
   boolean existsByWebhookUidAndEventId(UUID webhookUid, UUID eventId);
+
+  /** The current pharmacy's failed deliveries whose next attempt is due, oldest first. */
+  java.util.List<WebhookDelivery>
+      findTop100ByStatusAndNextAttemptAtLessThanEqualOrderByNextAttemptAt(
+          tz.co.pharmacy.modules.integrations.ports.inbound.DeliveryStatus status,
+          java.time.Instant now);
 }

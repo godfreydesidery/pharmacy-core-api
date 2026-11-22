@@ -169,6 +169,98 @@ class WebhooksImpl implements Webhooks {
     }
   }
 
+  @Override
+  public int retryDue() {
+    record Target(
+        UUID deliveryUid,
+        UUID webhookUid,
+        String url,
+        String secret,
+        String eventType,
+        String body) {}
+    List<Target> due =
+        transactions.execute(
+            status -> {
+              List<Target> targets = new ArrayList<>();
+              for (WebhookDelivery delivery :
+                  deliveries.findTop100ByStatusAndNextAttemptAtLessThanEqualOrderByNextAttemptAt(
+                      tz.co.pharmacy.modules.integrations.ports.inbound.DeliveryStatus.FAILED,
+                      clock.instant())) {
+                var webhook =
+                    webhooks.findByUid(delivery.getWebhookUid()).filter(w -> w.isActive());
+                if (webhook.isEmpty()) {
+                  delivery.giveUp("The webhook was removed or switched off.");
+                  continue;
+                }
+                targets.add(
+                    new Target(
+                        delivery.getUid(),
+                        delivery.getWebhookUid(),
+                        webhook.get().getUrl(),
+                        webhook.get().getSecret(),
+                        delivery.getEventType(),
+                        delivery.getPayload()));
+              }
+              return targets;
+            });
+    if (due == null) {
+      return 0;
+    }
+    // One lane per webhook, side by side: a system that hangs only delays its own deliveries (the
+    // chaos run found one hung system holding back a healthy one for minutes). Within a lane, a
+    // delivery that still fails ends the lane for this run: the rest stay due, so a system that is
+    // down gets one probe a minute rather than every delivery timing out in turn.
+    java.util.Map<UUID, List<Target>> lanes = new java.util.LinkedHashMap<>();
+    for (Target target : due) {
+      lanes.computeIfAbsent(target.webhookUid(), ignored -> new ArrayList<>()).add(target);
+    }
+    UUID tenantUid = TenantContext.requireTenant();
+    var frame = tz.co.pharmacy.platform.kernel.ExecutionContext.current().orElse(null);
+    java.util.concurrent.atomic.AtomicInteger tried =
+        new java.util.concurrent.atomic.AtomicInteger();
+    try (var lanesRunning = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      for (List<Target> lane : lanes.values()) {
+        lanesRunning.submit(
+            () -> {
+              java.util.function.Supplier<Void> work =
+                  () ->
+                      TenantContext.callAs(
+                          tenantUid,
+                          () -> {
+                            for (Target target : lane) {
+                              tried.incrementAndGet();
+                              WebhookSender.Outcome outcome =
+                                  sender.send(
+                                      target.url(),
+                                      target.secret(),
+                                      target.eventType(),
+                                      target.body());
+                              transactions.executeWithoutResult(
+                                  status ->
+                                      deliveries
+                                          .findByUid(target.deliveryUid())
+                                          .ifPresent(
+                                              delivery ->
+                                                  delivery.recordAttempt(
+                                                      outcome.attempts(),
+                                                      outcome.responseStatus(),
+                                                      outcome.error(),
+                                                      outcome.delivered())));
+                              if (!outcome.delivered()) {
+                                break;
+                              }
+                            }
+                            return null;
+                          });
+              return frame == null
+                  ? work.get()
+                  : tz.co.pharmacy.platform.kernel.ExecutionContext.callAs(frame, work);
+            });
+      }
+    }
+    return tried.get();
+  }
+
   /** A CloudEvents 1.0 JSON envelope around the event, without its internal metadata. */
   String cloudEvent(
       UUID eventId, String eventType, Instant occurredAt, UUID tenantUid, Object data) {
@@ -244,6 +336,7 @@ class WebhooksImpl implements Webhooks {
         delivery.getAttempts(),
         delivery.getLastError(),
         delivery.getCreatedAt(),
-        delivery.getDeliveredAt());
+        delivery.getDeliveredAt(),
+        delivery.getNextAttemptAt());
   }
 }

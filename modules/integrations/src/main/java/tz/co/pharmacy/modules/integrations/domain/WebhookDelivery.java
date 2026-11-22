@@ -46,6 +46,25 @@ public class WebhookDelivery extends TenantEntity {
 
   private Instant deliveredAt;
 
+  /** Rounds of attempts made (each round is up to three quick tries). */
+  private int rounds;
+
+  /** When a failed delivery is next tried; null once delivered or given up. */
+  private Instant nextAttemptAt;
+
+  /**
+   * Waits after the 1st, 2nd... failed round: about two days in all, then the delivery gives up.
+   */
+  static final java.util.List<java.time.Duration> BACKOFF =
+      java.util.List.of(
+          java.time.Duration.ofMinutes(1),
+          java.time.Duration.ofMinutes(5),
+          java.time.Duration.ofMinutes(30),
+          java.time.Duration.ofHours(2),
+          java.time.Duration.ofHours(6),
+          java.time.Duration.ofHours(12),
+          java.time.Duration.ofHours(24));
+
   public WebhookDelivery(UUID webhookUid, String eventType, UUID eventId, String payload) {
     this.webhookUid = webhookUid;
     this.eventType = eventType;
@@ -54,11 +73,24 @@ public class WebhookDelivery extends TenantEntity {
     this.status = DeliveryStatus.PENDING;
   }
 
+  /**
+   * Records one round of attempts; a failed round schedules the next one (see {@link #BACKOFF}).
+   */
   public void recordAttempt(int attempts, Integer responseStatus, String error, boolean delivered) {
-    this.attempts = attempts;
+    Instant now = Clocks.now();
+    this.attempts += attempts;
+    this.rounds++;
     this.responseStatus = responseStatus;
     this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
     this.status = delivered ? DeliveryStatus.DELIVERED : DeliveryStatus.FAILED;
-    this.deliveredAt = delivered ? Clocks.now() : null;
+    this.deliveredAt = delivered ? now : null;
+    this.nextAttemptAt =
+        delivered || rounds > BACKOFF.size() ? null : now.plus(BACKOFF.get(rounds - 1));
+  }
+
+  /** The webhook is gone or switched off: no more attempts. */
+  public void giveUp(String reason) {
+    this.nextAttemptAt = null;
+    this.lastError = reason;
   }
 }
