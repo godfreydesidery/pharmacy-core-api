@@ -133,8 +133,9 @@ class IdleSignOutTest extends IntegrationTest {
     admin.get("/api/v1/settings").expect(200);
     lastUsed(14);
     admin.get("/api/v1/settings").expect(200);
-    // ...and requests alone never move it on.
-    lastUsed(15);
+    // ...and requests alone never move it on. (Past the limit, not on it: at exactly 15:00 the
+    // test's database clock and the server's can differ by a fraction of a millisecond.)
+    lastUsed(16);
     admin.get("/api/v1/settings").expect(401);
   }
 
