@@ -59,6 +59,11 @@ public final class Api {
 
   /** Posts one file as multipart/form-data, as a browser's file input does, under {@code file}. */
   public Response upload(String path, String fileName, byte[] content) {
+    return upload(path, fileName, "application/octet-stream", content);
+  }
+
+  /** A multipart upload of one part named file, sent as {@code contentType}. */
+  public Response upload(String path, String fileName, String contentType, byte[] content) {
     String boundary = "----pharmacy" + System.nanoTime();
     String crlf = "\r\n";
     byte[] head =
@@ -69,7 +74,8 @@ public final class Api {
                 + fileName
                 + "\""
                 + crlf
-                + "Content-Type: application/octet-stream"
+                + "Content-Type: "
+                + contentType
                 + crlf
                 + crlf)
             .getBytes(java.nio.charset.StandardCharsets.UTF_8);

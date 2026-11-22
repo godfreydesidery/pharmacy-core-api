@@ -50,6 +50,9 @@ public interface Subscriptions {
    */
   void resumeAfterReactivation(UUID tenantUid);
 
+  /** The pharmacy closed: its subscription is cancelled and no longer invoiced. */
+  void cancel(UUID tenantUid);
+
   /** As {@link #runLifecycle(LocalDate)} for one tenant only. */
   List<String> runLifecycle(LocalDate today, UUID tenantUid);
 

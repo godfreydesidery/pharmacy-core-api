@@ -499,7 +499,10 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
         status ->
             subscriptions
                 .findByTenantUid(tenantUid)
-                .filter(s -> s.getStatus() == SubscriptionStatus.SUSPENDED)
+                .filter(
+                    s ->
+                        s.getStatus() == SubscriptionStatus.SUSPENDED
+                            || s.getStatus() == SubscriptionStatus.CANCELLED)
                 .ifPresent(
                     s -> {
                       boolean owing =
@@ -511,6 +514,12 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
                         s.resume();
                       }
                     }));
+  }
+
+  @Override
+  public void cancel(UUID tenantUid) {
+    tx.executeWithoutResult(
+        status -> subscriptions.findByTenantUid(tenantUid).ifPresent(Subscription::cancel));
   }
 
   // ------------------------------------------------------------------ helpers

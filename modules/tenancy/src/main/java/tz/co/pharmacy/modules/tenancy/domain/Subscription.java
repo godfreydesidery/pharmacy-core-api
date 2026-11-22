@@ -86,6 +86,12 @@ public class Subscription extends MutableEntity {
     this.status = SubscriptionStatus.SUSPENDED;
   }
 
+  /** The pharmacy closed: no more invoices. */
+  public void cancel() {
+    this.status = SubscriptionStatus.CANCELLED;
+    this.graceEnds = null;
+  }
+
   /** Back in good standing after a suspension was lifted with nothing owed. */
   public void resume() {
     this.status = SubscriptionStatus.ACTIVE;

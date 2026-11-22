@@ -33,7 +33,23 @@ public interface TenantService {
    */
   TenantView suspend(UUID tenantUid, SuspensionKind kind, String reason);
 
+  /** 422 not_suspended when it is not suspended. A dispute's legal hold is lifted with it. */
   TenantView reactivate(UUID tenantUid);
+
+  /**
+   * Closes a pharmacy (its owner's request, or a lapsed account): nobody works in it, its admins
+   * may still read and export, and after {@code coolingOffDays} a root admin may erase it. 422
+   * already_closed.
+   */
+  TenantView close(UUID tenantUid, String reason, int coolingOffDays);
+
+  /** Reopens a closed pharmacy before it is erased. 422 not_closed. */
+  TenantView reopen(UUID tenantUid);
+
+  /** Places a legal hold: the pharmacy's data may not be erased until it is lifted. */
+  TenantView legalHold(UUID tenantUid, String reason);
+
+  TenantView liftLegalHold(UUID tenantUid);
 
   PlatformCounts counts();
 
