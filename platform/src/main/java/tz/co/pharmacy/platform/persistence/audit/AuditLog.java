@@ -36,4 +36,12 @@ public interface AuditLog {
       LocalDate from,
       LocalDate to,
       PageQuery query);
+
+  /**
+   * The security events of one account in the current scope, newest first: sign-ins, failed
+   * attempts, password, email, phone and second-factor changes. Record changes (CREATE, UPDATE,
+   * DELETE) are left out. Read on the account's own routes, which name no tenant, it is the
+   * platform's record of the person and nothing a pharmacy wrote.
+   */
+  Page<AuditEntryView> securityEvents(UUID userUid, PageQuery query);
 }

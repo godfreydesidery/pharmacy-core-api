@@ -43,6 +43,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
   private final SessionIssuer issuer;
   private final AuthenticationServiceImpl authentication;
   private final AuditLog audit;
+  private final tz.co.pharmacy.modules.access.persistence.EmailChangeRepository emailChanges;
   private final TransactionTemplate writes;
 
   /** TOTP codes come from the user's authenticator app, which keeps real time. */
@@ -59,9 +60,11 @@ class TwoFactorServiceImpl implements TwoFactorService {
       SessionIssuer issuer,
       AuthenticationServiceImpl authentication,
       AuditLog audit,
+      tz.co.pharmacy.modules.access.persistence.EmailChangeRepository emailChanges,
       PlatformTransactionManager transactionManager,
       Clock clock) {
     this.clock = clock;
+    this.emailChanges = emailChanges;
     this.users = users;
     this.recoveryCodes = recoveryCodes;
     this.challenges = challenges;
@@ -82,7 +85,16 @@ class TwoFactorServiceImpl implements TwoFactorService {
         user.getTwoFactorEnabledAt(),
         recoveryCodes.countByUserUidAndUsedAtIsNull(userUid),
         passkeys.countByUserUid(userUid),
-        issuer.twoFactorRequired(user));
+        issuer.twoFactorRequired(user),
+        user.getEmail(),
+        user.getPhone(),
+        user.hasVerifiedPhone(),
+        user.isManaged(),
+        emailChanges.findByUserUidOrderByCreatedAtDesc(userUid).stream()
+            .filter(change -> change.openAt(clock.instant()) && !change.isRecovery())
+            .map(tz.co.pharmacy.modules.access.domain.EmailChange::getNewEmail)
+            .findFirst()
+            .orElse(null));
   }
 
   @Override
@@ -194,6 +206,11 @@ class TwoFactorServiceImpl implements TwoFactorService {
       throw Refusal.unauthenticated("invalid_code", "That code is not right.");
     }
     return issuer.issue(user, from, "TWO_FACTOR");
+  }
+
+  /** The second factor again, for a change to how the person signs in (an email change). */
+  boolean confirmSecondFactor(User user, String code) {
+    return secondFactor(user, code);
   }
 
   /**

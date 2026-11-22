@@ -179,6 +179,133 @@ final class TemplateCatalog {
             "Msimbo wa Pharmacy Core: {{code}} (unaisha dakika {{minutes}}). Usimpe mtu."),
         Map.of("code", "482913", "minutes", 5));
     define(
+        TemplateKeys.ACCESS_VERIFICATION_CODE,
+        new Default(
+            "Your verification code",
+            "Your Pharmacy Core verification code is {{code}}. It expires in {{minutes}} minutes."
+                + " Never share it with anyone, not even Pharmacy Core staff.",
+            "Pharmacy Core code: {{code}} (expires in {{minutes}} min). Never share it."),
+        new Default(
+            "Msimbo wako wa uthibitisho",
+            "Msimbo wako wa uthibitisho wa Pharmacy Core ni {{code}}. Unaisha baada ya dakika"
+                + " {{minutes}}. Usimpe mtu yeyote, hata wafanyakazi wa Pharmacy Core.",
+            "Msimbo wa Pharmacy Core: {{code}} (unaisha dakika {{minutes}}). Usimpe mtu."),
+        Map.of("code", "482913", "minutes", 10));
+    define(
+        TemplateKeys.ACCESS_EMAIL_CONFIRM,
+        new Default(
+            "Confirm your new sign-in email",
+            "Hello {{name}}, confirm that you want to sign in to Pharmacy Core with this address:"
+                + " {{link}} The link works for {{minutes}} minutes. If you did not ask for this,"
+                + " ignore this email; nothing changes.",
+            "Confirm your new Pharmacy Core email: {{link}}"),
+        new Default(
+            "Thibitisha barua pepe yako mpya ya kuingia",
+            "Habari {{name}}, thibitisha kwamba unataka kuingia Pharmacy Core kwa anwani hii:"
+                + " {{link}} Kiungo kinafanya kazi kwa dakika {{minutes}}. Kama hukuomba hili,"
+                + " puuza barua hii; hakuna kitakachobadilika.",
+            "Thibitisha barua pepe yako mpya ya Pharmacy Core: {{link}}"),
+        Map.of("name", "Amina Hassan", "link", "/confirm-email?token=...", "minutes", 60));
+    define(
+        TemplateKeys.ACCESS_EMAIL_IN_USE,
+        new Default(
+            "This email already has an account",
+            "Someone asked to use this address for a Pharmacy Core account, but it already has"
+                + " one. Nothing was changed. If it was you, sign in with this address instead, or"
+                + " use Forgot password.",
+            "This email already has a Pharmacy Core account; nothing was changed."),
+        new Default(
+            "Barua pepe hii tayari ina akaunti",
+            "Mtu ameomba kutumia anwani hii kwa akaunti ya Pharmacy Core, lakini tayari ina"
+                + " akaunti. Hakuna kilichobadilika. Kama ni wewe, ingia kwa anwani hii, au tumia"
+                + " Umesahau nenosiri.",
+            "Barua pepe hii tayari ina akaunti ya Pharmacy Core; hakuna kilichobadilika."),
+        Map.of());
+    define(
+        TemplateKeys.ACCESS_EMAIL_CHANGED,
+        new Default(
+            "Your sign-in email was changed",
+            "Hello {{name}}, your Pharmacy Core sign-in email was changed to {{newEmail}} on"
+                + " {{time}}. If this was not you, contact your pharmacy or Pharmacy Core support"
+                + " at once.",
+            "Your Pharmacy Core sign-in email was changed to {{newEmail}}. Not you? Contact"
+                + " support now."),
+        new Default(
+            "Barua pepe yako ya kuingia imebadilishwa",
+            "Habari {{name}}, barua pepe yako ya kuingia Pharmacy Core imebadilishwa kuwa"
+                + " {{newEmail}} tarehe {{time}}. Kama si wewe, wasiliana na famasia yako au msaada"
+                + " wa Pharmacy Core mara moja.",
+            "Barua pepe yako ya Pharmacy Core imebadilishwa kuwa {{newEmail}}. Si wewe? Wasiliana"
+                + " na msaada sasa."),
+        Map.of(
+            "name", "Amina Hassan", "newEmail", "a***@example.com", "time", "22 Nov 2026 10:15"));
+    define(
+        TemplateKeys.ACCESS_PASSWORD_CHANGED,
+        new Default(
+            "Your password was changed",
+            "Hello {{name}}, the password of your Pharmacy Core account was changed on {{time}}."
+                + " If this was not you, reset it now with Forgot password and contact support.",
+            "Your Pharmacy Core password was changed. Not you? Reset it now."),
+        new Default(
+            "Nenosiri lako limebadilishwa",
+            "Habari {{name}}, nenosiri la akaunti yako ya Pharmacy Core limebadilishwa tarehe"
+                + " {{time}}. Kama si wewe, libadilishe sasa kwa Umesahau nenosiri na uwasiliane"
+                + " na msaada.",
+            "Nenosiri lako la Pharmacy Core limebadilishwa. Si wewe? Libadilishe sasa."),
+        Map.of("name", "Amina Hassan", "time", "22 Nov 2026 10:15"));
+    define(
+        TemplateKeys.ACCESS_PHONE_REMOVED,
+        new Default(
+            "Your phone number was removed",
+            "Hello {{name}}, the phone number {{phone}} was verified by another Pharmacy Core"
+                + " account, so it is no longer on yours. Phone numbers are sometimes given to new"
+                + " owners. Add your current number on your account's security page.",
+            "{{phone}} was verified by another account and removed from yours."),
+        new Default(
+            "Namba yako ya simu imeondolewa",
+            "Habari {{name}}, namba ya simu {{phone}} imethibitishwa na akaunti nyingine ya"
+                + " Pharmacy Core, kwa hiyo haipo tena kwenye yako. Namba za simu wakati mwingine"
+                + " hupewa wamiliki wapya. Ongeza namba yako ya sasa kwenye ukurasa wa usalama.",
+            "{{phone}} imethibitishwa na akaunti nyingine na kuondolewa kwenye yako."),
+        Map.of("name", "Amina Hassan", "phone", "+255754000111"));
+    define(
+        TemplateKeys.ACCESS_RECOVERY_STARTED,
+        new Default(
+            "Recovery of your account was started",
+            "Hello {{name}}, Pharmacy Core support started a recovery of your account to the"
+                + " address {{newEmail}}. It can be used from {{usableAt}}. If you did not ask for"
+                + " this, cancel it now: {{cancelLink}}",
+            "Recovery of your Pharmacy Core account to {{newEmail}} starts {{usableAt}}. Not you?"
+                + " Cancel: {{cancelLink}}"),
+        new Default(
+            "Urejeshaji wa akaunti yako umeanzishwa",
+            "Habari {{name}}, msaada wa Pharmacy Core umeanzisha urejeshaji wa akaunti yako kwenda"
+                + " anwani {{newEmail}}. Unaweza kutumika kuanzia {{usableAt}}. Kama hukuomba hili,"
+                + " usitishe sasa: {{cancelLink}}",
+            "Urejeshaji wa akaunti yako ya Pharmacy Core kwenda {{newEmail}} unaanza {{usableAt}}."
+                + " Si wewe? Sitisha: {{cancelLink}}"),
+        Map.of(
+            "name", "Amina Hassan",
+            "newEmail", "a***@example.com",
+            "usableAt", "23 Nov 2026 10:15",
+            "cancelLink", "/cancel-recovery?token=..."));
+    define(
+        TemplateKeys.ACCESS_RECOVERY_LINK,
+        new Default(
+            "Recover your Pharmacy Core account",
+            "Hello {{name}}, use this link to choose a new password and sign in with this address"
+                + " from {{usableAt}}: {{link}} Your old email and phone were told, and the"
+                + " recovery stops if they cancel it.",
+            "Recover your Pharmacy Core account from {{usableAt}}: {{link}}"),
+        new Default(
+            "Rejesha akaunti yako ya Pharmacy Core",
+            "Habari {{name}}, tumia kiungo hiki kuchagua nenosiri jipya na kuingia kwa anwani hii"
+                + " kuanzia {{usableAt}}: {{link}} Barua pepe na simu yako ya zamani zimearifiwa,"
+                + " na urejeshaji unasimama wakiusitisha.",
+            "Rejesha akaunti yako ya Pharmacy Core kuanzia {{usableAt}}: {{link}}"),
+        Map.of(
+            "name", "Amina Hassan", "usableAt", "23 Nov 2026 10:15", "link", "/recover?token=..."));
+    define(
         TemplateKeys.TENANT_WELCOME,
         new Default(
             "Welcome to Pharmacy Core, {{pharmacyName}}",

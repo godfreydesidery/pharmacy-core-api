@@ -13,6 +13,7 @@ import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
 import tz.co.pharmacy.support.Outbox;
+import tz.co.pharmacy.support.Phones;
 import tz.co.pharmacy.support.Staff;
 
 /**
@@ -186,9 +187,11 @@ class PharmaciesApartTest extends IntegrationTest {
             .read("$.data[?(@.code == 'PHARMACIST')].uid");
     String role = roles.getFirst();
     Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x"));
-    session
-        .put("/api/v1/auth/profile", "{\"name\":\"Juma Ali\",\"phone\":\"+255754000111\"}")
-        .expect(200);
+    Outbox outbox = new Outbox(url, owner, ownerPassword);
+    String first = Phones.fresh();
+    String second = Phones.fresh();
+    session.put("/api/v1/auth/profile", "{\"name\":\"Juma Ali\"}").expect(200);
+    Phones.verify(session, outbox, first);
 
     // He leaves the weekend pharmacy, then changes his name and phone.
     weekendAdmin
@@ -196,13 +199,12 @@ class PharmaciesApartTest extends IntegrationTest {
             "/api/v1/users/" + membership,
             "{\"roleUid\":\"%s\",\"allBranches\":true,\"active\":false}".formatted(role))
         .expect(200);
-    session
-        .put("/api/v1/auth/profile", "{\"name\":\"Juma Mwinyi\",\"phone\":\"+255754000999\"}")
-        .expect(200);
+    session.put("/api/v1/auth/profile", "{\"name\":\"Juma Mwinyi\"}").expect(200);
+    Phones.verify(session, outbox, second);
 
     Map<String, Object> former = member(weekendAdmin, membership);
     assertThat(former.get("name")).isEqualTo("Juma Ali");
-    assertThat(former.get("phone")).isEqualTo("+255754000111");
+    assertThat(former.get("phone")).isEqualTo(first);
     // Found by what the pharmacy kept, not by what changed since.
     Response byNew = weekendAdmin.get("/api/v1/users?q=Mwinyi").expect(200);
     assertThat(byNew.read("$.data.items.length()", Integer.class)).isZero();

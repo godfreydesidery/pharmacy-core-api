@@ -159,10 +159,7 @@ class UserAdministrationImpl implements UserAdministration {
     }
     Membership membership =
         memberships.save(new Membership(user.getUid(), role, command.allBranches(), branches));
-    String phone = phone(command.phone());
-    if (phone != null && user.getPhone() == null) {
-      user.changeProfile(user.getName(), phone);
-    }
+    // A personal account's phone is the person's, verified by them (G9); an admin never sets it.
     return AccessViews.member(membership, user);
   }
 
@@ -196,8 +193,6 @@ class UserAdministrationImpl implements UserAdministration {
       if (wasActive && !command.active()) {
         sessions.revokeAll(user.getUid(), clock.instant(), null);
       }
-    } else if (user != null && phone != null && user.getPhone() == null) {
-      user.changeProfile(user.getName(), phone);
     }
     if (wasActive && !command.active() && user != null) {
       // From now on the pharmacy sees the person as they are at this moment.
@@ -354,7 +349,21 @@ class UserAdministrationImpl implements UserAdministration {
   @Transactional
   public UserView changeOwnProfile(String name, String phone) {
     User user = self();
-    user.changeProfile(Checks.text(name, "name", 120), phone(phone));
+    String named = Checks.text(name, "name", 120);
+    if (user.isManaged()) {
+      // A staff login's phone is a contact detail.
+      user.changeProfile(named, phone(phone));
+      return AccessViews.user(user);
+    }
+    // A person's phone changes only through verification (a code sent to it).
+    String given = phone == null || phone.isBlank() ? null : Phones.normalise(phone);
+    if (given != null && !given.equals(user.getPhone())) {
+      throw Refusal.invalid(
+          "phone_needs_verification",
+          "Add or change your phone on the security page, with the code sent to it.",
+          "phone");
+    }
+    user.rename(named);
     return AccessViews.user(user);
   }
 

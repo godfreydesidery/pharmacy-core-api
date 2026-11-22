@@ -13,7 +13,8 @@ public record UserView(
     Instant createdAt,
     String phone,
     boolean managed,
-    String contactEmail) {
+    String contactEmail,
+    boolean phoneVerified) {
 
   /** Where mail to the user goes: their email, or a managed login's contact email. */
   public String mailbox() {

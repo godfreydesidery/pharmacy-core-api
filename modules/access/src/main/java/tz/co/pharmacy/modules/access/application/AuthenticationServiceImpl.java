@@ -55,6 +55,9 @@ class AuthenticationServiceImpl implements AuthenticationService {
   private final IdlePolicy idle;
   private final tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch;
   private final AuditLog audit;
+  private final org.springframework.beans.factory.ObjectProvider<
+          tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+      notices;
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
 
@@ -72,9 +75,13 @@ class AuthenticationServiceImpl implements AuthenticationService {
       IdlePolicy idle,
       tz.co.pharmacy.platform.persistence.TenantSwitch tenantSwitch,
       AuditLog audit,
+      org.springframework.beans.factory.ObjectProvider<
+              tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+          notices,
       PlatformTransactionManager transactionManager,
       Clock clock) {
     this.clock = clock;
+    this.notices = notices;
     this.idle = idle;
     this.tenantSwitch = tenantSwitch;
     this.users = users;
@@ -322,6 +329,15 @@ class AuthenticationServiceImpl implements AuthenticationService {
                   : sessions.revokeAll(userUid, clock.instant(), Tokens.hash(currentToken.trim()));
           audit.record(
               "PASSWORD_CHANGED", "User", userUid, null, Map.of("otherSessionsRevoked", revoked));
+          if (!user.isManaged()) {
+            // Told on the person's other channels (NIST SP 800-63B 6.1.2.3), in case it was not
+            // them.
+            String phone = user.hasVerifiedPhone() ? user.getPhone() : null;
+            notices.ifAvailable(
+                notice ->
+                    notice.passwordChanged(
+                        userUid, user.getName(), user.getEmail(), phone, clock.instant()));
+          }
         });
   }
 

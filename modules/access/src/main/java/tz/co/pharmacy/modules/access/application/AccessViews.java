@@ -27,7 +27,8 @@ final class AccessViews {
         user.getCreatedAt(),
         user.getPhone(),
         user.isManaged(),
-        user.getContactEmail());
+        user.getContactEmail(),
+        user.hasVerifiedPhone());
   }
 
   static RoleView role(Role role) {
