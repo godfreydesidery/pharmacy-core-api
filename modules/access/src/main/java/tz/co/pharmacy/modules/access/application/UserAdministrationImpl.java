@@ -255,7 +255,8 @@ class UserAdministrationImpl implements UserAdministration {
 
   @Override
   @Transactional
-  public MemberView seedTenant(NewUserCommand administrator) {
+  public tz.co.pharmacy.modules.access.ports.inbound.SeededTenant seedTenant(
+      NewUserCommand administrator) {
     Checks.required(administrator, "admin");
     UUID tenant = TenantContext.requireTenant();
     Permissions.defaultRoles()
@@ -267,22 +268,24 @@ class UserAdministrationImpl implements UserAdministration {
             });
     Role admin = roles.findByCode("ADMIN").orElseThrow();
     String email = Checks.email(administrator.email(), "admin.email");
+    Optional<User> found = users.findByEmail(email);
+    if (found.isPresent()) {
+      Optional<Membership> existing =
+          memberships.findByUserUidAndTenantUid(found.get().getUid(), tenant);
+      return new tz.co.pharmacy.modules.access.ports.inbound.SeededTenant(
+          existing.map(membership -> AccessViews.member(membership, found.get())).orElse(null),
+          admin.getUid());
+    }
     User user =
-        users
-            .findByEmail(email)
-            .orElseGet(
-                () ->
-                    users.save(
-                        new User(
-                            email,
-                            Checks.text(administrator.name(), "admin.name", 120),
-                            passwords.hash(administrator.password(), "admin.password"),
-                            false)));
-    Optional<Membership> existing = memberships.findByUserUidAndTenantUid(user.getUid(), tenant);
-    Membership membership =
-        existing.orElseGet(
-            () -> memberships.save(new Membership(user.getUid(), admin, true, List.of())));
-    return AccessViews.member(membership, user);
+        users.save(
+            new User(
+                email,
+                Checks.text(administrator.name(), "admin.name", 120),
+                passwords.hash(administrator.password(), "admin.password"),
+                false));
+    Membership membership = memberships.save(new Membership(user.getUid(), admin, true, List.of()));
+    return new tz.co.pharmacy.modules.access.ports.inbound.SeededTenant(
+        AccessViews.member(membership, user), admin.getUid());
   }
 
   @Override

@@ -64,42 +64,35 @@ public class UserHandler {
   }
 
   /**
-   * 201 with the new member; 202 with {@code invited: true} when the email already has an account,
-   * which joins only by accepting the invitation sent to it. A pharmacy the root administrator has
-   * not allowed to create logins directly always invites.
+   * 202 with {@code invited: true}: adding a person by email always sends an invitation, whether or
+   * not the email has an account, and they join when they accept. A password in the body is
+   * ignored. For someone with no email, create a managed login.
    */
   @CountsAgainst(PlanLimit.USERS)
   @PostMapping
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
-  public ResponseEntity<ApiResponse<?>> add(@RequestBody AddMemberRequest body) {
+  public ResponseEntity<ApiResponse<InvitedResponse>> add(@RequestBody AddMemberRequest body) {
     if (body == null) {
       throw Refusal.malformed("A user is required.");
     }
-    MemberEnrolment.Outcome outcome =
+    var invitation =
         enrolment.add(
             new AddMemberCommand(
                 body.name(),
                 body.email(),
-                body.password(),
+                null,
                 body.roleUid(),
                 Boolean.TRUE.equals(body.allBranches()),
                 body.branchUids(),
-                body.phone()),
-            pharmacy().directUserCreation());
-    return switch (outcome) {
-      case MemberEnrolment.Added added ->
-          ResponseEntity.status(HttpStatus.CREATED)
-              .body(ApiResponse.created(added.member(), "User added"));
-      case MemberEnrolment.Invited invited ->
-          ResponseEntity.status(HttpStatus.ACCEPTED)
-              .body(
-                  ApiResponse.ok(
-                      new InvitedResponse(true, invited.invitation().uid()),
-                      "An invitation was sent; they join when they accept."));
-    };
+                body.phone()));
+    return ResponseEntity.status(HttpStatus.ACCEPTED)
+        .body(
+            ApiResponse.ok(
+                new InvitedResponse(true, invitation.uid()),
+                "An invitation was sent; they join when they accept."));
   }
 
-  /** The person was invited rather than added. */
+  /** The invitation sent; the person joins when they accept. */
   public record InvitedResponse(boolean invited, UUID invitationUid) {}
 
   /**

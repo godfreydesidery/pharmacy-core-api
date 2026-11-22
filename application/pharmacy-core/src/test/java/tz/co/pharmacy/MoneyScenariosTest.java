@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Staff;
 
 /**
  * Every way a customer can pay, end to end over HTTP: partial payment with the balance on account,
@@ -386,17 +387,7 @@ class MoneyScenariosTest extends IntegrationTest {
   @Test
   @DisplayName("a supervisor's cash refund from the cashier's drawer counts in the cashier's shift")
   void supervisorRefundCountsInTheCashiersShift() {
-    String email = "till." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
-    List<String> roles =
-        admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
-    admin
-        .post(
-            "/api/v1/users",
-            """
-            {"name":"Zawadi","email":"%s","password":"Staff#2026x","roleUid":"%s","allBranches":true}
-            """
-                .formatted(email, roles.getFirst()))
-        .expect(201);
+    String email = Staff.login(admin, anonymous, "Zawadi", "CASHIER", "Staff#2026x").signIn();
     Api cashier = anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenantUid, branchUid);
     cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
     Response sale =
@@ -433,18 +424,8 @@ class MoneyScenariosTest extends IntegrationTest {
   @Test
   @DisplayName("a cashier whose email changes mid-shift keeps one shift and one report row")
   void emailChangeKeepsTheShift() {
-    String before = "kesho." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
+    String before = Staff.login(admin, anonymous, "Neema", "CASHIER", "Staff#2026x").signIn();
     String after = "kesho." + UUID.randomUUID().toString().substring(0, 6) + "@mail.test";
-    List<String> roles =
-        admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
-    admin
-        .post(
-            "/api/v1/users",
-            """
-            {"name":"Neema","email":"%s","password":"Staff#2026x","roleUid":"%s","allBranches":true}
-            """
-                .formatted(before, roles.getFirst()))
-        .expect(201);
     Api cashier = anonymous.as(anonymous.signIn(before, "Staff#2026x")).in(tenantUid, branchUid);
     cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
     String sale =

@@ -4,7 +4,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** {@code status}: PENDING, ACCEPTED, EXPIRED or REVOKED. */
+/**
+ * {@code status}: PENDING, ACCEPTED, EXPIRED or REVOKED. {@code acceptedAs}: the sign-in of the
+ * account that accepted, which may differ from the email invited.
+ */
 public record InvitationView(
     UUID uid,
     String email,
@@ -16,4 +19,5 @@ public record InvitationView(
     String status,
     String invitedBy,
     Instant expiresAt,
-    Instant createdAt) {}
+    Instant createdAt,
+    String acceptedAs) {}

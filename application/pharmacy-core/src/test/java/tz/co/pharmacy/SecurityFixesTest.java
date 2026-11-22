@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Staff;
 
 /**
  * The security fixes from the QA report (gaps.md): webhook targets (H-01), root access in the
@@ -137,9 +138,9 @@ class SecurityFixesTest extends IntegrationTest {
   @Test
   @DisplayName("M-14 an administrator sees a locked member and unlocks them")
   void adminUnlocksALockedMember() {
-    String email = "locked." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
-    String membership =
-        addUser(admin, email, "Staff#2026x").expect(201).string("$.data.membershipUid");
+    Staff.Login login = Staff.login(admin, anonymous, "Locked", "CASHIER", "Staff#2026x");
+    String email = login.signIn();
+    String membership = login.membershipUid();
     Response last = null;
     for (int i = 0; i < 6; i++) {
       last =
@@ -159,8 +160,7 @@ class SecurityFixesTest extends IntegrationTest {
   @Test
   @DisplayName("M-15 an authenticator code works once")
   void authenticatorCodesAreSingleUse() {
-    String email = "totp." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
-    addUser(admin, email, "Staff#2026x").expect(201);
+    String email = Staff.login(admin, anonymous, "Totp", "CASHIER", "Staff#2026x").signIn();
     Api staff = anonymous.as(anonymous.signIn(email, "Staff#2026x"));
     String secret = staff.post("/api/v1/auth/2fa/setup", "{}").expect(200).string("$.data.secret");
     String now = totp(secret, Instant.now());
@@ -227,8 +227,7 @@ class SecurityFixesTest extends IntegrationTest {
   @Test
   @DisplayName("a pharmacy's audit shows who signed in, and when; another pharmacy's does not")
   void signInsAreInThePharmacysAudit() {
-    String email = "seen." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
-    addUser(admin, email, "Staff#2026x").expect(201);
+    String email = Staff.login(admin, anonymous, "Seen", "CASHIER", "Staff#2026x").signIn();
     anonymous.signIn(email, "Staff#2026x");
 
     Response signIns = admin.get("/api/v1/audit?action=sign_in&limit=50").expect(200);

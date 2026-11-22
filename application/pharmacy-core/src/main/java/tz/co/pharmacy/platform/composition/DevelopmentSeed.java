@@ -122,23 +122,24 @@ class DevelopmentSeed {
     }
     TenantView afya =
         platform(
-            () ->
-                onboarding.onboard(
-                    new OnboardTenantCommand(
-                        new RegisterTenantCommand(
-                            "AFYA",
-                            "Afya Pharmacy",
-                            "Afya Pharmacy Ltd",
-                            "TZ",
-                            "TZS",
-                            "Africa/Dar_es_Salaam",
-                            new BranchCommand(
-                                "HQ",
-                                "Head Office",
-                                "Plot 12, Samora Avenue, Dar es Salaam",
-                                "+255 222 000 111",
-                                "PC/DSM/2026/0451")),
-                        new NewUserCommand("Amina Hassan", "admin@afya.co.tz", "Afya#2026"))));
+                () ->
+                    onboarding.onboard(
+                        new OnboardTenantCommand(
+                            new RegisterTenantCommand(
+                                "AFYA",
+                                "Afya Pharmacy",
+                                "Afya Pharmacy Ltd",
+                                "TZ",
+                                "TZS",
+                                "Africa/Dar_es_Salaam",
+                                new BranchCommand(
+                                    "HQ",
+                                    "Head Office",
+                                    "Plot 12, Samora Avenue, Dar es Salaam",
+                                    "+255 222 000 111",
+                                    "PC/DSM/2026/0451")),
+                            new NewUserCommand("Amina Hassan", "admin@afya.co.tz", "Afya#2026"))))
+            .tenant();
     UUID tenant = afya.uid();
     BranchView hq = inTenant(tenant, null, () -> branches.list().getFirst());
     BranchView mbezi =

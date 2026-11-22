@@ -69,12 +69,12 @@ public class PlatformHandler {
   @PostMapping("/tenants")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
-  public ApiResponse<TenantView> register(@RequestBody RegisterTenantRequest body) {
+  public ApiResponse<RegisteredResponse> register(@RequestBody RegisterTenantRequest body) {
     if (body == null) {
       throw Refusal.malformed("A tenant is required.");
     }
     AdminRequest admin = body.admin();
-    TenantView tenant =
+    TenantOnboarding.Onboarded onboarded =
         onboarding.onboard(
             new OnboardTenantCommand(
                 new RegisterTenantCommand(
@@ -88,7 +88,11 @@ public class PlatformHandler {
                 admin == null
                     ? null
                     : new NewUserCommand(admin.name(), admin.email(), admin.password())));
-    return ApiResponse.created(tenant, "Tenant registered");
+    return ApiResponse.created(
+        new RegisteredResponse(onboarded.tenant(), onboarded.adminInvited()),
+        onboarded.adminInvited()
+            ? "Tenant registered; its administrator already has an account and was invited"
+            : "Tenant registered");
   }
 
   @GetMapping("/tenants/{tenantUid}")
@@ -236,6 +240,13 @@ public class PlatformHandler {
       String contactPhone,
       String address,
       Boolean directUserCreation) {}
+
+  /**
+   * The pharmacy, and whether its administrator was invited (the email already had an account)
+   * rather than made with the password given.
+   */
+  public record RegisteredResponse(
+      @com.fasterxml.jackson.annotation.JsonUnwrapped TenantView tenant, boolean adminInvited) {}
 
   public record OverviewResponse(
       long tenants, long activeTenants, long suspendedTenants, long branches, long users) {}

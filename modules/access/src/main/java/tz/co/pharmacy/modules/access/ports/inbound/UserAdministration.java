@@ -33,10 +33,11 @@ public interface UserAdministration {
   RoleView changeRole(UUID roleUid, RoleCommand command);
 
   /**
-   * Seeds the default system roles in the current tenant and makes the user, new or existing by
-   * email, its ADMIN for every branch.
+   * Seeds the default system roles in the current tenant. A new email becomes its ADMIN for every
+   * branch at once; an email that already has an account is left for the caller to invite, so no
+   * one is made a pharmacy's administrator without accepting (and the typed password is unused).
    */
-  MemberView seedTenant(NewUserCommand administrator);
+  SeededTenant seedTenant(NewUserCommand administrator);
 
   /** Platform scope. */
   List<UserView> rootAdmins();
