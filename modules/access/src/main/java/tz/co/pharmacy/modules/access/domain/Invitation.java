@@ -18,8 +18,8 @@ import tz.co.pharmacy.platform.persistence.TenantEntity;
 
 /**
  * An invitation to join the tenant with a role and branch access. The invitee proves it with the
- * token sent by email (only its hash is stored); accepting it makes or reuses the user and gives
- * them the membership.
+ * token sent by email (only its hash is stored). A new person accepts by making their account; a
+ * person who has one signs in and joins with it, whatever its email.
  */
 @Getter
 @Entity
@@ -43,6 +43,10 @@ public class Invitation extends TenantEntity {
   private String invitedBy;
   private Instant expiresAt;
   private Instant acceptedAt;
+
+  /** The account that accepted, which may sign in with another email than the one invited. */
+  private UUID acceptedByUserUid;
+
   private Instant revokedAt;
 
   public Invitation(
@@ -88,8 +92,9 @@ public class Invitation extends TenantEntity {
     return "PENDING".equals(status(at));
   }
 
-  public void accept(Instant at) {
+  public void accept(Instant at, UUID userUid) {
     acceptedAt = at;
+    acceptedByUserUid = userUid;
   }
 
   public void revoke(Instant at) {

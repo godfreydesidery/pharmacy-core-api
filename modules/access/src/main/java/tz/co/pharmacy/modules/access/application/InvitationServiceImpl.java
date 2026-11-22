@@ -56,7 +56,6 @@ class InvitationServiceImpl implements InvitationService {
   private final MembershipRepository memberships;
   private final Passwords passwords;
   private final SessionIssuer issuer;
-  private final AuthenticationServiceImpl authentication;
   private final TenantSwitch tenantSwitch;
   private final AuditLog audit;
   private final ObjectProvider<AccessNotices> notices;
@@ -74,7 +73,6 @@ class InvitationServiceImpl implements InvitationService {
       MembershipRepository memberships,
       Passwords passwords,
       SessionIssuer issuer,
-      AuthenticationServiceImpl authentication,
       TenantSwitch tenantSwitch,
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
@@ -89,7 +87,6 @@ class InvitationServiceImpl implements InvitationService {
     this.memberships = memberships;
     this.passwords = passwords;
     this.issuer = issuer;
-    this.authentication = authentication;
     this.tenantSwitch = tenantSwitch;
     this.audit = audit;
     this.notices = notices;
@@ -194,80 +191,114 @@ class InvitationServiceImpl implements InvitationService {
             () ->
                 writes.execute(
                     status -> {
-                      nameToken(hash);
-                      Invitation invitation =
-                          invitations
-                              .findByTokenHash(hash)
-                              .orElseThrow(InvitationServiceImpl::notFound);
-                      if (!invitation.openAt(now)) {
-                        throw Refusal.invalid(
-                            "invitation_not_open",
-                            "This invitation was already used, revoked or has expired.",
-                            "token");
+                      Invitation invitation = open(hash, now);
+                      if (users.findByEmail(invitation.getEmail()).isPresent()) {
+                        // An existing account joins signed in (join), so its second factor and
+                        // lockout apply as at any sign-in.
+                        throw Refusal.conflict(
+                            "account_exists",
+                            invitation.getEmail()
+                                + " already has an account: sign in, then accept the invitation.");
                       }
-                      Optional<User> existing = users.findByEmail(invitation.getEmail());
-                      User member;
-                      if (existing.isPresent()) {
-                        member = existing.get();
-                        if (!member.isActive()
-                            || !passwords.matches(password, member.getPasswordHash())) {
-                          throw Refusal.unauthenticated(
-                              "invalid_credentials",
-                              "Enter the current password of " + invitation.getEmail() + ".");
-                        }
-                      } else {
-                        member =
-                            users.save(
-                                new User(
-                                    invitation.getEmail(),
-                                    name == null || name.isBlank()
-                                        ? invitation.getName()
-                                        : Checks.text(name, "name", 120),
-                                    passwords.hash(password, "password"),
-                                    false));
-                      }
-                      User joining = member;
-                      Role role = invitation.getRole();
-                      tenantSwitch.within(
-                          invitation.getTenantUid(),
-                          () -> {
-                            Optional<Membership> current =
-                                memberships.findByUserUidAndTenantUid(
-                                    joining.getUid(), invitation.getTenantUid());
-                            if (current.isPresent()) {
-                              current
-                                  .get()
-                                  .change(
-                                      role,
-                                      invitation.isAllBranches(),
-                                      invitation.branchUidList(),
-                                      true);
-                            } else {
-                              memberships.save(
-                                  new Membership(
-                                      joining.getUid(),
-                                      role,
-                                      invitation.isAllBranches(),
-                                      invitation.branchUidList()));
-                            }
-                            invitation.accept(now);
-                            audit.record(
-                                "INVITATION_ACCEPTED",
-                                "User",
-                                joining.getUid(),
-                                null,
-                                Map.of("email", invitation.getEmail(), "role", role.getCode()));
-                            return null;
-                          });
-                      return joining;
+                      User member =
+                          users.save(
+                              new User(
+                                  invitation.getEmail(),
+                                  name == null || name.isBlank()
+                                      ? invitation.getName()
+                                      : Checks.text(name, "name", 120),
+                                  passwords.hash(password, "password"),
+                                  false));
+                      admit(invitation, member, now);
+                      return member;
                     }));
     if (user == null) {
       throw notFound();
     }
-    if (user.isTwoFactorEnabled()) {
-      return authentication.signIn(user.getEmail(), password, client);
-    }
     return new SignInOutcome.Signed(issuer.issue(user, client, "INVITATION"));
+  }
+
+  @Override
+  public Joined join(String token, UUID userUid) {
+    String hash = Tokens.hash(token == null ? "" : token.trim());
+    Instant now = clock.instant();
+    User user =
+        users
+            .findByUid(Checks.required(userUid, "userUid"))
+            .filter(User::isActive)
+            .orElseThrow(() -> Refusal.unauthenticated("unauthenticated", "Sign in first."));
+    if (user.isManaged()) {
+      throw Refusal.invalid(
+          "managed_login_cannot_join",
+          "A pharmacy's staff login works only in that pharmacy. Sign in with your own account,"
+              + " or create one, to accept this invitation.",
+          "token");
+    }
+    Joined joined =
+        ExecutionContext.callAs(
+            SessionIssuer.userFrame(user),
+            () ->
+                writes.execute(
+                    status -> {
+                      Invitation invitation = open(hash, now);
+                      Optional<Membership> current =
+                          tenantSwitch.within(
+                              invitation.getTenantUid(),
+                              () ->
+                                  memberships.findByUserUidAndTenantUid(
+                                      user.getUid(), invitation.getTenantUid()));
+                      if (current.filter(Membership::isActive).isPresent()) {
+                        throw Refusal.conflict(
+                            "already_a_member", "You already work in this pharmacy.");
+                      }
+                      admit(invitation, user, now);
+                      return new Joined(invitation.getTenantUid(), invitation.getRole().getName());
+                    }));
+    if (joined == null) {
+      throw notFound();
+    }
+    return joined;
+  }
+
+  /** The invitation of {@code hash}, still open; 404 or 422 invitation_not_open. */
+  private Invitation open(String hash, Instant now) {
+    nameToken(hash);
+    Invitation invitation =
+        invitations.findByTokenHash(hash).orElseThrow(InvitationServiceImpl::notFound);
+    if (!invitation.openAt(now)) {
+      throw Refusal.invalid(
+          "invitation_not_open",
+          "This invitation was already used, revoked or has expired.",
+          "token");
+    }
+    return invitation;
+  }
+
+  /** Gives {@code user} the invitation's membership (or renews an old one) and closes it. */
+  private void admit(Invitation invitation, User user, Instant now) {
+    Role role = invitation.getRole();
+    tenantSwitch.within(
+        invitation.getTenantUid(),
+        () -> {
+          Optional<Membership> current =
+              memberships.findByUserUidAndTenantUid(user.getUid(), invitation.getTenantUid());
+          if (current.isPresent()) {
+            current
+                .get()
+                .change(role, invitation.isAllBranches(), invitation.branchUidList(), true);
+          } else {
+            memberships.save(
+                new Membership(
+                    user.getUid(), role, invitation.isAllBranches(), invitation.branchUidList()));
+          }
+          invitation.accept(now, user.getUid());
+          Map<String, Object> details = new java.util.LinkedHashMap<>();
+          details.put("email", invitation.getEmail());
+          details.put("acceptedAs", user.getEmail());
+          details.put("role", role.getCode());
+          audit.record("INVITATION_ACCEPTED", "User", user.getUid(), null, details);
+          return null;
+        });
   }
 
   /** Lets this transaction see the one invitation with {@code hash}. */
@@ -294,7 +325,11 @@ class InvitationServiceImpl implements InvitationService {
     return new LinkedHashSet<>(branchUids);
   }
 
-  private static InvitationView view(Invitation invitation, Instant at) {
+  private InvitationView view(Invitation invitation, Instant at) {
+    String acceptedAs =
+        invitation.getAcceptedByUserUid() == null
+            ? null
+            : users.findByUid(invitation.getAcceptedByUserUid()).map(User::getEmail).orElse(null);
     return new InvitationView(
         invitation.getUid(),
         invitation.getEmail(),
@@ -306,7 +341,8 @@ class InvitationServiceImpl implements InvitationService {
         invitation.status(at),
         invitation.getInvitedBy(),
         invitation.getExpiresAt(),
-        invitation.getCreatedAt());
+        invitation.getCreatedAt(),
+        acceptedAs);
   }
 
   private static Refusal notFound() {

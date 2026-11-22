@@ -19,8 +19,19 @@ public interface InvitationService {
   InvitationPreview preview(String token);
 
   /**
-   * Public: makes the user (or, for an existing account, checks its password), gives them the
-   * membership and signs them in. 422 invitation_not_open; 401 invalid_credentials.
+   * Public, for a person with no account yet: makes it with the invited email, gives it the
+   * membership and signs it in. 409 account_exists when the email has an account (it joins signed
+   * in, {@link #join}); 422 invitation_not_open.
    */
   SignInOutcome accept(String token, String name, String password, ClientInfo client);
+
+  /**
+   * The signed-in account {@code userUid} accepts: it joins the pharmacy, whatever email it signs
+   * in with. 409 already_a_member; 422 invitation_not_open; 422 managed_login_cannot_join (a
+   * pharmacy's staff login works only there).
+   */
+  Joined join(String token, UUID userUid);
+
+  /** The pharmacy joined and the role given. */
+  record Joined(UUID tenantUid, String roleName) {}
 }
