@@ -12,4 +12,6 @@ public record DeliveryView(
     int attempts,
     String lastError,
     Instant createdAt,
-    Instant deliveredAt) {}
+    Instant deliveredAt,
+    /* When a failed delivery is tried again; null once delivered or given up. */
+    Instant nextAttemptAt) {}

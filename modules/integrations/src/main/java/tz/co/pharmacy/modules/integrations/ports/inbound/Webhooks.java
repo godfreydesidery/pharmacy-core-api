@@ -33,4 +33,11 @@ public interface Webhooks {
    * the event; its {@code metadata} is left out of the payload.
    */
   void dispatch(UUID eventId, String eventType, Instant occurredAt, Object data);
+
+  /**
+   * Sends again the current pharmacy's failed deliveries whose next attempt is due (up to 100),
+   * each outside any transaction; returns how many were tried. A delivery whose webhook is gone or
+   * switched off is given up.
+   */
+  int retryDue();
 }

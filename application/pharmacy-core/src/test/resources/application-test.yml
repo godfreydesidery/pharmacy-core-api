@@ -7,6 +7,11 @@ pharmacy:
   edge:
     # Every test signs in from 127.0.0.1; the production default (20 a minute) would throttle them.
     auth-requests-per-minute: 1000
+  integrations:
+    webhooks:
+      # WebhookRetryTest's receiver: a loopback address the SSRF test does not use, allowed only here.
+      allowed-hosts: 127.0.0.2
+      retry-every-ms: 1000
 logging:
   level:
     org.springframework.modulith: WARN
