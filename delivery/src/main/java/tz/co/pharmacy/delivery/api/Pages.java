@@ -15,6 +15,10 @@ public final class Pages {
 
   private Pages() {}
 
+  /**
+   * The page a list route was asked for. Only for the route's own list: a lookup inside a handler
+   * uses {@link PageQuery#of(String, Integer)}, or it would take the request's page as its own.
+   */
   public static PageQuery of(String cursor, Integer limit) {
     return PageQuery.of(cursor, limit, page());
   }

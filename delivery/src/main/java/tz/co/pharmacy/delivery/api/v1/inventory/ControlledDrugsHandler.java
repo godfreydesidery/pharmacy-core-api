@@ -28,6 +28,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleFilter;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleService;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleView;
 import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
@@ -71,7 +72,8 @@ public class ControlledDrugsHandler {
     List<ProductView> controlled =
         catalogue
             .products(
-                new ProductFilter(null, null, null, null, Schedule.CONTROLLED), Pages.of(null, 100))
+                new ProductFilter(null, null, null, null, Schedule.CONTROLLED),
+                PageQuery.of(null, 100))
             .items();
     Map<UUID, Integer> onHand =
         stockQueries.onHand(controlled.stream().map(ProductView::uid).toList());
@@ -143,7 +145,11 @@ public class ControlledDrugsHandler {
       return Optional.empty();
     }
     String number = reference.trim().split("\\s+")[0];
-    return sales.list(new SaleFilter(number, null, null, null), Pages.of(null, 5)).items().stream()
+    // Its own lookup, never the page the register itself is on.
+    return sales
+        .list(new SaleFilter(number, null, null, null), PageQuery.of(null, 5))
+        .items()
+        .stream()
         .filter(s -> number.equals(s.number()))
         .findFirst()
         .flatMap(s -> sales.find(s.uid()))
