@@ -4,6 +4,7 @@ import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.Getter;
 import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -18,6 +19,7 @@ public abstract class MutableEntity extends RecordedEntity {
 
   private Instant updatedAt;
   private String updatedBy;
+  private UUID updatedByUid;
 
   @Version private long version;
 
@@ -25,5 +27,6 @@ public abstract class MutableEntity extends RecordedEntity {
   void recordUpdate() {
     updatedAt = Clocks.now();
     updatedBy = ExecutionContext.actor().reference();
+    updatedByUid = ExecutionContext.actor().uid();
   }
 }

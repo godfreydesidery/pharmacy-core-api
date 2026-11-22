@@ -45,12 +45,14 @@ public interface SalesReports {
       int returnedQuantity) {}
 
   /**
-   * One person's till figures, grouped by who did it ({@code cashierReference}, the sign-in email):
-   * {@code cashier} is the name on their sales, else the reference.
+   * One person's till figures, grouped by account ({@code cashierUid}; rows with no account by
+   * email). {@code cashierReference} is the sign-in email they last used in the period; {@code
+   * cashier} is the name on their sales, else the reference.
    */
   record CashierSummary(
       String cashier,
       String cashierReference,
+      java.util.UUID cashierUid,
       long sales,
       BigDecimal total,
       Map<String, BigDecimal> tenders,

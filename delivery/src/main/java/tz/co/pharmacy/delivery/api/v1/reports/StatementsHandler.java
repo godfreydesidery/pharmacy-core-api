@@ -113,25 +113,38 @@ public class StatementsHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
     List<CashierSummary> rows = salesReports.cashiers(from, to, calendar.zone());
-    // One row per person, named as they are in the pharmacy (refunds carry no name of their own).
-    Map<String, String> names =
-        people.displayNames(rows.stream().map(CashierSummary::cashierReference).toList());
+    // One row per person, named as their account is now (refunds carry no name of their own);
+    // rows from before accounts were recorded are named by their email.
+    Map<java.util.UUID, String> byUid =
+        people.displayNamesByUid(rows.stream().map(CashierSummary::cashierUid).toList());
+    Map<String, String> byEmail =
+        people.displayNames(
+            rows.stream()
+                .filter(r -> r.cashierUid() == null)
+                .map(CashierSummary::cashierReference)
+                .toList());
     return ApiResponse.ok(
         rows.stream()
             .map(
-                r ->
-                    names.containsKey(r.cashierReference())
-                        ? new CashierSummary(
-                            names.get(r.cashierReference()),
-                            r.cashierReference(),
-                            r.sales(),
-                            r.total(),
-                            r.tenders(),
-                            r.returns(),
-                            r.refunded(),
-                            r.cashToHandOver(),
-                            r.cashTendered())
-                        : r)
+                r -> {
+                  String name =
+                      r.cashierUid() != null
+                          ? byUid.get(r.cashierUid())
+                          : byEmail.get(r.cashierReference());
+                  return name != null
+                      ? new CashierSummary(
+                          name,
+                          r.cashierReference(),
+                          r.cashierUid(),
+                          r.sales(),
+                          r.total(),
+                          r.tenders(),
+                          r.returns(),
+                          r.refunded(),
+                          r.cashToHandOver(),
+                          r.cashTendered())
+                      : r;
+                })
             .sorted(java.util.Comparator.comparing(CashierSummary::cashier))
             .toList(),
         "Cashier report retrieved");

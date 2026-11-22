@@ -92,6 +92,24 @@ class UserAdministrationImpl implements UserAdministration {
 
   @Override
   @Transactional(readOnly = true)
+  public Map<UUID, String> displayNamesByUid(Collection<UUID> userUids) {
+    Map<UUID, String> names = new java.util.HashMap<>();
+    if (userUids == null) {
+      return names;
+    }
+    List<UUID> uids = userUids.stream().filter(java.util.Objects::nonNull).distinct().toList();
+    if (uids.isEmpty()) {
+      return names;
+    }
+    for (User user : users.findAllByUidIn(uids)) {
+      String name = user.getName();
+      names.put(user.getUid(), name == null || name.isBlank() ? user.getEmail() : name);
+    }
+    return names;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public Page<MemberView> members(String q, PageQuery query) {
     UUID tenant = TenantContext.requireTenant();
     Specification<Membership> filter = Specs.equal("tenantUid", tenant);
