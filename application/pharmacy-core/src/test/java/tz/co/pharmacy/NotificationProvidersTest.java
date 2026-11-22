@@ -241,6 +241,69 @@ class NotificationProvidersTest extends IntegrationTest {
   }
 
   @Test
+  @DisplayName("a provider that hangs is given up on after its time limit, and the backup sends")
+  void hangingProvider() throws Exception {
+    Api anonymous = api();
+    Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    logOnly(root, "EMAIL");
+    // A mail server that takes the connection and never says a word.
+    try (java.net.ServerSocket silent = new java.net.ServerSocket(0)) {
+      List<java.net.Socket> held = new java.util.concurrent.CopyOnWriteArrayList<>();
+      Thread acceptor =
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    try {
+                      while (!silent.isClosed()) {
+                        held.add(silent.accept());
+                      }
+                    } catch (java.io.IOException closed) {
+                      // The test is over.
+                    }
+                  });
+      Response list = root.get(PLATFORM).expect(200);
+      String backup =
+          list.read(channel(list, "EMAIL", ".providers[0].uid"), List.class).getFirst().toString();
+      String hung =
+          root.post(
+                  PLATFORM + "/EMAIL",
+                  """
+                  {"name":"Hung SMTP","provider":"smtp",
+                   "settings":{"host":"127.0.0.1","port":"%d","from":"noreply@pharmacy.test"}}
+                  """
+                      .formatted(silent.getLocalPort()))
+              .expect(201)
+              .string("$.data.uid");
+      root.put(PLATFORM + "/EMAIL/order", "{\"order\":[\"%s\",\"%s\"]}".formatted(hung, backup))
+          .expect(200);
+
+      long started = System.nanoTime();
+      Response test =
+          root.post(PLATFORM + "/EMAIL/test", "{\"to\":\"ops@pharmacy.test\"}").expect(200);
+      long seconds = (System.nanoTime() - started) / 1_000_000_000L;
+
+      assertThat(test.read("$.data.ok", Boolean.class)).isTrue();
+      assertThat(test.string("$.data.provider")).startsWith("log:platform");
+      assertThat(seconds).as("given up on within its 10 s limit").isBetween(5L, 25L);
+      assertThat(held).isNotEmpty();
+      // Tried alone, the hung one reports why.
+      Response alone =
+          root.post(
+                  PLATFORM + "/EMAIL/test",
+                  "{\"to\":\"ops@pharmacy.test\",\"providerUid\":\"%s\"}".formatted(hung))
+              .expect(200);
+      assertThat(alone.read("$.data.ok", Boolean.class)).isFalse();
+      assertThat(alone.string("$.data.error")).contains("did not answer in time");
+      for (java.net.Socket s : held) {
+        s.close();
+      }
+      silent.close();
+      acceptor.join(2000);
+    }
+    logOnly(root, "EMAIL");
+  }
+
+  @Test
   @DisplayName("secrets sealed under another key: the page loads, sends explain, a change recovers")
   void unreadableSecrets() {
     Api anonymous = api();

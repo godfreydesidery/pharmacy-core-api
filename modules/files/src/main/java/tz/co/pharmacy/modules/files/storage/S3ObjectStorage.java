@@ -7,6 +7,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -46,7 +47,14 @@ public class S3ObjectStorage implements ObjectStorage {
         S3Client.builder()
             .region(awsRegion)
             .credentialsProvider(credentials)
-            .serviceConfiguration(configuration);
+            .serviceConfiguration(configuration)
+            // A store that hangs must not hold a request: each try gives up after 20 s, the whole
+            // call (with the SDK's retries) after 60 s. Large downloads stream after the call.
+            .overrideConfiguration(
+                ClientOverrideConfiguration.builder()
+                    .apiCallAttemptTimeout(java.time.Duration.ofSeconds(20))
+                    .apiCallTimeout(java.time.Duration.ofSeconds(60))
+                    .build());
     var presignerBuilder =
         S3Presigner.builder()
             .region(awsRegion)
