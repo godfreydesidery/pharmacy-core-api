@@ -172,10 +172,22 @@ class UserAdministrationImpl implements UserAdministration {
       throw Refusal.invalid(
           "cannot_deactivate_self", "You cannot deactivate your own membership.", "active");
     }
+    boolean wasActive = membership.isActive();
     membership.change(role, command.allBranches(), branches, command.active());
     User user = users.findByUid(membership.getUserUid()).orElse(null);
     String phone = phone(command.phone());
-    if (user != null && phone != null && user.getPhone() == null) {
+    if (user != null && user.isManagedBy(membership.getTenantUid())) {
+      // The pharmacy's own login: it keeps the details, and a deactivated login is out at once.
+      user.changeManagedContact(
+          command.name() == null || command.name().isBlank()
+              ? user.getName()
+              : Checks.text(command.name(), "name", 120),
+          phone,
+          ManagedLoginsImpl.contactEmail(command.contactEmail()));
+      if (wasActive && !command.active()) {
+        sessions.revokeAll(user.getUid(), clock.instant(), null);
+      }
+    } else if (user != null && phone != null && user.getPhone() == null) {
       user.changeProfile(user.getName(), phone);
     }
     return AccessViews.member(membership, user);
@@ -243,7 +255,8 @@ class UserAdministrationImpl implements UserAdministration {
 
   @Override
   @Transactional
-  public MemberView seedTenant(NewUserCommand administrator) {
+  public tz.co.pharmacy.modules.access.ports.inbound.SeededTenant seedTenant(
+      NewUserCommand administrator) {
     Checks.required(administrator, "admin");
     UUID tenant = TenantContext.requireTenant();
     Permissions.defaultRoles()
@@ -255,22 +268,24 @@ class UserAdministrationImpl implements UserAdministration {
             });
     Role admin = roles.findByCode("ADMIN").orElseThrow();
     String email = Checks.email(administrator.email(), "admin.email");
+    Optional<User> found = users.findByEmail(email);
+    if (found.isPresent()) {
+      Optional<Membership> existing =
+          memberships.findByUserUidAndTenantUid(found.get().getUid(), tenant);
+      return new tz.co.pharmacy.modules.access.ports.inbound.SeededTenant(
+          existing.map(membership -> AccessViews.member(membership, found.get())).orElse(null),
+          admin.getUid());
+    }
     User user =
-        users
-            .findByEmail(email)
-            .orElseGet(
-                () ->
-                    users.save(
-                        new User(
-                            email,
-                            Checks.text(administrator.name(), "admin.name", 120),
-                            passwords.hash(administrator.password(), "admin.password"),
-                            false)));
-    Optional<Membership> existing = memberships.findByUserUidAndTenantUid(user.getUid(), tenant);
-    Membership membership =
-        existing.orElseGet(
-            () -> memberships.save(new Membership(user.getUid(), admin, true, List.of())));
-    return AccessViews.member(membership, user);
+        users.save(
+            new User(
+                email,
+                Checks.text(administrator.name(), "admin.name", 120),
+                passwords.hash(administrator.password(), "admin.password"),
+                false));
+    Membership membership = memberships.save(new Membership(user.getUid(), admin, true, List.of()));
+    return new tz.co.pharmacy.modules.access.ports.inbound.SeededTenant(
+        AccessViews.member(membership, user), admin.getUid());
   }
 
   @Override

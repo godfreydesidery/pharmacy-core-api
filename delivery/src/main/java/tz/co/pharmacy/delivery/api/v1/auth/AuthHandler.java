@@ -196,10 +196,17 @@ public class AuthHandler {
 
   /**
    * {@code twoFactorSetupRequired}: a root administrator must set up two-factor before using the
-   * platform (only when the platform requires it).
+   * platform (only when the platform requires it). {@code passwordChangeRequired}: a managed login
+   * on a temporary password must choose its own first. For a managed login, {@code email} is its
+   * sign-in (username@code).
    */
   public record UserResponse(
-      UUID uid, String name, String email, boolean rootAdmin, boolean twoFactorSetupRequired) {}
+      UUID uid,
+      String name,
+      String email,
+      boolean rootAdmin,
+      boolean twoFactorSetupRequired,
+      boolean passwordChangeRequired) {}
 
   public record MembershipResponse(
       UUID uid,
@@ -212,7 +219,8 @@ public class AuthHandler {
       String roleName,
       List<String> permissions,
       boolean allBranches,
-      List<BranchResponse> branches) {}
+      List<BranchResponse> branches,
+      boolean directUserCreation) {}
 
   public record BranchResponse(UUID uid, String code, String name) {}
 }

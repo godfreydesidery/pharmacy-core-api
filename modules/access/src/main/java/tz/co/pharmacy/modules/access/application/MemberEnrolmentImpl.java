@@ -2,44 +2,34 @@ package tz.co.pharmacy.modules.access.application;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tz.co.pharmacy.modules.access.persistence.UserRepository;
 import tz.co.pharmacy.modules.access.ports.inbound.AddMemberCommand;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationService;
+import tz.co.pharmacy.modules.access.ports.inbound.InvitationView;
 import tz.co.pharmacy.modules.access.ports.inbound.InviteCommand;
 import tz.co.pharmacy.modules.access.ports.inbound.MemberEnrolment;
-import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.platform.kernel.Checks;
 
 @Service
 class MemberEnrolmentImpl implements MemberEnrolment {
 
-  private final UserAdministration administration;
   private final InvitationService invitations;
-  private final UserRepository users;
 
-  MemberEnrolmentImpl(
-      UserAdministration administration, InvitationService invitations, UserRepository users) {
-    this.administration = administration;
+  MemberEnrolmentImpl(InvitationService invitations) {
     this.invitations = invitations;
-    this.users = users;
   }
 
   @Override
   @Transactional
-  public Outcome add(AddMemberCommand command) {
+  public InvitationView add(AddMemberCommand command) {
     Checks.required(command, "user");
-    String email = Checks.email(command.email(), "email");
-    if (users.findByEmail(email).isEmpty()) {
-      return new Added(administration.addMember(command));
-    }
-    // The person already has an account: they join when they accept, with their own password.
-    return new Invited(
-        invitations.invite(
-            new InviteCommand(
-                command.name(),
-                email,
-                command.roleUid(),
-                command.allBranches(),
-                command.branchUids())));
+    // The person joins when they accept: with a new account and their own password, or with the
+    // account they already have, signed in.
+    return invitations.invite(
+        new InviteCommand(
+            command.name(),
+            command.email(),
+            command.roleUid(),
+            command.allBranches(),
+            command.branchUids()));
   }
 }

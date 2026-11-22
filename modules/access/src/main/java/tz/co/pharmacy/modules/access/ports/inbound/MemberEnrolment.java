@@ -1,18 +1,13 @@
 package tz.co.pharmacy.modules.access.ports.inbound;
 
 /**
- * Adding a person to the current pharmacy. A new email becomes a user and member at once; an email
- * that already has an account (in this or another pharmacy) is sent an invitation instead, so no
- * one is added to a pharmacy without accepting.
+ * Adding a person to the current pharmacy by email: always an invitation, whether or not the email
+ * already has an account, so no one joins without accepting, no admin sets the password of an email
+ * account, and the answer says nothing of other pharmacies. (People with no email get a managed
+ * login instead: {@link ManagedLogins}.)
  */
 public interface MemberEnrolment {
 
-  sealed interface Outcome permits Added, Invited {}
-
-  record Added(MemberView member) implements Outcome {}
-
-  record Invited(InvitationView invitation) implements Outcome {}
-
-  /** 409 already_a_member; 422 as {@link UserAdministration#addMember} or the invitation. */
-  Outcome add(AddMemberCommand command);
+  /** 409 already_a_member; 422 as the invitation. Any password in the command is ignored. */
+  InvitationView add(AddMemberCommand command);
 }

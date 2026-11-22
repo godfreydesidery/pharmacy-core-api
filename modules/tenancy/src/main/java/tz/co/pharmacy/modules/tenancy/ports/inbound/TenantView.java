@@ -18,4 +18,5 @@ public record TenantView(
     String contactName,
     String contactEmail,
     String contactPhone,
-    String address) {}
+    String address,
+    boolean directUserCreation) {}

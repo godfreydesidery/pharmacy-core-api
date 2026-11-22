@@ -127,7 +127,7 @@ class SessionIssuer {
                                     notice.newSignIn(
                                         user.getUid(),
                                         user.getName(),
-                                        user.getEmail(),
+                                        user.mailbox(),
                                         Devices.describe(from.userAgent()),
                                         from.ip(),
                                         now));
@@ -190,7 +190,8 @@ class SessionIssuer {
         user.getName(),
         user.getEmail(),
         user.isRootAdmin(),
-        twoFactorRequired(user) && !user.isTwoFactorEnabled());
+        twoFactorRequired(user) && !user.isTwoFactorEnabled(),
+        user.isPasswordChangeRequired());
   }
 
   boolean twoFactorRequired(User user) {

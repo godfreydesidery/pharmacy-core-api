@@ -19,8 +19,12 @@ import tz.co.pharmacy.modules.access.ports.inbound.InvitationPreview;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
+import tz.co.pharmacy.platform.kernel.ExecutionContext;
 
-/** The invitee's side of an invitation: see it, then accept it (public: they have no session). */
+/**
+ * The invitee's side of an invitation: see it, then accept it. Someone new accepts without a
+ * session by making their account; someone with an account signs in and joins with it.
+ */
 @RestController
 @RequestMapping("/api/v1/auth/invitations")
 public class InvitationAcceptHandler {
@@ -56,8 +60,8 @@ public class InvitationAcceptHandler {
   }
 
   /**
-   * Accepts with a new password (new account) or the current one (existing account): 201 with the
-   * session, or 202 with a second-factor challenge.
+   * Accepts with a new account (name and password): 201 with the session. 409 account_exists when
+   * the invited email already has one: sign in, then join.
    */
   @PostMapping("/accept")
   @Access(scope = AccessScope.PUBLIC)
@@ -71,8 +75,27 @@ public class InvitationAcceptHandler {
             EdgeFilter.client(request)));
   }
 
+  /**
+   * The signed-in account accepts, whatever email it signs in with: it joins the pharmacy. 409
+   * already_a_member; 422 managed_login_cannot_join; 422 invitation_not_open.
+   */
+  @PostMapping("/join")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<JoinedResponse> join(@RequestBody JoinRequest body) {
+    InvitationService.Joined joined =
+        invitations.join(body == null ? null : body.token(), ExecutionContext.actor().uid());
+    String tenantName = tenants.find(joined.tenantUid()).map(TenantView::name).orElse(null);
+    return ApiResponse.ok(
+        new JoinedResponse(joined.tenantUid(), tenantName, joined.roleName()), "Joined");
+  }
+
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record AcceptRequest(String token, String name, String password) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record JoinRequest(String token) {}
+
+  public record JoinedResponse(UUID tenantUid, String tenantName, String roleName) {}
 
   public record InvitationPreviewResponse(
       String email,

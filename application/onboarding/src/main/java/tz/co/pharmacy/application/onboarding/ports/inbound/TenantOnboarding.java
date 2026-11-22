@@ -6,7 +6,11 @@ public interface TenantOnboarding {
 
   /**
    * Registers the tenant with its head office and default settings, seeds its default roles and
-   * makes the administrator its ADMIN; nothing is written unless all of it is.
+   * makes the administrator its ADMIN; nothing is written unless all of it is. An administrator
+   * email that already has an account is invited as ADMIN instead ({@code adminInvited}): it joins
+   * when that person accepts, signed in with their own account.
    */
-  TenantView onboard(OnboardTenantCommand command);
+  Onboarded onboard(OnboardTenantCommand command);
+
+  record Onboarded(TenantView tenant, boolean adminInvited) {}
 }

@@ -20,13 +20,18 @@ import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.access.ports.inbound.AddMemberCommand;
 import tz.co.pharmacy.modules.access.ports.inbound.ChangeMemberCommand;
+import tz.co.pharmacy.modules.access.ports.inbound.CreateManagedLoginCommand;
+import tz.co.pharmacy.modules.access.ports.inbound.ManagedLogins;
 import tz.co.pharmacy.modules.access.ports.inbound.MemberEnrolment;
 import tz.co.pharmacy.modules.access.ports.inbound.MemberView;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /** The tenant's users: memberships with their role and branches. */
 @RestController
@@ -35,10 +40,18 @@ public class UserHandler {
 
   private final UserAdministration users;
   private final MemberEnrolment enrolment;
+  private final ManagedLogins managedLogins;
+  private final TenantService tenants;
 
-  public UserHandler(UserAdministration users, MemberEnrolment enrolment) {
+  public UserHandler(
+      UserAdministration users,
+      MemberEnrolment enrolment,
+      ManagedLogins managedLogins,
+      TenantService tenants) {
     this.users = users;
     this.enrolment = enrolment;
+    this.managedLogins = managedLogins;
+    this.tenants = tenants;
   }
 
   @GetMapping
@@ -51,41 +64,86 @@ public class UserHandler {
   }
 
   /**
-   * 201 with the new member; 202 with {@code invited: true} when the email already has an account,
-   * which joins only by accepting the invitation sent to it.
+   * 202 with {@code invited: true}: adding a person by email always sends an invitation, whether or
+   * not the email has an account, and they join when they accept. A password in the body is
+   * ignored. For someone with no email, create a managed login.
    */
   @CountsAgainst(PlanLimit.USERS)
   @PostMapping
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
-  public ResponseEntity<ApiResponse<?>> add(@RequestBody AddMemberRequest body) {
+  public ResponseEntity<ApiResponse<InvitedResponse>> add(@RequestBody AddMemberRequest body) {
     if (body == null) {
       throw Refusal.malformed("A user is required.");
     }
-    MemberEnrolment.Outcome outcome =
+    var invitation =
         enrolment.add(
             new AddMemberCommand(
                 body.name(),
                 body.email(),
-                body.password(),
+                null,
                 body.roleUid(),
                 Boolean.TRUE.equals(body.allBranches()),
                 body.branchUids(),
                 body.phone()));
-    return switch (outcome) {
-      case MemberEnrolment.Added added ->
-          ResponseEntity.status(HttpStatus.CREATED)
-              .body(ApiResponse.created(added.member(), "User added"));
-      case MemberEnrolment.Invited invited ->
-          ResponseEntity.status(HttpStatus.ACCEPTED)
-              .body(
-                  ApiResponse.ok(
-                      new InvitedResponse(true, invited.invitation().uid()),
-                      "An invitation was sent; they join when they accept."));
-    };
+    return ResponseEntity.status(HttpStatus.ACCEPTED)
+        .body(
+            ApiResponse.ok(
+                new InvitedResponse(true, invitation.uid()),
+                "An invitation was sent; they join when they accept."));
   }
 
-  /** The person was invited rather than added. */
+  /** The invitation sent; the person joins when they accept. */
   public record InvitedResponse(boolean invited, UUID invitationUid) {}
+
+  /**
+   * A managed login: signs in as {@code username@CODE} with the temporary password in the answer,
+   * shown this once, and must choose its own at first sign-in. 403 direct_creation_disabled when
+   * the root administrator has not allowed this pharmacy to create logins; 409 username_taken.
+   */
+  @CountsAgainst(PlanLimit.USERS)
+  @PostMapping("/managed")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ResponseEntity<ApiResponse<ManagedLogins.Created>> createManaged(
+      @RequestBody ManagedLoginRequest body) {
+    if (body == null) {
+      throw Refusal.malformed("A login is required.");
+    }
+    TenantView pharmacy = pharmacy();
+    if (!pharmacy.directUserCreation()) {
+      throw Refusal.forbidden(
+          "direct_creation_disabled",
+          "This pharmacy invites people by email; it does not create logins for them.");
+    }
+    ManagedLogins.Created created =
+        managedLogins.create(
+            new CreateManagedLoginCommand(
+                pharmacy.code(),
+                body.username(),
+                body.name(),
+                body.roleUid(),
+                Boolean.TRUE.equals(body.allBranches()),
+                body.branchUids(),
+                body.phone(),
+                body.contactEmail()));
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(ApiResponse.created(created, "Login created"));
+  }
+
+  /**
+   * A new temporary password for a managed login of this pharmacy, shown this once: its sessions
+   * end and it chooses its own at the next sign-in. 422 not_managed for a person's own account.
+   */
+  @PostMapping("/{membershipUid}/reset-password")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ApiResponse<ManagedLogins.Reset> resetPassword(@PathVariable UUID membershipUid) {
+    return ApiResponse.ok(managedLogins.resetPassword(membershipUid), "Password reset");
+  }
+
+  private TenantView pharmacy() {
+    return tenants
+        .find(TenantContext.requireTenant())
+        .orElseThrow(() -> Refusal.notFound("tenant_not_found", "No such tenant."));
+  }
 
   @PutMapping("/{membershipUid}")
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
@@ -102,7 +160,9 @@ public class UserHandler {
                 Boolean.TRUE.equals(body.allBranches()),
                 body.branchUids(),
                 body.active() == null || body.active(),
-                body.phone())),
+                body.phone(),
+                body.name(),
+                body.contactEmail())),
         "User changed");
   }
 
@@ -116,7 +176,24 @@ public class UserHandler {
       List<UUID> branchUids,
       String phone) {}
 
+  /** {@code name} and {@code contactEmail} apply only to a managed login of this pharmacy. */
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ChangeMemberRequest(
-      UUID roleUid, Boolean allBranches, List<UUID> branchUids, Boolean active, String phone) {}
+      UUID roleUid,
+      Boolean allBranches,
+      List<UUID> branchUids,
+      Boolean active,
+      String phone,
+      String name,
+      String contactEmail) {}
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record ManagedLoginRequest(
+      String username,
+      String name,
+      UUID roleUid,
+      Boolean allBranches,
+      List<UUID> branchUids,
+      String phone,
+      String contactEmail) {}
 }

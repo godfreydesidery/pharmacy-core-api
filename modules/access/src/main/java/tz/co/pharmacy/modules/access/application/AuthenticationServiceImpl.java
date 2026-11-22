@@ -291,6 +291,13 @@ class AuthenticationServiceImpl implements AuthenticationService {
             throw Refusal.invalid(
                 "invalid_current_password", "The current password is wrong.", "currentPassword");
           }
+          if (user.isPasswordChangeRequired()
+              && passwords.matches(newPassword, user.getPasswordHash())) {
+            throw Refusal.invalid(
+                "same_password",
+                "Choose a new password of your own, not the one you were given.",
+                "newPassword");
+          }
           user.changePassword(hash);
           int revoked =
               currentToken == null
