@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /**
  * Returns to suppliers (debit notes) of the current branch. Recording one publishes
@@ -19,7 +21,7 @@ public interface SupplierReturns {
   SupplierReturnView record(RecordSupplierReturnCommand command);
 
   /** Newest first, 100 at most; {@code supplierUid} null for every supplier. */
-  List<SupplierReturnView> list(UUID supplierUid);
+  Page<SupplierReturnView> list(UUID supplierUid, PageQuery query);
 
   /** 404 supplier_return_not_found. */
   SupplierReturnView get(UUID uid);

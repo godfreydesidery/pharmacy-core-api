@@ -3,8 +3,9 @@ package tz.co.pharmacy.modules.sales.ports.inbound;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /**
  * Vouchers and gift cards: sold for money (a liability until spent), then spent at the till as a
@@ -15,7 +16,7 @@ public interface Vouchers {
   /** Issues a voucher paid by {@code paidBy} (CASH, MOBILE_MONEY, CARD, BANK_TRANSFER). */
   VoucherView issue(IssueVoucherCommand command);
 
-  List<VoucherView> list();
+  Page<VoucherView> list(PageQuery query);
 
   /** Voids an unspent voucher (refunded or lost); its balance stays as a liability to clear. */
   VoucherView voidVoucher(UUID uid);

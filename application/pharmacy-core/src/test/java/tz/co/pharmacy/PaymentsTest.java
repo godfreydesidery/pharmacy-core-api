@@ -135,7 +135,7 @@ class PaymentsTest extends IntegrationTest {
             "{\"method\":\"CASH\",\"amount\":5000}")
         .expect(201);
     List<String> statuses =
-        admin.get("/api/v1/vouchers").expect(200).json().read("$.data[*].status");
+        admin.get("/api/v1/vouchers").expect(200).json().read("$.data.items[*].status");
     assertThat(statuses).containsExactly("SPENT");
     Response spent =
         sell(

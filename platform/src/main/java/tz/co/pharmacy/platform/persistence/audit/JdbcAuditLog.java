@@ -87,6 +87,19 @@ public class JdbcAuditLog implements AuditLog {
       sql.append(" and at < ?");
       arguments.add(Timestamp.from(to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()));
     }
+    if (query.numbered()) {
+      // By page number: the same filter counted, then the page at its offset.
+      String filtered = sql.toString();
+      Long total =
+          jdbc.queryForObject(
+              "select count(*) from (" + filtered + ") counted", Long.class, arguments.toArray());
+      arguments.add(query.limit());
+      arguments.add(query.offset());
+      List<AuditEntryView> rows =
+          jdbc.query(
+              filtered + " order by uid desc limit ? offset ?", this::row, arguments.toArray());
+      return Page.numbered(labelled(rows), total == null ? 0 : total);
+    }
     UUID after = query.afterUid();
     if (after != null) {
       sql.append(" and uid < ?");

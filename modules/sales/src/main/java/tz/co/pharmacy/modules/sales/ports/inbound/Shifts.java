@@ -2,10 +2,11 @@ package tz.co.pharmacy.modules.sales.ports.inbound;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /** Till shifts of the current cashier at the current branch, and their close (Z) reports. */
 public interface Shifts {
@@ -20,7 +21,7 @@ public interface Shifts {
   ShiftView close(BigDecimal countedCash, String note);
 
   /** The branch's recent shifts. */
-  List<ShiftView> list();
+  Page<ShiftView> list(PageQuery query);
 
   /**
    * {@code tenders} are the shift's takings by method in the base currency; {@code expectedCash} =

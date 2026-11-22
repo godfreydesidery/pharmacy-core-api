@@ -10,16 +10,19 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.CountsAgainst;
+import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationService;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationView;
 import tz.co.pharmacy.modules.access.ports.inbound.InviteCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
+import tz.co.pharmacy.platform.kernel.Page;
 
 /** Inviting people to the tenant by email, with a role and branch access. */
 @RestController
@@ -34,8 +37,13 @@ public class InvitationHandler {
 
   @GetMapping
   @Access(scope = AccessScope.TENANT, permission = "users.manage")
-  public ApiResponse<List<InvitationView>> list() {
-    return ApiResponse.ok(invitations.list(), "Invitations retrieved");
+  public ApiResponse<Page<InvitationView>> list(
+      @RequestParam(required = false) Boolean pending,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
+    return ApiResponse.ok(
+        invitations.list(Boolean.TRUE.equals(pending), Pages.of(cursor, limit)),
+        "Invitations retrieved");
   }
 
   @CountsAgainst(PlanLimit.USERS)

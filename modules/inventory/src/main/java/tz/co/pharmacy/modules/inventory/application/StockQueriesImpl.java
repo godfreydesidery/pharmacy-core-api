@@ -129,6 +129,8 @@ class StockQueriesImpl implements StockQueries {
             case IN_STOCK -> " and x.quantity > x.reorder_level";
           });
     }
+    String counted = sql.toString();
+    Object[] countParameters = parameters.toArray();
     sql.append(" order by lower(x.name), x.id limit ? offset ?");
     parameters.add(query.limit() + 1);
     parameters.add(query.offset());
@@ -158,7 +160,7 @@ class StockQueriesImpl implements StockQueries {
                   rs.getString("tracking_mode"));
             },
             parameters.toArray());
-    return Page.offset(rows, query);
+    return Page.offset(rows, query, () -> count(counted, countParameters));
   }
 
   @Override
@@ -260,21 +262,23 @@ class StockQueriesImpl implements StockQueries {
     List<Object> parameters = new ArrayList<>();
     String branches = branchCondition("sl.branch_uid", branchUids, parameters);
     parameters.add(Date.valueOf(today.plusDays(withinDays)));
+    String counted =
+        "select b.uid as batch_uid, b.product_uid, coalesce(p.name, '') as product_name,"
+            + " b.batch_number, b.expiry_date, sum(sl.quantity) as quantity,"
+            + " sum(sl.quantity * b.unit_cost) as cost_value"
+            + " from inventory.stock_levels sl"
+            + " join inventory.batches b on b.id = sl.batch_id"
+            + " left join inventory.products p on p.product_uid = b.product_uid"
+            + " where sl.quantity > 0 and "
+            + branches
+            + " and b.expiry_date <= ?"
+            + " group by b.id, b.uid, b.product_uid, p.name, b.batch_number, b.expiry_date";
+    Object[] countParameters = parameters.toArray();
     parameters.add(query.limit() + 1);
     parameters.add(query.offset());
     List<ExpiringBatchView> rows =
         jdbc.query(
-            "select b.uid as batch_uid, b.product_uid, coalesce(p.name, '') as product_name,"
-                + " b.batch_number, b.expiry_date, sum(sl.quantity) as quantity,"
-                + " sum(sl.quantity * b.unit_cost) as cost_value"
-                + " from inventory.stock_levels sl"
-                + " join inventory.batches b on b.id = sl.batch_id"
-                + " left join inventory.products p on p.product_uid = b.product_uid"
-                + " where sl.quantity > 0 and "
-                + branches
-                + " and b.expiry_date <= ?"
-                + " group by b.id, b.uid, b.product_uid, p.name, b.batch_number, b.expiry_date"
-                + " order by b.expiry_date, b.id limit ? offset ?",
+            counted + " order by b.expiry_date, b.id limit ? offset ?",
             (rs, row) -> {
               LocalDate expiryDate = date(rs, "expiry_date");
               return new ExpiringBatchView(
@@ -288,7 +292,7 @@ class StockQueriesImpl implements StockQueries {
                   Amounts.money(rs.getBigDecimal("cost_value")));
             },
             parameters.toArray());
-    return Page.offset(rows, query);
+    return Page.offset(rows, query, () -> count(counted, countParameters));
   }
 
   @Override
@@ -386,5 +390,12 @@ class StockQueriesImpl implements StockQueries {
 
   private LocalDate today() {
     return calendar.today();
+  }
+
+  /** How many rows {@code sql} returns, for a numbered page's total. */
+  private long count(String sql, Object[] parameters) {
+    Long total =
+        jdbc.queryForObject("select count(*) from (" + sql + ") counted", Long.class, parameters);
+    return total == null ? 0 : total;
   }
 }

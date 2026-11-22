@@ -117,7 +117,10 @@ public class SalesHandler {
         "Sale completed");
   }
 
-  /** The branch's sales, newest first, such as {@code ?q=INV-HQ&from=2026-11-01}. */
+  /**
+   * The branch's sales, newest first, such as {@code ?q=INV-HQ&from=2026-11-01}; {@code
+   * since=2026-11-21T09:30:00Z} keeps those made from that moment (the last 24 hours).
+   */
   @GetMapping("/sales")
   @Access(scope = AccessScope.BRANCH, permission = "sales.view")
   public ApiResponse<Page<SaleSummaryView>> list(
@@ -125,6 +128,8 @@ public class SalesHandler {
       @RequestParam(required = false) String status,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          java.time.Instant since,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
     SaleStatus saleStatus =
@@ -132,7 +137,7 @@ public class SalesHandler {
             ? null
             : Checks.oneOf(SaleStatus.class, status, "status");
     return ApiResponse.ok(
-        saleService.list(new SaleFilter(q, saleStatus, from, to), Pages.of(cursor, limit)),
+        saleService.list(new SaleFilter(q, saleStatus, from, to, since), Pages.of(cursor, limit)),
         "Sales retrieved");
   }
 

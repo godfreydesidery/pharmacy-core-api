@@ -2,7 +2,6 @@ package tz.co.pharmacy.delivery.api.v1.platform;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -146,8 +145,8 @@ public class PlatformHandler {
 
   @GetMapping("/root-admins")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
-  public ApiResponse<List<UserView>> rootAdmins() {
-    return ApiResponse.ok(users.rootAdmins(), "Root administrators retrieved");
+  public ApiResponse<?> rootAdmins() {
+    return ApiResponse.ok(Pages.slice(users.rootAdmins()), "Root administrators retrieved");
   }
 
   @PostMapping("/root-admins")

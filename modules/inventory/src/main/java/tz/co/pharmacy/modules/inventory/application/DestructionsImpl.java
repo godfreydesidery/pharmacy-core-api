@@ -23,9 +23,13 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
 
 @Service
 @RequiredArgsConstructor
@@ -131,12 +135,12 @@ class DestructionsImpl implements Destructions {
 
   @Override
   @Transactional(readOnly = true)
-  public List<DestructionView> list() {
-    return destructions
-        .findTop100ByBranchUidOrderByIdDesc(ExecutionContext.requireBranch())
-        .stream()
-        .map(this::view)
-        .toList();
+  public Page<DestructionView> list(PageQuery query) {
+    return Keyset.page(
+        destructions,
+        Specs.equal("branchUid", ExecutionContext.requireBranch()),
+        query,
+        this::view);
   }
 
   @Override

@@ -59,7 +59,7 @@ public interface Insurance {
   /** Gathers the payer's DRAFT claims of the period into a batch; they become SUBMITTED. */
   ClaimBatchView batch(UUID payerUid, LocalDate from, LocalDate to);
 
-  List<ClaimBatchView> batches(UUID payerUid);
+  Page<ClaimBatchView> batches(UUID payerUid, PageQuery query);
 
   /** CSV, or JSON: a FHIR R4 Bundle of Claim resources. */
   byte[] exportBatch(UUID batchUid, String format);
@@ -70,7 +70,7 @@ public interface Insurance {
   /** Publishes insurance.remittance_received. */
   List<ClaimView> remit(RemittanceCommand c);
 
-  List<RemittanceView> remittances(UUID payerUid);
+  Page<RemittanceView> remittances(UUID payerUid, PageQuery query);
 
   ClaimTotals totals();
 }

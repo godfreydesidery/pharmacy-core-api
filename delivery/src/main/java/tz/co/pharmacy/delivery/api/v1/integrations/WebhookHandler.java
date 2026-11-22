@@ -46,8 +46,8 @@ public class WebhookHandler {
 
   @GetMapping
   @Access(scope = AccessScope.TENANT, permission = "integrations.manage")
-  public ApiResponse<List<WebhookView>> list() {
-    return ApiResponse.ok(webhooks.list(), "Webhooks retrieved");
+  public ApiResponse<?> list() {
+    return ApiResponse.ok(Pages.slice(webhooks.list()), "Webhooks retrieved");
   }
 
   @GetMapping("/event-types")

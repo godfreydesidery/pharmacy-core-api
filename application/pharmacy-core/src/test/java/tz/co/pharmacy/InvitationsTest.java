@@ -154,7 +154,7 @@ class InvitationsTest extends IntegrationTest {
             .get("/api/v1/users/invitations")
             .expect(200)
             .json()
-            .read("$.data[?(@.email == '" + invited + "')].acceptedAs");
+            .read("$.data.items[?(@.email == '" + invited + "')].acceptedAs");
     assertThat(acceptedAs).containsExactly(own);
     assertThat(
             juma.post("/api/v1/auth/invitations/join", "{\"token\":\"%s\"}".formatted(token))

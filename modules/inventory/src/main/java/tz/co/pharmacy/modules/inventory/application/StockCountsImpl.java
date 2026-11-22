@@ -25,8 +25,12 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
+import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.Specs;
 
 @Service
 @RequiredArgsConstructor
@@ -83,10 +87,12 @@ class StockCountsImpl implements StockCounts {
 
   @Override
   @Transactional(readOnly = true)
-  public List<StockCountView> list() {
-    return counts.findTop50ByBranchUidOrderByIdDesc(ExecutionContext.requireBranch()).stream()
-        .map(c -> view(c, false))
-        .toList();
+  public Page<StockCountView> list(PageQuery query) {
+    return Keyset.page(
+        counts,
+        Specs.equal("branchUid", ExecutionContext.requireBranch()),
+        query,
+        c -> view(c, false));
   }
 
   @Override

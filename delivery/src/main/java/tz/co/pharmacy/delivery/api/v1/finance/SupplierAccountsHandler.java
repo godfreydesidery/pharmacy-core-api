@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.finance.ports.inbound.SupplierAccounts;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierService;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierView;
@@ -68,7 +69,7 @@ public class SupplierAccountsHandler {
 
   @GetMapping("/balances")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
-  public ApiResponse<List<SupplierBalance>> balances() {
+  public ApiResponse<?> balances() {
     ZoneId zone = calendar.zone();
     Map<UUID, SupplierBalance> rows = new LinkedHashMap<>();
     for (SupplierActivity.Totals t : activity.totals()) {
@@ -103,27 +104,28 @@ public class SupplierAccountsHandler {
               last));
     }
     return ApiResponse.ok(
-        rows.values().stream()
-            .map(
-                r ->
-                    new SupplierBalance(
-                        r.supplierUid(),
-                        r.supplierName(),
-                        r.opening(),
-                        r.received(),
-                        r.returned(),
-                        r.paid(),
-                        Amounts.money(
-                            r.opening()
-                                .add(r.received())
-                                .subtract(r.returned())
-                                .subtract(r.paid())),
-                        r.lastActivity()))
-            .sorted(
-                Comparator.comparing(SupplierBalance::balance)
-                    .reversed()
-                    .thenComparing(SupplierBalance::supplierName))
-            .toList(),
+        Pages.slice(
+            rows.values().stream()
+                .map(
+                    r ->
+                        new SupplierBalance(
+                            r.supplierUid(),
+                            r.supplierName(),
+                            r.opening(),
+                            r.received(),
+                            r.returned(),
+                            r.paid(),
+                            Amounts.money(
+                                r.opening()
+                                    .add(r.received())
+                                    .subtract(r.returned())
+                                    .subtract(r.paid())),
+                            r.lastActivity()))
+                .sorted(
+                    Comparator.comparing(SupplierBalance::balance)
+                        .reversed()
+                        .thenComparing(SupplierBalance::supplierName))
+                .toList()),
         "Supplier balances retrieved");
   }
 

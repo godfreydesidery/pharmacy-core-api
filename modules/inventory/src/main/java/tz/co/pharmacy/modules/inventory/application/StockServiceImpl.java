@@ -83,6 +83,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   @Override
   @Transactional
   public void upsert(ProductSnapshot snapshot) {
+    products.lockSnapshot(snapshot.productUid());
     products
         .findByProductUid(snapshot.productUid())
         .ifPresentOrElse(
@@ -800,6 +801,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
 
   /** Inventory's snapshot of the product, taken from the catalogue the first time it is needed. */
   private ProductRecord product(UUID productUid) {
+    products.lockSnapshot(productUid);
     return products
         .findByProductUid(productUid)
         .orElseGet(

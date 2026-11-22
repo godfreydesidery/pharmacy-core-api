@@ -23,6 +23,15 @@ public final class Keyset {
       Specification<E> filter,
       PageQuery query,
       Function<E, R> mapping) {
+    if (query.numbered()) {
+      // By page number: the same order, with the total for the table's page numbers.
+      org.springframework.data.domain.Page<E> page =
+          repository.findAll(
+              filter,
+              org.springframework.data.domain.PageRequest.of(
+                  query.page() - 1, query.limit(), Sort.by(Sort.Direction.DESC, "uid")));
+      return Page.numbered(page.getContent(), page.getTotalElements()).map(mapping);
+    }
     UUID after = query.afterUid();
     Specification<E> spec = after == null ? filter : filter.and(Specs.before("uid", after));
     List<E> rows =

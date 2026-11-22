@@ -1,7 +1,8 @@
 package tz.co.pharmacy.modules.access.ports.inbound;
 
-import java.util.List;
 import java.util.UUID;
+import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.PageQuery;
 
 /** Invitations to join the current tenant, sent by email and valid for 7 days. */
 public interface InvitationService {
@@ -9,8 +10,11 @@ public interface InvitationService {
   /** 409 already_a_member; 422 role_not_found; 422 invalid_branch_uids. */
   InvitationView invite(InviteCommand command);
 
-  /** The tenant's invitations, newest first. */
-  List<InvitationView> list();
+  /**
+   * The tenant's invitations, newest first, a page at a time; {@code pendingOnly} keeps those still
+   * open (not accepted, revoked or expired).
+   */
+  Page<InvitationView> list(boolean pendingOnly, PageQuery query);
 
   /** 404 invitation_not_found. */
   void revoke(UUID invitationUid);

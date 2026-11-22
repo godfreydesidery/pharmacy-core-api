@@ -12,4 +12,6 @@ public interface TransformationRepository extends JpaRepository<Transformation, 
 
   @EntityGraph(attributePaths = "inputs")
   List<Transformation> findByBranchUidOrderByIdDesc(UUID branchUid, Pageable page);
+
+  long countByBranchUid(UUID branchUid);
 }

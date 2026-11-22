@@ -110,7 +110,7 @@ class StockCountsTest extends IntegrationTest {
     assertThat(
             hq.post("/api/v1/stock-counts/" + count + "/post", "{}").expect(422).string("$.reason"))
         .isEqualTo("count_posted");
-    assertThat(hq.get("/api/v1/stock-counts").expect(200).string("$.data[0].status"))
+    assertThat(hq.get("/api/v1/stock-counts").expect(200).string("$.data.items[0].status"))
         .isEqualTo("POSTED");
   }
 

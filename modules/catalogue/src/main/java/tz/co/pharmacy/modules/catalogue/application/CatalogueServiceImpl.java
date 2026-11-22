@@ -204,6 +204,19 @@ class CatalogueServiceImpl implements CatalogueService {
     return view(manufacturer);
   }
 
+  /** How many products match {@code spec}, for a numbered page's total. */
+  private long count(Specification<Product> spec) {
+    CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+    CriteriaQuery<Long> cq = cb.createQuery(Long.class);
+    Root<Product> root = cq.from(Product.class);
+    Predicate predicate = spec.toPredicate(root, cq, cb);
+    cq.select(cb.count(root));
+    if (predicate != null) {
+      cq.where(predicate);
+    }
+    return entityManager.createQuery(cq).getSingleResult();
+  }
+
   @Override
   @Transactional(readOnly = true)
   public Page<ProductView> products(ProductFilter filter, PageQuery query) {
@@ -233,7 +246,7 @@ class CatalogueServiceImpl implements CatalogueService {
             .setFirstResult(query.offset())
             .setMaxResults(query.limit() + 1)
             .getResultList();
-    return Page.offset(rows, query).map(CatalogueServiceImpl::view);
+    return Page.offset(rows, query, () -> count(spec)).map(CatalogueServiceImpl::view);
   }
 
   @Override
