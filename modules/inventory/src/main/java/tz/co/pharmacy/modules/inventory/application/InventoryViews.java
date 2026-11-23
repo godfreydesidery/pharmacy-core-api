@@ -74,7 +74,8 @@ class InventoryViews {
                     == tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT
                 && transfer.getCreatedAt() != null
             ? java.time.Duration.between(transfer.getCreatedAt(), clock.instant()).toDays()
-            : null);
+            : null,
+        transfer.getCreatedByUid());
   }
 
   String branchName(UUID branchUid) {

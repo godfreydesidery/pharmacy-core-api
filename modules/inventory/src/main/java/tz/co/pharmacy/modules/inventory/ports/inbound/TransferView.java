@@ -7,7 +7,7 @@ import java.util.UUID;
 /**
  * A transfer between branches. {@code dispatchedBy} sent it and {@code receivedBy} received it
  * (never the same person); {@code daysInTransit} counts whole days since dispatch while it is in
- * transit (null once received).
+ * transit (null once received); {@code dispatchedByUid} is the sender's user uid.
  */
 public record TransferView(
     UUID uid,
@@ -23,4 +23,6 @@ public record TransferView(
     Instant receivedAt,
     String dispatchedBy,
     String receivedBy,
-    Long daysInTransit) {}
+    Long daysInTransit,
+    /* Who sent it, so a screen can hide Receive from them (null on transfers before Batch 4). */
+    UUID dispatchedByUid) {}
