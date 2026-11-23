@@ -1,68 +1,44 @@
 package tz.co.pharmacy.modules.notifications.providers;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
-import java.util.Base64;
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
-import tz.co.pharmacy.modules.notifications.ports.inbound.Sealing;
+import tz.co.pharmacy.platform.crypto.Keyring;
+import tz.co.pharmacy.platform.crypto.Purpose;
+import tz.co.pharmacy.platform.crypto.SealedColumn;
 
 /**
- * Seals provider secrets (API keys, auth tokens, SMTP passwords) with AES-256-GCM under a key
- * derived from {@code pharmacy.access.encryption-key}, the same key the access module seals TOTP
- * seeds with. Other modules reach it as the {@link Sealing} port (webhook signing secrets).
+ * Seals provider secrets (API keys, auth tokens, SMTP passwords) with the platform {@link Keyring}
+ * under the {@code providers} purpose's active key. A secret sealed under an older key still opens
+ * while that key is in the keyring.
  */
 @Component
-public class SecretSeal implements Sealing {
+public class SecretSeal {
 
-  private static final String LOCAL_KEY = "local-development-only-encryption-key";
-  private static final int IV_BYTES = 12;
-  private static final SecureRandom RANDOM = new SecureRandom();
+  private final Keyring keyring;
 
-  private final SecretKeySpec key;
-
-  SecretSeal(@Value("${pharmacy.access.encryption-key:" + LOCAL_KEY + "}") String secret) {
-    try {
-      byte[] digest =
-          MessageDigest.getInstance("SHA-256").digest(secret.getBytes(StandardCharsets.UTF_8));
-      this.key = new SecretKeySpec(digest, "AES");
-    } catch (GeneralSecurityException impossible) {
-      throw new IllegalStateException(impossible);
-    }
+  SecretSeal(Keyring keyring) {
+    this.keyring = keyring;
   }
 
-  @Override
   public String seal(String plain) {
-    try {
-      byte[] iv = new byte[IV_BYTES];
-      RANDOM.nextBytes(iv);
-      Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-      cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
-      byte[] sealed = cipher.doFinal(plain.getBytes(StandardCharsets.UTF_8));
-      return Base64.getEncoder()
-          .encodeToString(
-              ByteBuffer.allocate(iv.length + sealed.length).put(iv).put(sealed).array());
-    } catch (GeneralSecurityException failure) {
-      throw new IllegalStateException("could not encrypt", failure);
-    }
+    return keyring.seal(Purpose.PROVIDERS, plain);
   }
 
-  @Override
+  /** Throws {@link IllegalStateException} when no key in the keyring opens the value. */
   public String open(String sealedText) {
-    try {
-      byte[] all = Base64.getDecoder().decode(sealedText);
-      Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-      cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, all, 0, IV_BYTES));
-      return new String(
-          cipher.doFinal(all, IV_BYTES, all.length - IV_BYTES), StandardCharsets.UTF_8);
-    } catch (GeneralSecurityException failure) {
-      throw new IllegalStateException("could not decrypt: wrong pharmacy.access.encryption-key?");
+    return keyring.openText(Purpose.PROVIDERS, sealedText);
+  }
+
+  /** The notifications module's sealed columns, for the key re-seal and its status. */
+  @Configuration(proxyBeanMethods = false)
+  static class SealedColumns {
+
+    /** The platform's providers (no pharmacy) and each pharmacy's own. */
+    @Bean
+    SealedColumn sealedProviderSecrets() {
+      return new SealedColumn(
+          "notifications.provider_settings", "secrets", Purpose.PROVIDERS, true, null);
     }
   }
 }

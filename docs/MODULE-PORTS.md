@@ -697,14 +697,14 @@ interface PublicAddresses { Optional<String> problem(String host); }
 // verify(): a push request pays only a tender of its own method at its own branch: 422 payment_mismatch.
 
 // ports.outbound (adapters in composition)
-interface SecretSealing { String seal(String plain); String open(String sealed); }  // → notifications Sealing
+interface SecretSealing { String seal(String plain); String open(String sealed); }  // → platform Keyring, purpose webhooks (IntegrationsSealingAdapter)
 ```
 
 ## notifications (`tz.co.pharmacy.modules.notifications`): ports added for the outside-connection hardening
 
 ```java
 // ports.inbound
-interface Sealing { String seal(String plain); String open(String sealed); }   // provider-secret sealing (AES-256-GCM, pharmacy.access.encryption-key), reused by integrations
+// (Sealing was removed with OPS-5: provider and webhook secrets seal through the platform Keyring)
 interface NotificationUsage { /* … */ long platformSmsThisMonth(UUID tenantUid, ZoneId zone); }  // SMS on the platform's account, the pharmacy's month
 record DeliveryView(/* … */ Instant sentAt, String reason) {}   // reason: sms_cap_reached when the platform refused the message
 record DeliveryDetail(/* … */ Instant sentAt, String reason) {}
@@ -742,3 +742,20 @@ interface FileDeletions {
 Platform (not a module port, `tz.co.pharmacy.platform.persistence`): `exports.DataExportJobs` (the
 `platform.data_exports` jobs: start, find, claim, heartbeat, ready, retry, fail, expiring, expired)
 and `retention.RetentionTask` (a part of the nightly retention bound in composition).
+
+Platform (not a module port, `tz.co.pharmacy.platform.crypto`, OPS-5):
+
+```java
+enum Purpose { TOTP, PROVIDERS, WEBHOOKS }        // each purpose's active key: pharmacy.sealing.<purpose>
+class Keyring {                                    // named AES-256-GCM keys pharmacy.keys.<id>; legacy = pharmacy.access.encryption-key
+  String seal(Purpose p, byte[] plain);            // v2:<keyId>:<base64>, purpose as associated data; unversioned while the purpose is on legacy
+  String seal(Purpose p, String plain);
+  byte[] open(Purpose p, String sealed);           // with the key the value names; IllegalStateException when none opens it
+  String openText(Purpose p, String sealed);
+  static String keyIdOf(String sealed);            // "legacy" for an unversioned value
+}
+record SealedColumn(String table, String column, Purpose purpose, boolean tenantScoped, String plainPrefix) {}
+                                                   // a bean per sealed column, declared by its module (access, notifications, integrations)
+class SealedValues { Map<String, Long> count(SealedColumn c); Batch reseal(SealedColumn c, long afterId, int limit); }
+interface KeyRotation { Status status(); boolean start(); }   // bound in composition (KeyResealJob): GET /api/v1/platform/keys, POST .../reseal
+```

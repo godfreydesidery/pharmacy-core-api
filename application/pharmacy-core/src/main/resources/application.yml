@@ -69,9 +69,31 @@ pharmacy:
       # Documents younger than this are still being posted; the reconciliation leaves them out.
       grace: PT15M
   database:
+    # The owner role runs the migrations (migrate-and-run, migrate-only). A run-only API needs
+    # neither: leave both unset there.
     owner-username: ${PHARMACY_DB_OWNER_USER:pharmacy_owner}
     owner-password: ${PHARMACY_DB_OWNER_PASSWORD:}
+    # Older switch: false means run-only. pharmacy.migrations.mode wins when set.
     migrations-enabled: ${PHARMACY_DB_MIGRATIONS_ENABLED:true}
+  migrations:
+    # migrate-and-run (default: migrate at start, then serve), migrate-only (migrate and exit 0:
+    # the one-off task before a deploy) or run-only (never migrate, hold no owner credentials,
+    # refuse to start while a migration is pending). See the runbook "Migrations".
+    mode: ${PHARMACY_MIGRATIONS_MODE:}
+    # Every migration connection waits at most this long for a lock, then fails and rolls back,
+    # instead of stalling the live traffic queued behind its lock (OPS-10).
+    lock-timeout: ${PHARMACY_MIGRATIONS_LOCK_TIMEOUT:5s}
+    statement-timeout: ${PHARMACY_MIGRATIONS_STATEMENT_TIMEOUT:5min}
+  # The keyring (OPS-5, runbook "Rotating keys"). Named keys come from PHARMACY_KEYS_<ID> (each one
+  # ECS secret; id: lower-case letters and digits), the legacy key from
+  # PHARMACY_ACCESS_ENCRYPTIONKEY. Each purpose seals new values with the key its variable names,
+  # or with the legacy key while unset.
+  sealing:
+    totp: ${PHARMACY_SEALING_TOTP:}
+    providers: ${PHARMACY_SEALING_PROVIDERS:}
+    webhooks: ${PHARMACY_SEALING_WEBHOOKS:}
+    # Values re-sealed per transaction by POST /api/v1/platform/keys/reseal.
+    reseal-batch: 200
   access:
     session-hours: ${PHARMACY_SESSION_HOURS:12}
     # Sign out after this many minutes without use (keys, mouse, touch): the limit before a
