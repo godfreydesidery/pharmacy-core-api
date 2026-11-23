@@ -21,11 +21,22 @@ import tz.co.pharmacy.platform.kernel.Refusal;
  * person sees, numbered as in Excel (the headings are row 1). Reads an Excel workbook's first sheet
  * or a CSV file (UTF-8, with or without a BOM, comma or semicolon separated). Wholly empty rows are
  * skipped.
+ *
+ * <p>A file is read within limits, so a crafted one cannot run the API out of memory (adversarial
+ * review INT-1): a workbook's ZIP is checked first ({@link ZipLimits}: parts, expanded size,
+ * expansion ratio), and any file may have at most {@link #MAX_ROWS} rows, {@link #MAX_COLUMNS}
+ * filled columns and {@link #MAX_CELL} characters in a cell (Excel's own limit).
  */
 record SheetFile(List<String> headings, List<Line> lines) {
 
   /** The most rows one import takes; past it the person splits the file. */
   static final int MAX_ROWS = 5_000;
+
+  /** The most columns read; a cell filled further right is refused (templates have about 20). */
+  static final int MAX_COLUMNS = 200;
+
+  /** The most characters in one cell: Excel's own limit. */
+  static final int MAX_CELL = 32_767;
 
   /** One row: its number in the sheet and its cells, aligned with the headings. */
   record Line(int number, List<String> cells) {
@@ -71,6 +82,7 @@ record SheetFile(List<String> headings, List<Line> lines) {
 
   /** The first sheet of a workbook, row by row; a missing row number leaves an empty row. */
   private static List<List<String>> excel(byte[] content) {
+    ZipLimits.check(content);
     List<List<String>> rows = new ArrayList<>();
     try (ReadableWorkbook workbook =
         new ReadableWorkbook(new ByteArrayInputStream(content), new ReadingOptions(true, false))) {
@@ -82,7 +94,14 @@ record SheetFile(List<String> headings, List<Line> lines) {
           }
           List<String> cells = new ArrayList<>();
           for (int c = 0; c < row.getCellCount(); c++) {
-            cells.add(text(row.getCell(c)));
+            String text = text(row.getCell(c));
+            if (c >= MAX_COLUMNS) {
+              if (!text.isBlank()) {
+                throw tooManyColumns(row.getRowNum());
+              }
+              continue;
+            }
+            cells.add(cell(text, row.getRowNum()));
           }
           rows.add(cells);
           if (rows.size() > MAX_ROWS + 1 + 1000) {
@@ -176,14 +195,12 @@ record SheetFile(List<String> headings, List<Line> lines) {
       } else if (ch == '"') {
         quoted = true;
       } else if (ch == separator) {
-        row.add(cell.toString());
-        cell.setLength(0);
+        add(row, cell, rows.size() + 1);
       } else if (ch == '\n' || ch == '\r') {
         if (ch == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
           i++;
         }
-        row.add(cell.toString());
-        cell.setLength(0);
+        add(row, cell, rows.size() + 1);
         rows.add(row);
         row = new ArrayList<>();
         if (rows.size() > MAX_ROWS + 1 + 1000) {
@@ -194,10 +211,39 @@ record SheetFile(List<String> headings, List<Line> lines) {
       }
     }
     if (!cell.isEmpty() || !row.isEmpty()) {
-      row.add(cell.toString());
+      add(row, cell, rows.size() + 1);
       rows.add(row);
     }
     return rows;
+  }
+
+  /** Ends a CSV cell: kept within the column and cell limits. */
+  private static void add(List<String> row, StringBuilder cell, int rowNumber) {
+    if (row.size() >= MAX_COLUMNS) {
+      if (!cell.toString().isBlank()) {
+        throw tooManyColumns(rowNumber);
+      }
+    } else {
+      row.add(cell(cell.toString(), rowNumber));
+    }
+    cell.setLength(0);
+  }
+
+  private static String cell(String text, int rowNumber) {
+    if (text.length() > MAX_CELL) {
+      throw Refusal.invalid(
+          "cell_too_long",
+          "Row " + rowNumber + " has a cell longer than " + MAX_CELL + " characters.",
+          "file");
+    }
+    return text;
+  }
+
+  private static Refusal tooManyColumns(int rowNumber) {
+    return Refusal.invalid(
+        "too_many_columns",
+        "Row " + rowNumber + " has something past column " + MAX_COLUMNS + ": remove it.",
+        "file");
   }
 
   /** Excel in Swahili or French locales saves CSV with semicolons; the first line tells. */
