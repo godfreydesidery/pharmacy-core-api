@@ -6,11 +6,12 @@ import tz.co.pharmacy.platform.kernel.DomainEvent;
 import tz.co.pharmacy.platform.kernel.EventMetadata;
 
 /**
- * "stock.cost_averaged": a receipt brought more of a batch at a different cost, and the batch now
- * costs the weighted average. {@code roundingValue} is how far the stock's value moved beyond what
- * was paid because the average is kept to the cent (a few cents either way, in the base currency);
- * the books post it so the ledger's inventory keeps matching the stock at cost. {@code movementUid}
- * is the receipt's movement.
+ * "stock.cost_averaged": stock came into a batch (a receipt, or the output of a break bulk or
+ * repack) and the batch now costs the weighted average of what it held, in transit included, and
+ * what came in. {@code roundingValue} is how far the stock's value moved beyond what came in
+ * because the cost is kept to the cent (a few cents either way, in the base currency, also for a
+ * new batch whose cost had more decimals); the books post it so the ledger's inventory keeps
+ * matching the stock at cost. {@code movementUid} is the movement that brought the stock in.
  */
 public record BatchCostAveraged(
     EventMetadata metadata,

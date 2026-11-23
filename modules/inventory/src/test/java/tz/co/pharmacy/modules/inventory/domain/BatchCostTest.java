@@ -77,4 +77,29 @@ class BatchCostTest {
               new BigDecimal("0.005").multiply(BigDecimal.valueOf(onHand + quantity)));
     }
   }
+
+  @Test
+  @DisplayName("MON-9: a cost to more than cents is kept to the cent, the difference returned")
+  void finerCostRounds() {
+    Batch fresh = batchAt("980.5457");
+
+    // 7 × 980.5457 = 6,863.8199 paid; the shelf holds 7 × 980.55 = 6,863.85.
+    BigDecimal rounding = fresh.receive(0, 7, money("980.5457"));
+
+    assertThat(fresh.getUnitCost()).isEqualByComparingTo("980.55");
+    assertThat(rounding).isEqualByComparingTo("0.03");
+  }
+
+  @Test
+  @DisplayName("MON-8: a repack's output averages into the batch at what its inputs cost")
+  void outputAveragesByValue() {
+    Batch packs = batchAt("500.00");
+
+    // 4 packs held at 500; 3 more made from inputs costing 1,600 together.
+    BigDecimal rounding = packs.receiveValue(4, 3, money("1600.00"));
+
+    // (2,000 + 1,600) / 7 = 514.2857… → 514.29; the shelf holds 3,600.03.
+    assertThat(packs.getUnitCost()).isEqualByComparingTo("514.29");
+    assertThat(rounding).isEqualByComparingTo("0.03");
+  }
 }

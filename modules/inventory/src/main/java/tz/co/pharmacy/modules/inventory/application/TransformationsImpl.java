@@ -17,15 +17,18 @@ import tz.co.pharmacy.modules.inventory.domain.ProductRecord;
 import tz.co.pharmacy.modules.inventory.domain.StockLevel;
 import tz.co.pharmacy.modules.inventory.domain.Transformation;
 import tz.co.pharmacy.modules.inventory.domain.TransformationInput;
+import tz.co.pharmacy.modules.inventory.events.BatchCostAveraged;
 import tz.co.pharmacy.modules.inventory.persistence.BatchRepository;
 import tz.co.pharmacy.modules.inventory.persistence.MovementRepository;
 import tz.co.pharmacy.modules.inventory.persistence.ProductRecordRepository;
 import tz.co.pharmacy.modules.inventory.persistence.StockLevelRepository;
+import tz.co.pharmacy.modules.inventory.persistence.TransferRepository;
 import tz.co.pharmacy.modules.inventory.persistence.TransformationRepository;
 import tz.co.pharmacy.modules.inventory.ports.inbound.MovementType;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransformationType;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations;
 import tz.co.pharmacy.modules.inventory.ports.outbound.ProductCatalogue;
+import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -46,6 +49,8 @@ class TransformationsImpl implements Transformations {
   private final ProductCatalogue catalogue;
   private final DocumentNumbers documentNumbers;
   private final TenantCalendar calendar;
+  private final TransferRepository transfers;
+  private final DomainEventPublisher events;
 
   @Override
   @Transactional
@@ -171,33 +176,62 @@ class TransformationsImpl implements Transformations {
     BigDecimal unitCost =
         totalCost.divide(BigDecimal.valueOf(outputQuantity), 4, RoundingMode.HALF_UP);
     LocalDate batchExpiry = expiry;
+    java.util.Optional<Batch> existing =
+        batches.findByProductUidAndBatchNumber(outputUid, batchNumber);
     Batch batch =
-        batches
-            .findByProductUidAndBatchNumber(outputUid, batchNumber)
-            .orElseGet(
-                () -> batches.save(new Batch(outputUid, batchNumber, batchExpiry, unitCost)));
+        existing.orElseGet(
+            () -> batches.save(new Batch(outputUid, batchNumber, batchExpiry, unitCost)));
     if (output.expiryTracked() && !expiry.equals(batch.getExpiryDate())) {
       throw Refusal.invalid(
           "batch_expiry_mismatch",
           "Batch " + batchNumber + " is recorded with expiry " + batch.getExpiryDate() + ".",
           "output.batchNumber");
     }
+    // MON-8: the output is worth exactly what its inputs cost. Into a batch already held it
+    // averages, as a receipt does; the cost is kept to the cent, and the difference that leaves
+    // (a few cents either way) is posted, so the stock at cost keeps matching the ledger.
+    BigDecimal previousCost = existing.isPresent() ? batch.getUnitCost() : null;
+    BigDecimal rounding =
+        batch.receiveValue(
+            existing.isPresent()
+                ? levels.quantityOfBatch(batch) + transfers.quantityInTransitOfBatch(batch.getUid())
+                : 0,
+            outputQuantity,
+            totalCost);
     int before = (int) levels.quantityAt(branch, outputUid);
     levels
         .lockAt(branch, batch)
         .orElseGet(() -> levels.save(new StockLevel(branch, batch)))
         .change(outputQuantity);
-    movements.save(
-        new Movement(
-            branch,
-            output.getName(),
-            batch,
-            MovementType.TRANSFORM_IN,
-            outputQuantity,
-            before + outputQuantity,
-            number,
-            null,
-            note));
+    Movement made =
+        movements.save(
+            new Movement(
+                branch,
+                output.getName(),
+                batch,
+                MovementType.TRANSFORM_IN,
+                outputQuantity,
+                before + outputQuantity,
+                number,
+                null,
+                note));
+    if (rounding.signum() != 0
+        || (previousCost != null && previousCost.compareTo(batch.getUnitCost()) != 0)) {
+      events.publish(
+          "stock.cost_averaged",
+          meta ->
+              new BatchCostAveraged(
+                  meta,
+                  outputUid,
+                  output.getName(),
+                  batch.getUid(),
+                  batch.getBatchNumber(),
+                  previousCost == null ? batch.getUnitCost() : previousCost,
+                  unitCost,
+                  batch.getUnitCost(),
+                  made.getUid(),
+                  rounding));
+    }
     transformation.output(outputUid, output.getName(), batch, outputQuantity, unitCost);
     return view(transformations.save(transformation));
   }

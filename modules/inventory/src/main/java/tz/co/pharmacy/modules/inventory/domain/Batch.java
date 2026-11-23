@@ -40,28 +40,30 @@ public class Batch extends TenantEntity {
   }
 
   /**
-   * Takes in {@code quantity} more units bought at {@code cost} while {@code onHand} units of the
-   * batch are held across the branches: the batch's cost becomes the weighted average of the two,
-   * to the cent. Returns how far the stock's value at the new cost differs from what it was worth
-   * plus what was paid, which is the cent rounding of the average (a few cents either way); the
-   * books post it as a stock adjustment so they keep matching the stock at cost. With nothing on
-   * hand the batch simply takes the new cost.
+   * Takes in {@code quantity} more units bought at {@code cost} each while {@code onHand} units of
+   * the batch are held (on the shelves of every branch and in transit between them): the batch's
+   * cost becomes the weighted average of the two, to the cent. Returns how far the stock's value at
+   * the new cost differs from what it was worth plus what was paid, which is the cent rounding of
+   * the average or of a cost given to more than cents (a foreign price at the receipt's rate); the
+   * books post it as a stock adjustment so they keep matching the stock at cost.
    */
   public BigDecimal receive(long onHand, int quantity, BigDecimal cost) {
-    BigDecimal received = Amounts.money(cost);
-    if (onHand <= 0) {
-      unitCost = received;
-      return Amounts.ZERO;
-    }
-    if (received.compareTo(unitCost) == 0) {
-      return Amounts.ZERO;
-    }
-    BigDecimal held = unitCost.multiply(BigDecimal.valueOf(onHand));
-    BigDecimal paid = received.multiply(BigDecimal.valueOf(quantity));
-    BigDecimal units = BigDecimal.valueOf(onHand + quantity);
-    BigDecimal averaged = Amounts.money(held.add(paid).divide(units, 10, RoundingMode.HALF_UP));
+    return receiveValue(onHand, quantity, cost.multiply(BigDecimal.valueOf(quantity)));
+  }
+
+  /**
+   * As {@link #receive}, for units that came in worth {@code value} together (the cost of the
+   * inputs of a break bulk or repack, the cost a return was booked at). With nothing held the batch
+   * takes the value shared over the units.
+   */
+  public BigDecimal receiveValue(long onHand, int quantity, BigDecimal value) {
+    long held = Math.max(onHand, 0);
+    BigDecimal heldValue = unitCost.multiply(BigDecimal.valueOf(held));
+    BigDecimal units = BigDecimal.valueOf(held + quantity);
+    BigDecimal averaged =
+        Amounts.money(heldValue.add(value).divide(units, 10, RoundingMode.HALF_UP));
     unitCost = averaged;
-    return Amounts.money(averaged.multiply(units).subtract(held).subtract(paid));
+    return Amounts.money(averaged.multiply(units).subtract(heldValue).subtract(value));
   }
 
   /** Recalled: kept on hand but never sold, transferred or transformed until released. */

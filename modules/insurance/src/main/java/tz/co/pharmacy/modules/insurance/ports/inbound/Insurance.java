@@ -51,7 +51,11 @@ public interface Insurance {
 
   /**
    * A return of an insured sale: the insurer's share of the refund comes off the claim as a
-   * negative line, or a DRAFT claim fully returned is VOIDED. Publishes insurance.claim_reduced.
+   * negative line, or a DRAFT claim fully returned is VOIDED. On an adjudicated claim it comes off
+   * what the payer still owes (approved − paid) first, then off the rejected part the books hold
+   * (the patient's charge, then the write-off), so 1110 is never reduced for value it no longer
+   * holds; what is left (a share the payer already paid) leaves the claim owing the payer that
+   * much. Publishes insurance.claim_reduced.
    */
   Optional<ClaimView> reduceForReturn(
       UUID saleUid, BigDecimal amount, String reference, String refundMethod);
@@ -64,10 +68,18 @@ public interface Insurance {
   /** CSV, or JSON: a FHIR R4 Bundle of Claim resources. */
   byte[] exportBatch(UUID batchUid, String format);
 
-  /** Publishes insurance.claim_adjudicated. */
+  /**
+   * Records the payer's decision; a claim may be adjudicated again until it is PAID (an appeal).
+   * Each decision publishes insurance.claim_adjudicated with the change in what is written off and
+   * charged to the patient, so the books move by the difference, never by the whole rejection
+   * again. 422 claim_closed for a PAID or VOIDED claim.
+   */
   ClaimView adjudicate(UUID claimUid, AdjudicationCommand c);
 
-  /** Publishes insurance.remittance_received. */
+  /**
+   * Publishes insurance.remittance_received. 422 invalid_amount for an amount, or a perClaim
+   * amount, that is not more than zero.
+   */
   List<ClaimView> remit(RemittanceCommand c);
 
   Page<RemittanceView> remittances(UUID payerUid, PageQuery query);
