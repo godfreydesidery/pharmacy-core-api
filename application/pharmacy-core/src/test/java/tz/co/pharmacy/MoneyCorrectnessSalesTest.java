@@ -353,16 +353,23 @@ class MoneyCorrectnessSalesTest extends IntegrationTest {
       "MON-17: a 10.00 line of 3 units returns as 3.33, 3.33 and 3.34; 10.01 as 3.34, 3.34, 3.33")
   void lastReturnTakesTheRemainder() {
     // 3 × 3.34 = 10.02, less a 0.2% discount (0.02) = a 10.00 line; less 0.1% (0.01) = 10.01.
-    List<Double> ten = threeReturns("3.34", "0.2");
+    // Both items are stocked before the first sale: opening stock is for setting up (FRD-11).
+    String firstItem = stockedItem("3.34");
+    String secondItem = stockedItem("3.34");
+    List<Double> ten = threeReturns(firstItem, "0.2");
     assertThat(ten).containsExactly(3.33, 3.33, 3.34);
-    List<Double> tenOhOne = threeReturns("3.34", "0.1");
+    List<Double> tenOhOne = threeReturns(secondItem, "0.1");
     assertThat(tenOhOne).containsExactly(3.34, 3.34, 3.33);
   }
 
-  /** Sells 3 units at {@code price} with {@code discount}%, then returns them one by one. */
-  private List<Double> threeReturns(String price, String discount) {
+  private String stockedItem(String price) {
     String item = product("Item " + UUID.randomUUID().toString().substring(0, 6), price);
     stock(till, item, 10);
+    return item;
+  }
+
+  /** Sells 3 units of {@code item} with {@code discount}%, then returns them one by one. */
+  private List<Double> threeReturns(String item, String discount) {
     Response sale =
         till.post(
                 "/api/v1/sales",

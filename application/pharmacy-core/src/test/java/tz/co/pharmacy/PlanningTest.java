@@ -35,6 +35,17 @@ class PlanningTest extends IntegrationTest {
                 .string("$.reason"))
         .isEqualTo("invalid_lead_time");
 
+    // Opening stock while setting up, before any trade (FRD-11).
+    // Never sold, but below its reorder level of 50 with 5 held, and no supplier yet: 45.
+    String gloves = product(admin, "Examination gloves", 50);
+    hq.post(
+            "/api/v1/stock/opening",
+            """
+            {"productUid":"%s","batchNumber":"G1","expiryDate":"%s","quantity":5,"unitCost":20}
+            """
+                .formatted(gloves, LocalDate.now().plusYears(2)))
+        .expect(201);
+
     // Sold 30 in the window: 1 a day. Lead time 5 + cover 30 = 35 wanted, 10 held: order 25.
     String amox = product(admin, "Amoxicillin 250mg", 0);
     hq.post(
@@ -52,15 +63,6 @@ class PlanningTest extends IntegrationTest {
              "payments":[{"method":"CASH","amount":9000}]}
             """
                 .formatted(UUID.randomUUID(), amox))
-        .expect(201);
-    // Never sold, but below its reorder level of 50 with 5 held, and no supplier yet: 45.
-    String gloves = product(admin, "Examination gloves", 50);
-    hq.post(
-            "/api/v1/stock/opening",
-            """
-            {"productUid":"%s","batchNumber":"G1","expiryDate":"%s","quantity":5,"unitCost":20}
-            """
-                .formatted(gloves, LocalDate.now().plusYears(2)))
         .expect(201);
 
     Response plan = hq.get("/api/v1/reorder-suggestions").expect(200);
