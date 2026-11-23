@@ -128,8 +128,16 @@ Then set:
 | `PHARMACY_SWAGGER_ENABLED` | `true` | Serve `/v3/api-docs` and Swagger UI |
 | `PHARMACY_LOG_FORMAT` | — | `ecs` or `logstash` for JSON logs |
 | `PHARMACY_PORT` | `8080` | HTTP port |
+| `PHARMACY_FILES_STORAGE` | `local` | `local` (a directory, one instance) or `s3` (AWS S3, MinIO, R2; any number of instances). See [`docs/runbook/files-on-s3.md`](docs/runbook/files-on-s3.md) |
 
 Or use Docker: `docker compose up --build`. This starts PostgreSQL 17 with the roles from `deploy/postgres/init.sql`, then the API.
+
+## Operations
+
+- [`docs/runbook/files-on-s3.md`](docs/runbook/files-on-s3.md): file storage on S3, what AWS must provide, the move from a volume.
+- [`docs/runbook/backup-restore.md`](docs/runbook/backup-restore.md): backup layers, RPO/RTO, restore procedures, drills.
+- `ops/backup/`: `pg-dump-to-s3.sh` (encrypted logical backup to S3), `restore.sh` (restore into a new database and check it), `backup-role.sql`.
+- `ops/files/check-records.sh`: every stored file the database lists is in the bucket.
 
 ## Tests
 

@@ -6,47 +6,64 @@ import org.springframework.stereotype.Service;
 import tz.co.pharmacy.modules.files.ports.inbound.FileRules;
 import tz.co.pharmacy.modules.files.ports.inbound.SignedBlobs;
 import tz.co.pharmacy.modules.files.ports.outbound.ObjectStorage;
+import tz.co.pharmacy.modules.files.storage.BlobUrls;
 import tz.co.pharmacy.modules.files.storage.LocalObjectStorage;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.RefusalKind;
 
 /**
- * Serves the local store's presigned URLs. The signature binds method, key, expiry and content
- * type; a PUT is capped at {@link FileRules#MAX_SIZE}. No tenant is involved: the key itself names
- * the tenant, and only the API can sign one.
+ * Serves the API's presigned URLs. The signature binds method, key, expiry, content type (and a
+ * GET's disposition); a PUT is capped at {@link FileRules#MAX_SIZE} and streamed on to whichever
+ * store is configured, local or S3, never held whole in memory. No tenant is involved: the key
+ * itself names the tenant, and only the API can sign one.
  */
 @Service
 class SignedBlobsService implements SignedBlobs {
 
   private final ObjectStorage storage;
+  private final BlobUrls urls;
 
-  SignedBlobsService(ObjectStorage storage) {
+  SignedBlobsService(ObjectStorage storage, BlobUrls urls) {
     this.storage = storage;
+    this.urls = urls;
   }
 
   @Override
   public void put(
-      String key, long expires, String signature, String contentType, InputStream content) {
-    LocalObjectStorage local = local();
-    local.signer().verify("PUT", key, expires, FileRules.contentType(contentType), signature);
-    local.put(key, FileRules.contentType(contentType), new Capped(content), -1);
+      String key,
+      long expires,
+      String signature,
+      String contentType,
+      long size,
+      InputStream content) {
+    String type = FileRules.contentType(contentType);
+    urls.verifyPut(key, expires, type, signature);
+    if (size > FileRules.MAX_SIZE) {
+      throw tooLarge();
+    }
+    storage.put(key, type, new Capped(content), size < 0 ? -1 : size);
   }
 
   @Override
-  public Blob get(String key, long expires, String signature, String contentType) {
-    LocalObjectStorage local = local();
-    local.signer().verify("GET", key, expires, contentType, signature);
+  public Blob get(
+      String key, long expires, String signature, String contentType, String disposition) {
+    if (!(storage instanceof LocalObjectStorage local)) {
+      throw Refusal.forbidden("invalid_signature", "This file link is not valid.");
+    }
+    urls.verifyGet(key, expires, contentType, disposition, signature);
     if (!local.exists(key)) {
       throw Refusal.notFound("file_not_found", "No such file.");
     }
-    return new Blob(contentType, local.size(key), local.get(key));
+    return new Blob(
+        contentType,
+        disposition == null || disposition.isBlank() ? "inline" : disposition,
+        local.size(key),
+        local.get(key));
   }
 
-  private LocalObjectStorage local() {
-    if (storage instanceof LocalObjectStorage local) {
-      return local;
-    }
-    throw Refusal.forbidden("invalid_signature", "This file link is not valid.");
+  private static Refusal tooLarge() {
+    return new Refusal(
+        RefusalKind.PAYLOAD_TOO_LARGE, "file_too_large", "A file may be at most 10 MB.", null);
   }
 
   /** Refuses a body larger than the maximum file size while it is being read. */
@@ -79,8 +96,7 @@ class SignedBlobsService implements SignedBlobs {
     private void count(long n) {
       read += n;
       if (read > FileRules.MAX_SIZE) {
-        throw new Refusal(
-            RefusalKind.PAYLOAD_TOO_LARGE, "file_too_large", "A file may be at most 10 MB.", null);
+        throw tooLarge();
       }
     }
 

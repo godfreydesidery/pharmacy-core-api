@@ -69,13 +69,19 @@ class ProductionSafetyTest {
   }
 
   @Test
-  @DisplayName("with S3 storage the local file secret and root are not needed")
-  void s3NeedsNoLocalFileSettings() {
+  @DisplayName("with S3 storage the root is not needed, but the bucket and the signing secret are")
+  void s3NeedsABucketAndTheSigningSecretButNoRoot() {
     MockEnvironment s3 =
         new MockEnvironment()
             .withProperty("pharmacy.access.encryption-key", KEY)
             .withProperty("pharmacy.access.web-url", "https://app.example.co.tz")
             .withProperty("pharmacy.files.storage", "s3");
+    assertThat(ProductionSafety.problems(s3))
+        .hasSize(2)
+        .anySatisfy(problem -> assertThat(problem).contains("PHARMACY_FILES_S3_BUCKET"))
+        .anySatisfy(problem -> assertThat(problem).contains("PHARMACY_FILES_SIGNING_SECRET"));
+    s3.withProperty("pharmacy.files.s3.bucket", "pharmacy-files")
+        .withProperty("pharmacy.files.signing-secret", KEY);
     assertThat(ProductionSafety.problems(s3)).isEmpty();
   }
 

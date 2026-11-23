@@ -28,8 +28,9 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
  * The current tenant's archives. The bytes go to the store first, outside any transaction (an
- * upload to S3 may take a while); the record is written after, in a short one. When the record
- * cannot be written, the bytes are taken back out of the store.
+ * upload to S3 may take a while; a large one goes as a multipart upload, one part in memory at a
+ * time); the record is written after, in a short one. When the record cannot be written, the bytes
+ * are taken back out of the store. The link is a presigned GET that saves the ZIP under its name.
  */
 @Service
 class ArchivesService implements Archives {
@@ -91,7 +92,11 @@ class ArchivesService implements Archives {
                     .filter(f -> f.getStatus() == StoredFile.Status.COMPLETE)
                     .orElseThrow(() -> Refusal.notFound("file_not_found", "No such file.")));
     return new DownloadLink(
-        storage.presignGet(file.getStorageKey(), file.getContentType(), ttl),
+        storage.presignGet(
+            file.getStorageKey(),
+            file.getContentType(),
+            FileRules.disposition(true, file.getName()),
+            ttl),
         clock.instant().plus(ttl));
   }
 

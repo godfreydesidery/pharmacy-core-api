@@ -59,14 +59,21 @@ final class ProductionSafety implements BeanFactoryPostProcessor, EnvironmentAwa
         "PHARMACY_ACCESS_ENCRYPTIONKEY",
         LOCAL_ENCRYPTION_KEY,
         problems);
+    // Uploads come through the API's signed links with either store.
+    secret(
+        environment,
+        "pharmacy.files.signing-secret",
+        "PHARMACY_FILES_SIGNING_SECRET",
+        LOCAL_FILE_SECRET,
+        problems);
     String storage = environment.getProperty("pharmacy.files.storage", "local");
+    if ("s3".equalsIgnoreCase(storage.trim())
+        && environment.getProperty("pharmacy.files.s3.bucket", "").isBlank()) {
+      problems.add(
+          "pharmacy.files.s3.bucket (PHARMACY_FILES_S3_BUCKET) is not set, with"
+              + " PHARMACY_FILES_STORAGE=s3.");
+    }
     if ("local".equalsIgnoreCase(storage.trim())) {
-      secret(
-          environment,
-          "pharmacy.files.signing-secret",
-          "PHARMACY_FILES_SIGNING_SECRET",
-          LOCAL_FILE_SECRET,
-          problems);
       String root = environment.getProperty("pharmacy.files.local.root", "target/files");
       // A container path (/data/files) is absolute on the Linux server even when checked on
       // Windows.

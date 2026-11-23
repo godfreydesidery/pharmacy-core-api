@@ -15,20 +15,53 @@
     <name>pharmacy-files</name>
     <description>The files module: stored files and attachments (prescription images, logos) behind a storage port with local-disk and S3-compatible adapters. Depends on pharmacy-platform only.</description>
 
-    <properties>
-        <awssdk.version>2.30.6</awssdk.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>tz.co.pharmacy</groupId>
             <artifactId>pharmacy-platform</artifactId>
         </dependency>
-        <!-- The S3-compatible adapter (AWS S3, MinIO, Cloudflare R2): presigned PUT/GET. -->
+        <!-- The S3-compatible store (AWS S3, MinIO, Cloudflare R2). Version from the AWS SDK BOM in the
+             root pom. Only the JDK's HttpURLConnection client: no Apache or Netty client in the jar. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
-            <version>${awssdk.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+        </dependency>
+        <!-- FilesS3StorageTest also runs the store against S3Mock in a container when Docker is up. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The in-process S3 fake (FakeS3) is shared with pharmacy-core's end-to-end test. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>
