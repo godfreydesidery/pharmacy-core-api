@@ -5,9 +5,8 @@ import java.time.Instant;
 import java.util.OptionalLong;
 
 /**
- * Limits how often a key (such as a client IP on the sign-in routes) may act. The default is in
- * memory per node ({@link SlidingWindowRateLimiter}); a shared store such as Redis can implement it
- * for a cluster without changing the edge.
+ * Limits how often a key (such as a client IP on the sign-in routes) may act, across every instance
+ * of the API ({@link SharedRateLimiter}, in PostgreSQL).
  */
 public interface RateLimiter {
 

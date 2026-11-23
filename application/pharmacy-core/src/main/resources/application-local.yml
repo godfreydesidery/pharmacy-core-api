@@ -3,6 +3,9 @@
 # PharmacyApplication starts an embedded PostgreSQL (data in target/local-postgres) with the
 # production roles before Spring starts, creates the root administrator and seeds a demo tenant.
 pharmacy:
+  management:
+    # Local only: /actuator/prometheus on the API's port.
+    metrics-on-api-port: true
   access:
     require-2fa-for-root: false
   notifications:
@@ -24,4 +27,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus

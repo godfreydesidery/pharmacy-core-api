@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
 
 /**
  * The audit trail: the {@link AuditLog} bean, the Hibernate listeners that record every change, and
@@ -49,32 +50,50 @@ public class AuditConfiguration {
   }
 
   @Bean
-  AuditPartitions auditPartitions(DataSource dataSource, Clock clock) {
-    return new AuditPartitions(new JdbcTemplate(dataSource), clock);
+  AuditPartitions auditPartitions(DataSource dataSource, Clock clock, SingleRunner runner) {
+    return new AuditPartitions(new JdbcTemplate(dataSource), clock, runner);
   }
 
   /**
    * Keeps the partitions of the clock's month and the next two in place: at start, every night, and
-   * whenever a simulated clock moves forward.
+   * whenever a simulated clock moves forward. The start and nightly runs go through {@link
+   * SingleRunner}, so two instances never create the same partition at once.
    */
   public static class AuditPartitions {
 
+    private static final String JOB = "audit-partitions";
+
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final SingleRunner runner;
 
-    AuditPartitions(JdbcTemplate jdbc, Clock clock) {
+    AuditPartitions(JdbcTemplate jdbc, Clock clock, SingleRunner runner) {
       this.jdbc = jdbc;
       this.clock = clock;
+      this.runner = runner;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Scheduled(cron = "0 15 2 * * *", zone = "UTC")
-    public void ensure() {
+    public void nightly() {
+      runner.runAlone(
+          JOB,
+          run -> {
+            if (!ensure()) {
+              run.failed(null, "could not create the audit partitions (see the log)");
+            }
+          });
+    }
+
+    /** Creates the partitions now; returns whether that worked. */
+    public boolean ensure() {
       try {
         jdbc.queryForList(
             "select audit.ensure_partitions(?::date, 2)", Date.valueOf(LocalDate.now(clock)));
+        return true;
       } catch (RuntimeException failure) {
         log.warn("Could not create the audit partitions: {}", failure.getMessage());
+        return false;
       }
     }
   }

@@ -120,7 +120,11 @@ class Passwords {
 
   private final Argon2PasswordEncoder encoder = new Argon2PasswordEncoder(16, 32, 1, 19_456, 2);
 
-  /** Hashes running at once on this server; more wait briefly, then are told to try again. */
+  /**
+   * Hashes running at once on this server; more wait briefly, then are told to try again. Kept per
+   * instance on purpose, also with several instances: it protects this instance's own CPU and
+   * memory (each Argon2 hash takes 19 MiB), which no other instance shares.
+   */
   private final Semaphore slots =
       new Semaphore(Math.max(2, Runtime.getRuntime().availableProcessors()));
 

@@ -148,6 +148,8 @@ class AuthenticationServiceImpl implements AuthenticationService {
       audit.record("SIGN_IN_FAILED", "User", null, null, details);
       return locked;
     }
+    // The client's count first, on a connection of its own, so the transaction below holds one.
+    guard.clientFailed(from.ip(), at);
     Boolean locked =
         ExecutionContext.callAs(
             SessionIssuer.userFrame(user),
@@ -155,7 +157,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 writes.execute(
                     status -> {
                       User row = users.findByUid(user.getUid()).orElse(user);
-                      boolean lockedNow = guard.failed(row, email, from.ip(), at);
+                      boolean lockedNow = guard.accountFailed(row, at);
                       audit.record("SIGN_IN_FAILED", "User", user.getUid(), null, details);
                       if (lockedNow) {
                         audit.record(
