@@ -104,7 +104,9 @@ class ExpenseServiceImpl implements ExpenseService {
     }
     if (date.isAfter(today)) {
       throw Refusal.invalid(
-          "future_date", "The date " + date + " is after today (" + today + ").", field);
+              "future_date", "The date " + date + " is after today (" + today + ").", field)
+          .with("date", date)
+          .with("today", today);
     }
     return date;
   }

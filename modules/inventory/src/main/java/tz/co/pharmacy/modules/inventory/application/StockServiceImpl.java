@@ -235,6 +235,9 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                   + " batch "
                   + batch.getBatchNumber()
                   + " are in stock at this branch.")
+          .with("product", product.getName())
+          .with("available", held)
+          .with("requested", quantity)
           .about("quantity");
     }
     List<String> serials = List.of();
@@ -248,6 +251,9 @@ class StockServiceImpl implements StockService, ProductSnapshots {
         throw Refusal.invalid(
                 "insufficient_stock",
                 "Only " + chosen.size() + " units of " + product.getName() + " are in stock here.")
+            .with("product", product.getName())
+            .with("available", chosen.size())
+            .with("requested", quantity)
             .about("quantity");
       }
       chosen.forEach(SerialUnit::writeOff);
@@ -314,6 +320,9 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                   + " batch "
                   + batch.getBatchNumber()
                   + " are in stock at this branch.")
+          .with("product", product.getName())
+          .with("available", level.getQuantity())
+          .with("requested", -change)
           .about("quantityChange");
     }
     // Asked only of a write-off that can be made.
@@ -393,6 +402,9 @@ class StockServiceImpl implements StockService, ProductSnapshots {
       throw Refusal.invalid(
               "insufficient_stock",
               "Only " + chosen.size() + " units of " + product.getName() + " are in stock here.")
+          .with("product", product.getName())
+          .with("available", chosen.size())
+          .with("requested", count)
           .about("quantityChange");
     }
     chosen.forEach(SerialUnit::writeOff);
@@ -892,8 +904,11 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     if (available < quantity) {
       refuseQuarantined(branch, product, available, quantity);
       throw Refusal.invalid(
-          "insufficient_stock",
-          "Only " + available + " of " + product.getName() + " are in stock at this branch.");
+              "insufficient_stock",
+              "Only " + available + " of " + product.getName() + " are in stock at this branch.")
+          .with("product", product.getName())
+          .with("available", available)
+          .with("requested", quantity);
     }
     List<Allocation> allocations = new ArrayList<>();
     int remaining = quantity;
@@ -945,8 +960,15 @@ class StockServiceImpl implements StockService, ProductSnapshots {
       if (chosen.size() < quantity) {
         refuseQuarantined(branch, product, chosen.size(), quantity);
         throw Refusal.invalid(
-            "insufficient_stock",
-            "Only " + chosen.size() + " of " + product.getName() + " are in stock at this branch.");
+                "insufficient_stock",
+                "Only "
+                    + chosen.size()
+                    + " of "
+                    + product.getName()
+                    + " are in stock at this branch.")
+            .with("product", product.getName())
+            .with("available", chosen.size())
+            .with("requested", quantity);
       }
     } else {
       SerialRules.requireCount(serials, quantity, "serialNumbers");
@@ -976,8 +998,10 @@ class StockServiceImpl implements StockService, ProductSnapshots {
               .orElseThrow(
                   () ->
                       Refusal.invalid(
-                          "insufficient_stock",
-                          "The stock of " + product.getName() + " does not match its units."));
+                              "insufficient_stock",
+                              "The stock of " + product.getName() + " does not match its units.")
+                          .with("product", product.getName())
+                          .with("requested", portion));
       level.change(-portion);
       balance -= portion;
       List<String> numbers = batchUnits.stream().map(SerialUnit::getSerialNumber).toList();

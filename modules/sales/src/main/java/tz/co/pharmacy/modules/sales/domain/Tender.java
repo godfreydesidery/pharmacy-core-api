@@ -63,13 +63,15 @@ public final class Tender {
     paid = paid.setScale(scale, RoundingMode.HALF_EVEN);
     if (paid.compareTo(total) < 0) {
       throw Refusal.invalid(
-          "payment_short",
-          "The payments cover "
-              + paid.toPlainString()
-              + " of a total of "
-              + total.toPlainString()
-              + ".",
-          "payments");
+              "payment_short",
+              "The payments cover "
+                  + paid.toPlainString()
+                  + " of a total of "
+                  + total.toPlainString()
+                  + ".",
+              "payments")
+          .with("paid", paid)
+          .with("total", total);
     }
     BigDecimal change = paid.subtract(total);
     if (change.compareTo(cash) > 0) {

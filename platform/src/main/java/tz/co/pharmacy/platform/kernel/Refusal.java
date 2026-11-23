@@ -16,7 +16,8 @@ public class Refusal extends RuntimeException {
 
   /**
    * Extra members of the problem (RFC 9457 §3.2 extensions), such as the action and amount of an
-   * {@code approval_required}; strings, numbers or booleans.
+   * {@code approval_required}: strings, numbers or booleans, so a client can put the values into
+   * its own words (the product, the quantity available, the limit).
    */
   private final java.util.Map<String, Object> extras;
 
@@ -44,10 +45,14 @@ public class Refusal extends RuntimeException {
     this.extras = extras;
   }
 
-  /** The same refusal with an extra problem member {@code name}. */
+  /**
+   * The same refusal with an extra problem member {@code name}. An amount or a count stays a
+   * number; a date or a time goes out as its ISO-8601 text ({@code 2026-11-23}, {@code
+   * 2026-11-23T08:00:00Z}), an enum as its name, a uid as its text.
+   */
   public Refusal with(String name, Object value) {
     java.util.Map<String, Object> more = new java.util.LinkedHashMap<>(extras);
-    more.put(name, value);
+    more.put(name, member(value));
     return new Refusal(
         kind,
         reason,
@@ -59,6 +64,17 @@ public class Refusal extends RuntimeException {
 
   public java.util.Map<String, Object> extras() {
     return extras;
+  }
+
+  private static Object member(Object value) {
+    return switch (value) {
+      case null -> null;
+      case Number number -> number;
+      case Boolean flag -> flag;
+      case String text -> text;
+      case Enum<?> constant -> constant.name();
+      default -> value.toString();
+    };
   }
 
   /** 423: locked for {@code retryAfterSeconds}, such as {@code account_locked}. */

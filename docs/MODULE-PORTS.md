@@ -540,6 +540,18 @@ void fiscalise(UUID saleUid);   // after commit: lease (sales.fiscal_claimed_unt
 // SaleLine and SalePayment are @AuditIgnore (PERF-7).
 ```
 
+**The till's server side (Batch 8, WEB-2, WEB-9).** Added to the above:
+```java
+// SaleService
+Optional<SaleView> claimIdempotencyKey(String key, String requestFingerprint);
+    // as claimIdempotencyKey(key); a sale made under the key from another request (its fingerprint differs):
+    // 422 idempotency_key_reused, members saleUid, saleNumber. A sale kept no fingerprint before: answers as before.
+// RecordSaleCommand += String requestFingerprint (sales.sales.request_fingerprint, sales V15); old constructor: null.
+// SaleFilter += String idempotencyKey (GET /sales?idempotencyKey=: the one sale made with it, or an empty page).
+// ports.outbound: PaymentAuthorizations += default authorize(method, channel, amount, reference, saleNumber,
+//   String saleKey) -> the five-argument form; record() calls it with the sale's idempotency key.
+```
+
 ## checkout (`tz.co.pharmacy.application.checkout`, application service)
 
 ```java
@@ -555,6 +567,8 @@ interface Checkout {
                                                           // DAMAGED restore + adjust(DAMAGE); QUARANTINE nothing
   SaleReturnView releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome); // restore (+ DAMAGE)
   Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query);  // catalogue.products(active) + inventory.onHand
+  List<SellableProduct> sellable(Collection<UUID> productUids);  // Batch 8: the active ones, in the order asked;
+                                                                // at most 100 (422 too_many_uids, member max)
   /** Priced exactly as checkout prices the sale (plan, branch prices, promotions, breaks); 422 member_not_of_customer. */
   CoverageQuote coverageQuote(UUID memberUid, List<CheckoutLine> lines, String preauthNumber,
                               UUID customerUid, String pricePlan, BigDecimal discountPercent);
@@ -736,6 +750,10 @@ interface PublicAddresses { Optional<String> problem(String host); }
 // Payments: SIMULATOR exists only under the sim, local (and test) profiles: elsewhere saving it in the
 // registry, enabling it or pushing through it is 422 adapter_not_available, and it is not offered.
 // verify(): a push request pays only a tender of its own method at its own branch: 422 payment_mismatch.
+// Batch 8 (WEB-9): RequestPaymentCommand += String saleKey (integrations.payment_intents.sale_key, V6);
+// IntentView += String saleKey; verify(methodCode, amount, reference, saleNumber, String saleKey): a request
+// bound to another sale's key (or used by a sale without one) is 422 payment_mismatch; a request without a key
+// pays any sale (older tills). The four-argument verify is a default passing null.
 
 // ports.outbound (adapters in composition)
 interface SecretSealing { String seal(String plain); String open(String sealed); }  // → platform Keyring, purpose webhooks (IntegrationsSealingAdapter)

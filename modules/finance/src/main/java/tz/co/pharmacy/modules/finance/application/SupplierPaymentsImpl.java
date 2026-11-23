@@ -203,15 +203,20 @@ class SupplierPaymentsImpl implements SupplierPayments {
     }
     if (left.signum() > 0) {
       throw Refusal.invalid(
-          "overpayment",
-          "Only "
-              + currency
-              + " "
-              + open.toPlainString()
-              + " is still open on "
-              + receipts.stream().map(BookedReceipt::number).collect(Collectors.joining(", "))
-              + "; pay at most that, or pay the rest on account without naming a receipt.",
-          "amount");
+              "overpayment",
+              "Only "
+                  + currency
+                  + " "
+                  + open.toPlainString()
+                  + " is still open on "
+                  + receipts.stream().map(BookedReceipt::number).collect(Collectors.joining(", "))
+                  + "; pay at most that, or pay the rest on account without naming a receipt.",
+              "amount")
+          .with("open", open)
+          .with(
+              "receipts",
+              receipts.stream().map(BookedReceipt::number).collect(Collectors.joining(", ")))
+          .with("currency", currency);
     }
     return allocation;
   }

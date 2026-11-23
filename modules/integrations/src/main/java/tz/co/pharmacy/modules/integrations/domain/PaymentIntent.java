@@ -31,6 +31,9 @@ public class PaymentIntent extends TenantEntity {
   private String saleNumber;
   private Instant expiresAt;
 
+  /** The idempotency key of the sale the request is for (WEB-9); null when the till sent none. */
+  private String saleKey;
+
   public PaymentIntent(
       UUID branchUid,
       String methodCode,
@@ -64,6 +67,11 @@ public class PaymentIntent extends TenantEntity {
   public void usedBy(String saleNumber) {
     this.status = "USED";
     this.saleNumber = saleNumber;
+  }
+
+  /** Binds the request to the sale whose idempotency key is {@code saleKey}. */
+  public void forSale(String saleKey) {
+    this.saleKey = saleKey;
   }
 
   public void providerReference(String reference) {

@@ -47,6 +47,15 @@ public interface SaleService {
   Optional<SaleView> claimIdempotencyKey(String key);
 
   /**
+   * As {@link #claimIdempotencyKey(String)}, and the sale found must have been made by the same
+   * request: {@code requestFingerprint} (SHA-256 of the canonical request, the key left out) equal
+   * to the one the sale keeps. Otherwise 422 {@code idempotency_key_reused} (members {@code
+   * saleUid}, {@code saleNumber}): the key already made a sale from a different cart. A sale made
+   * before fingerprints were kept answers as before.
+   */
+  Optional<SaleView> claimIdempotencyKey(String key, String requestFingerprint);
+
+  /**
    * Sales per pricing plan between two moments (the branches the caller reports on): how many, what
    * they charged, what they would have cost at Normal Sale prices, and the difference (positive:
    * given away against Normal Sale). Sales before pricing plans have no normal total.

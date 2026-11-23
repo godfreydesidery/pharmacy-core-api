@@ -43,6 +43,17 @@ class ManualPaymentAuthorizations implements PaymentAuthorizations {
       BigDecimal amount,
       String reference,
       String saleNumber) {
+    return authorize(method, channel, amount, reference, saleNumber, null);
+  }
+
+  @Override
+  public PaymentAuthorization authorize(
+      PaymentMethod method,
+      String channel,
+      BigDecimal amount,
+      String reference,
+      String saleNumber,
+      String saleKey) {
     List<Payments.TenantMethodView> ofKind =
         payments.tillMethods().stream().filter(m -> m.kind().equals(method.name())).toList();
     String code = channel == null || channel.isBlank() ? null : channel.trim().toUpperCase();
@@ -71,7 +82,8 @@ class ManualPaymentAuthorizations implements PaymentAuthorizations {
             false, null, chosen + " is not a " + label(method) + " method.");
       }
     }
-    Payments.Verification verification = payments.verify(code, amount, reference, saleNumber);
+    Payments.Verification verification =
+        payments.verify(code, amount, reference, saleNumber, saleKey);
     return new PaymentAuthorization(
         verification.approved(),
         verification.reference() == null || verification.reference().isBlank()

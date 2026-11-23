@@ -107,27 +107,32 @@ class CustomerCreditImpl implements CustomerCredit {
     CreditAccount account = accountOf(customerUid);
     if (account.isOnHold()) {
       throw Refusal.invalid(
-          "account_on_hold",
-          account.getCustomerName() + "'s account is on hold; no new credit is allowed.",
-          "customerUid");
+              "account_on_hold",
+              account.getCustomerName() + "'s account is on hold; no new credit is allowed.",
+              "customerUid")
+          .with("customer", account.getCustomerName());
     }
     BigDecimal balance = balance(customerUid);
     BigDecimal after = balance.add(Amounts.money(amount));
     if (after.compareTo(account.getCreditLimit()) > 0) {
       String code = currency.baseCurrency();
       throw Refusal.invalid(
-          "credit_limit_exceeded",
-          "This would take "
-              + account.getCustomerName()
-              + " to "
-              + Amounts.display(code, after)
-              + ", over the credit limit of "
-              + Amounts.display(code, account.getCreditLimit())
-              + " (available "
-              + Amounts.display(
-                  code, account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO))
-              + ").",
-          "payments");
+              "credit_limit_exceeded",
+              "This would take "
+                  + account.getCustomerName()
+                  + " to "
+                  + Amounts.display(code, after)
+                  + ", over the credit limit of "
+                  + Amounts.display(code, account.getCreditLimit())
+                  + " (available "
+                  + Amounts.display(
+                      code, account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO))
+                  + ").",
+              "payments")
+          .with("customer", account.getCustomerName())
+          .with("limit", account.getCreditLimit())
+          .with("available", account.getCreditLimit().subtract(balance).max(BigDecimal.ZERO))
+          .with("currency", code);
     }
   }
 

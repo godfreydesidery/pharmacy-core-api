@@ -97,15 +97,19 @@ class SupplierReturnsImpl implements SupplierReturns {
       }
       if (receipt != null && !onReceipt(receipt, line)) {
         throw Refusal.invalid(
-            "batch_not_on_receipt",
-            "Batch "
-                + line.batchNumber()
-                + " of "
-                + name
-                + " was not received on "
-                + receipt.getNumber()
-                + "; choose the goods receipt it came on, or none.",
-            field + ".batchUid");
+                "batch_not_on_receipt",
+                "Batch "
+                    + line.batchNumber()
+                    + " of "
+                    + name
+                    + " was not received on "
+                    + receipt.getNumber()
+                    + "; choose the goods receipt it came on, or none.",
+                field + ".batchUid")
+            .with("batch", line.batchNumber())
+            .with("product", name)
+            .with("expiry", line.expiryDate())
+            .with("receipt", receipt.getNumber());
       }
       supplierReturn.addLine(
           new SupplierReturnLine(

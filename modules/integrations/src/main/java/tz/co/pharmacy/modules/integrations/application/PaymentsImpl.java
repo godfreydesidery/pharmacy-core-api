@@ -181,6 +181,7 @@ class PaymentsImpl implements Payments {
             currency,
             phone,
             clock.instant().plus(REQUEST_LIFETIME));
+    intent.forSale(Checks.optionalText(c.saleKey(), "saleKey", 255));
     Outcome outcome = adapter.push(phone, intent.getAmount(), currency, method.accountReference());
     intent.providerReference(outcome.providerReference());
     if ("FAILED".equals(outcome.status())) {
@@ -206,7 +207,7 @@ class PaymentsImpl implements Payments {
   @Override
   @Transactional
   public Verification verify(
-      String methodCode, BigDecimal amount, String reference, String saleNumber) {
+      String methodCode, BigDecimal amount, String reference, String saleNumber, String saleKey) {
     if (methodCode == null || methodCode.isBlank()) {
       return new Verification(true, reference, null);
     }
@@ -235,6 +236,17 @@ class PaymentsImpl implements Payments {
                 + code
                 + " tender here.",
             "payments");
+      }
+      // WEB-9: a request the till bound to one sale pays that sale only, so a push answered late
+      // cannot pay whichever sale is on the till by then.
+      String sale = saleKey == null || saleKey.isBlank() ? null : saleKey.trim();
+      if (request.getSaleKey() != null && !request.getSaleKey().equals(sale)) {
+        throw Refusal.invalid(
+                "payment_mismatch",
+                "This payment request was sent for another sale; it cannot pay this one.",
+                "payments")
+            .with("method", request.getMethodCode())
+            .with("amount", request.getAmount());
       }
       refresh(request);
       if (!"CONFIRMED".equals(request.getStatus())) {
@@ -341,6 +353,7 @@ class PaymentsImpl implements Payments {
         i.getStatus(),
         i.getProviderReference(),
         i.getFailureReason(),
-        i.getExpiresAt());
+        i.getExpiresAt(),
+        i.getSaleKey());
   }
 }

@@ -69,9 +69,10 @@ public final class Spreadsheet {
       rows.addAll(next.items());
       if (rows.size() > MAX_ROWS) {
         throw Refusal.invalid(
-            "too_many_rows",
-            "More than " + MAX_ROWS + " rows match: narrow the filters and export again.",
-            "format");
+                "too_many_rows",
+                "More than " + MAX_ROWS + " rows match: narrow the filters and export again.",
+                "format")
+            .with("max", MAX_ROWS);
       }
       if (next.nextCursor() == null || next.items().isEmpty() || next.nextCursor().equals(cursor)) {
         return rows;

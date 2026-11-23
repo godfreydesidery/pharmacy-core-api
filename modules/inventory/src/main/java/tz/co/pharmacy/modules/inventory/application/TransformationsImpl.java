@@ -110,6 +110,9 @@ class TransformationsImpl implements Transformations {
         throw Refusal.invalid(
                 "insufficient_stock",
                 "Only " + available + " of " + product.getName() + " are in stock at this branch.")
+            .with("product", product.getName())
+            .with("available", available)
+            .with("requested", quantity)
             .about(field + ".quantity");
       }
       int remaining = quantity;

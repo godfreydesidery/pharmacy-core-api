@@ -198,11 +198,31 @@ class SaleServiceImpl implements SaleService {
   @Override
   @Transactional
   public Optional<SaleView> claimIdempotencyKey(String key) {
+    return claimIdempotencyKey(key, null);
+  }
+
+  @Override
+  @Transactional
+  public Optional<SaleView> claimIdempotencyKey(String key, String requestFingerprint) {
     if (key == null || key.isBlank()) {
       return Optional.empty();
     }
     sales.holdLock("sale:" + ExecutionContext.requireTenant() + ":" + key.trim());
-    return sales.findByIdempotencyKey(key.trim()).map(SaleServiceImpl::view);
+    Optional<Sale> made = sales.findByIdempotencyKey(key.trim());
+    if (made.isPresent()
+        && requestFingerprint != null
+        && made.get().getRequestFingerprint() != null
+        && !made.get().getRequestFingerprint().equals(requestFingerprint)) {
+      throw Refusal.invalid(
+              "idempotency_key_reused",
+              "This idempotency key already made sale "
+                  + made.get().getNumber()
+                  + " from a different cart; a new sale needs a new key.",
+              "idempotencyKey")
+          .with("saleUid", made.get().getUid())
+          .with("saleNumber", made.get().getNumber());
+    }
+    return made.map(SaleServiceImpl::view);
   }
 
   @Override
@@ -249,6 +269,7 @@ class SaleServiceImpl implements SaleService {
             Checks.optionalText(command.idempotencyKey(), "idempotencyKey", 100),
             ExecutionContext.actor().name());
     sale.pricedUnder(command.priceListUid(), command.priceListName(), command.normalTotal());
+    sale.fingerprinted(command.requestFingerprint());
     String planSource = command.pricePlanSource();
     sale.planFrom("CUSTOMER".equals(planSource) || "CHOSEN".equals(planSource) ? planSource : null);
     if (prescription != null && prescription.prescriberName() != null) {
@@ -367,7 +388,12 @@ class SaleServiceImpl implements SaleService {
                 : amount;
         PaymentAuthorization authorization =
             paymentAuthorizations.authorize(
-                payment.method(), payment.channel(), authorized, reference, number);
+                payment.method(),
+                payment.channel(),
+                authorized,
+                reference,
+                number,
+                sale.getIdempotencyKey());
         if (authorization == null || !authorization.approved()) {
           throw Refusal.invalid(
               "payment_declined",
@@ -449,6 +475,12 @@ class SaleServiceImpl implements SaleService {
             .and(Specs.equal("status", f.status()))
             .and(Specs.atLeast("createdAt", startOf(f.from())))
             .and(Specs.atLeast("createdAt", f.since()))
+            .and(
+                Specs.equal(
+                    "idempotencyKey",
+                    f.idempotencyKey() == null || f.idempotencyKey().isBlank()
+                        ? null
+                        : f.idempotencyKey().trim()))
             .and(Specs.before("createdAt", f.to() == null ? null : startOf(f.to().plusDays(1))));
     return Keyset.page(sales, spec, query, SaleServiceImpl::summary);
   }
