@@ -42,6 +42,15 @@ class TransformationsTest extends IntegrationTest {
     String box = product(admin, "Paracetamol box of 10 strips", 4000, 2000);
     String strip = product(admin, "Paracetamol strip", 500, 200);
     opening(hq, box, "BX-1", boxExpiry, 5, 2000);
+    // Opening stock is recorded while the branch is set up, before it sells (FRD-11).
+    String bulk = product(admin, "ORS bulk sachets", 300, 100);
+    String pack = product(admin, "ORS own pack of 5", 1600, 600);
+    opening(hq, bulk, "ORS-1", LocalDate.now().plusMonths(6), 100, 100);
+    String zinc = product(admin, "Zinc oxide 10g", 800, 400);
+    String calamine = product(admin, "Calamine powder 10g", 900, 500);
+    String lotion = product(admin, "Calamine lotion 100ml", 6000, 0);
+    opening(hq, zinc, "ZN-1", LocalDate.now().plusMonths(12), 40, 400);
+    opening(hq, calamine, "CL-1", LocalDate.now().plusMonths(9), 40, 500);
     admin
         .put(
             "/api/v1/pack-links",
@@ -66,9 +75,13 @@ class TransformationsTest extends IntegrationTest {
     assertThat(list.read("$.data.items[0].outputUnitCost", Double.class)).isEqualTo(200.0);
 
     // Repack 50 sachets of bulk ORS into 10 own packs; an expiry beyond the input is refused.
-    String bulk = product(admin, "ORS bulk sachets", 300, 100);
-    String pack = product(admin, "ORS own pack of 5", 1600, 600);
-    opening(hq, bulk, "ORS-1", LocalDate.now().plusMonths(6), 100, 100);
+    // FRD-2: a repack follows the pack link: five sachets fill one own pack.
+    admin
+        .put(
+            "/api/v1/pack-links",
+            "{\"packProductUid\":\"%s\",\"unitProductUid\":\"%s\",\"unitsPerPack\":5}"
+                .formatted(pack, bulk))
+        .expect(200);
     String repack =
         """
         {"type":"REPACK","inputs":[{"productUid":"%s","quantity":50}],
@@ -87,11 +100,6 @@ class TransformationsTest extends IntegrationTest {
     assertThat(packed.read("$.data.outputUnitCost", Double.class)).isEqualTo(500.0);
 
     // Compound 5 bottles of calamine lotion from its formula.
-    String zinc = product(admin, "Zinc oxide 10g", 800, 400);
-    String calamine = product(admin, "Calamine powder 10g", 900, 500);
-    String lotion = product(admin, "Calamine lotion 100ml", 6000, 0);
-    opening(hq, zinc, "ZN-1", LocalDate.now().plusMonths(12), 40, 400);
-    opening(hq, calamine, "CL-1", LocalDate.now().plusMonths(9), 40, 500);
     admin
         .put(
             "/api/v1/products/" + lotion + "/formula",

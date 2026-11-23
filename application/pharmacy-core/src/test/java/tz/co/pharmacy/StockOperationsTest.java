@@ -219,7 +219,8 @@ class StockOperationsTest extends IntegrationTest {
     String destruction =
         """
         {"method":"Incineration","witnessName":"Dr. Juma Ally","witnessTitle":"TMDA inspector",
-         "certificateNumber":"CERT-77","lines":[{"batchUid":"%s","quantity":%d,"reason":"DAMAGED"}]}
+         "certificateNumber":"CERT-77","note":"Water damage in the store",
+         "lines":[{"batchUid":"%s","quantity":%d,"reason":"DAMAGED"}]}
         """;
     Response short_ =
         hq.post("/api/v1/destructions", destruction.formatted(batchA, 500)).expect(422);

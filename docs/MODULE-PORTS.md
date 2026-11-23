@@ -192,6 +192,15 @@ record ProductChanged(EventMetadata metadata, UUID productUid, String name, Stri
                       int reorderLevel, BigDecimal sellingPrice, boolean active) implements DomainEvent {}  // "product.changed"
 ```
 
+Batch 4 (the owner's controls of 23 Nov 2026, FRD-6):
+```java
+// CatalogueService
+//   changeProduct: a change of schedule needs approvals.require(SCHEDULE_CHANGE) (once per transaction,
+//   so one approval covers a whole product import) and is audited as SCHEDULE_CHANGED (before/after).
+List<ProductView> controlledRegisterProducts();   // CONTROLLED now or ever (products.ever_controlled, V12)
+boolean everControlled(UUID productUid);
+```
+
 ## partners (`tz.co.pharmacy.modules.partners`)
 
 ```java
@@ -292,6 +301,38 @@ record StockAdjusted(EventMetadata metadata, UUID productUid, String productName
                      String reasonCode, int balanceAfter) implements DomainEvent {}   // "stock.adjusted"
 record StockLow(EventMetadata metadata, UUID productUid, String productName, int quantity, int reorderLevel)
     implements DomainEvent {}   // "stock.low", published by allocate/adjust when a product drops to or below its reorder level
+```
+
+Batch 4 (the owner's stock controls of 23 Nov 2026, FRD-2, 5, 11, 12, 15):
+```java
+// StockService
+//   adjust: a reduction needs a note (422 note_required) and approvals: CONTROLLED_WRITE_OFF for a
+//     controlled medicine (always), else STOCK_WRITE_OFF above the limit, at the batch's cost.
+//   openingStock: LATE_OPENING_STOCK (always) once the branch has a SALE, RECEIPT or TRANSFER_IN
+//     movement (once per transaction for an import); 422 batch_cost_differs into a batch held at
+//     another cost (never averaged).
+TransferView receiveTransfer(UUID transferUid, ReceiveTransferCommand command); // receiveTransfer(uid) = in full
+//   422 receiver_is_sender (root exempt); per-line receivedQuantity; what is short comes back on the
+//   sender's books (TRANSFER_OUT +n, reference "TRF-… SHORT") and is written off there (THEFT_LOSS)
+//   through adjust, so stock.adjusted posts the loss against the sending branch; note required;
+//   TRANSFER_SHORTFALL above the limit, CONTROLLED_WRITE_OFF for a controlled medicine.
+record ReceiveTransferCommand(String note, List<ReceivedLine> lines) {
+  record ReceivedLine(UUID batchUid, UUID productUid, Integer receivedQuantity, List<String> serialNumbers) {} }
+// TransferView + dispatchedBy, receivedBy, daysInTransit; TransferLineView + receivedQuantity
+// StockQueries
+Page<TransferView> overdueTransfers(String direction, int days, PageQuery query); // IN_TRANSIT > days; 422 invalid_days
+// StockCounts: views of an OPEN count are blind (expected, variance, varianceValue, lossValue null;
+//   blind = true); review(uid) shows them; post needs STOCK_WRITE_OFF above the limit on the count's
+//   loss at cost, CONTROLLED_WRITE_OFF when any controlled medicine is short.
+StockCountView review(UUID uid);
+// Destructions: note required; approved as a write-off for its total; the approving manager is the
+//   witness (DestructionView.witnessName, witnessApproved, approvedByUid, typedWitnessName).
+// Transformations: the recipe is followed exactly (no_recipe, recipe_mismatch, inputs_below_formula);
+//   422 schedule_downgrade when a prescription or controlled input makes a product of a lower class.
+// ports.outbound
+interface ProductCatalogue { … String schedule(UUID productUid); }           // adapter → CatalogueService.product
+interface Recipes { Optional<PackLink> packOf(UUID unit); List<PackLink> linksOfPack(UUID pack);
+                    List<Ingredient> formula(UUID product); }                  // adapter → PackagingService
 ```
 
 ## purchasing (`tz.co.pharmacy.modules.purchasing`)

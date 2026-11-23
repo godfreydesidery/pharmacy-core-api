@@ -67,7 +67,14 @@ class StockCountsTest extends IntegrationTest {
     assertThat(started.read("$.data.lines", Integer.class)).isEqualTo(4);
     List<String> sheet = List.of("AL-1", "AM-9", "AM-1", "ZN-1");
     assertThat(started.json().read("$.data.items[*].batchNumber", List.class)).isEqualTo(sheet);
-    assertThat(started.read("$.data.items[2].expected", Integer.class)).isEqualTo(50);
+    // FRD-12: the sheet is blind; the reviewer (inventory.adjust) sees what is expected.
+    assertThat(started.read("$.data.blind", Boolean.class)).isTrue();
+    assertThat(started.string("$.data.items[2].expected")).isNull();
+    assertThat(
+            hq.get("/api/v1/stock-counts/" + count + "/review")
+                .expect(200)
+                .read("$.data.items[2].expected", Integer.class))
+        .isEqualTo(50);
     String line = started.string("$.data.items[2].uid");
 
     // A negative count is refused; 46 counted means 4 short, 480 at cost.
@@ -80,7 +87,9 @@ class StockCountsTest extends IntegrationTest {
                 "/api/v1/stock-counts/" + count + "/counts",
                 "[{\"lineUid\":\"%s\",\"counted\":46}]".formatted(line))
             .expect(200);
-    assertThat(recorded.read("$.data.items[2].variance", Integer.class)).isEqualTo(-4);
+    assertThat(recorded.string("$.data.items[2].variance")).isNull();
+    Response reviewed = hq.get("/api/v1/stock-counts/" + count + "/review").expect(200);
+    assertThat(reviewed.read("$.data.items[2].variance", Integer.class)).isEqualTo(-4);
     // Saving counts keeps the sheet in the same order, and so does reopening it.
     assertThat(recorded.json().read("$.data.items[*].batchNumber", List.class)).isEqualTo(sheet);
     assertThat(
@@ -89,7 +98,8 @@ class StockCountsTest extends IntegrationTest {
                 .json()
                 .read("$.data.items[*].batchNumber", List.class))
         .isEqualTo(sheet);
-    assertThat(recorded.read("$.data.varianceValue", Double.class)).isEqualTo(-480.0);
+    assertThat(reviewed.read("$.data.varianceValue", Double.class)).isEqualTo(-480.0);
+    assertThat(reviewed.read("$.data.lossValue", Double.class)).isEqualTo(480.0);
 
     Response posted = hq.post("/api/v1/stock-counts/" + count + "/post", "{}").expect(200);
     assertThat(posted.string("$.data.status")).isEqualTo("POSTED");

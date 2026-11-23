@@ -25,4 +25,15 @@ public interface MovementRepository
           + " where m.type = tz.co.pharmacy.modules.inventory.ports.inbound.MovementType.SALE_RETURN"
           + " and m.reference = :reference")
   List<Object[]> restockedCount(String reference);
+
+  /**
+   * Whether the branch has traded: made a sale, received goods or taken a transfer in (FRD-11:
+   * opening stock after that needs a manager).
+   */
+  @Query(
+      "select count(m) > 0 from Movement m where m.branchUid = :branchUid and m.type in ("
+          + "tz.co.pharmacy.modules.inventory.ports.inbound.MovementType.SALE,"
+          + " tz.co.pharmacy.modules.inventory.ports.inbound.MovementType.RECEIPT,"
+          + " tz.co.pharmacy.modules.inventory.ports.inbound.MovementType.TRANSFER_IN)")
+  boolean tradedAt(java.util.UUID branchUid);
 }

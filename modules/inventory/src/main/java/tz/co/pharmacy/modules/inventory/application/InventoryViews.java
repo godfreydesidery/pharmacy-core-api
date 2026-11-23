@@ -18,6 +18,7 @@ import tz.co.pharmacy.modules.inventory.ports.outbound.BranchNames;
 class InventoryViews {
 
   private final BranchNames branchNames;
+  private final java.time.Clock clock;
 
   MovementView movement(Movement movement) {
     return new MovementView(
@@ -62,10 +63,18 @@ class InventoryViews {
                         line.getBatchNumber(),
                         line.getExpiryDate(),
                         line.getQuantity(),
-                        line.getSerialNumbers()))
+                        line.getSerialNumbers(),
+                        line.getReceivedQuantity()))
             .toList(),
         transfer.getCreatedAt(),
-        transfer.getReceivedAt());
+        transfer.getReceivedAt(),
+        transfer.getCreatedBy(),
+        transfer.getReceivedBy(),
+        transfer.getStatus()
+                    == tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT
+                && transfer.getCreatedAt() != null
+            ? java.time.Duration.between(transfer.getCreatedAt(), clock.instant()).toDays()
+            : null);
   }
 
   String branchName(UUID branchUid) {

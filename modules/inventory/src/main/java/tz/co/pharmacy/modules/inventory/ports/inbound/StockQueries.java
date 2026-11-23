@@ -41,6 +41,12 @@ public interface StockQueries {
   Page<TransferView> transfers(String direction, PageQuery query);
 
   /**
+   * Transfers of the current branch (OUTGOING, INCOMING or both) still in transit more than {@code
+   * days} days after dispatch, newest first (FRD-15); 422 invalid_days outside 1 to 365.
+   */
+  Page<TransferView> overdueTransfers(String direction, int days, PageQuery query);
+
+  /**
    * The value at cost of what a return put back on the shelf (its SALE_RETURN movements under
    * {@code reference}), each unit at the cost its batch had when restocked: compared with the cost
    * the return was booked at, it gives the difference the books post (MON-9). Null when nothing was

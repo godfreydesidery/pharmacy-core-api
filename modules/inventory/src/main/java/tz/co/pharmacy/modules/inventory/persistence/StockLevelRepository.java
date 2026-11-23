@@ -82,4 +82,10 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
           + " and s.productUid = :productUid and s.quantity > 0 and b.quarantined = true"
           + " order by b.batchNumber")
   List<StockLevel> quarantinedAt(UUID branchUid, UUID productUid);
+
+  /** The batch's quantity at the branch, read without a lock (a check before the write). */
+  @Query(
+      "select coalesce(sum(s.quantity), 0) from StockLevel s"
+          + " where s.branchUid = :branchUid and s.batch = :batch")
+  long quantityOfBatchAt(UUID branchUid, Batch batch);
 }
