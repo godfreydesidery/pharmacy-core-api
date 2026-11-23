@@ -11,9 +11,10 @@ import javax.crypto.spec.SecretKeySpec;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
- * Signs and checks the local store's presigned URLs: HMAC-SHA256 over the method, the object key,
- * the expiry (Unix seconds) and the content type, so a URL cannot be reused for another object,
- * another method, another type or after it expired.
+ * Signs and checks the API's own presigned URLs (uploads with every store, downloads with the local
+ * one): HMAC-SHA256 over the method, the object key, the expiry (Unix seconds), the content type
+ * and, when there is one, the Content-Disposition, so a URL cannot be reused for another object,
+ * another method, another type or name, or after it expired.
  */
 public final class UrlSigner {
 
@@ -29,10 +30,23 @@ public final class UrlSigner {
   }
 
   public String sign(String method, String key, long expires, String contentType) {
+    return sign(method, key, expires, contentType, null);
+  }
+
+  /**
+   * As {@link #sign(String, String, long, String)}, binding a Content-Disposition too. Without one
+   * the signature is the four-part one, so a link signed before dispositions existed still
+   * verifies.
+   */
+  public String sign(
+      String method, String key, long expires, String contentType, String disposition) {
     try {
       Mac mac = Mac.getInstance("HmacSHA256");
       mac.init(new SecretKeySpec(secret, "HmacSHA256"));
       String payload = method + "\n" + key + "\n" + expires + "\n" + nullToEmpty(contentType);
+      if (disposition != null && !disposition.isEmpty()) {
+        payload = payload + "\n" + disposition;
+      }
       return HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
     } catch (NoSuchAlgorithmException | InvalidKeyException impossible) {
       throw new IllegalStateException(impossible);
@@ -42,7 +56,18 @@ public final class UrlSigner {
   /** Refuses a wrong signature (403 invalid_signature) or an expired URL (403 url_expired). */
   public void verify(
       String method, String key, long expires, String contentType, String signature) {
-    String expected = sign(method, key, expires, contentType);
+    verify(method, key, expires, contentType, null, signature);
+  }
+
+  /** As {@link #verify(String, String, long, String, String)}, with the signed disposition. */
+  public void verify(
+      String method,
+      String key,
+      long expires,
+      String contentType,
+      String disposition,
+      String signature) {
+    String expected = sign(method, key, expires, contentType, disposition);
     boolean same =
         signature != null
             && MessageDigest.isEqual(

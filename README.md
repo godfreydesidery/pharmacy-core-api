@@ -138,8 +138,16 @@ Then set:
 | `PHARMACY_MANAGEMENT_PORT` | — | A separate port for actuator (health and `/actuator/prometheus`), e.g. `8081` on ECS; the API port keeps `/livez` and `/readyz`. Unset: actuator shares the API port and serves health only |
 | `PHARMACY_INSTANCE_ID` | host name + random | This instance's name in job runs and cross-instance signals |
 | `SENTRY_DSN` | — | Optional error tracker (Sentry); off when unset, no personal data sent |
+| `PHARMACY_FILES_STORAGE` | `local` | `local` (a directory, one instance) or `s3` (AWS S3, MinIO, R2; any number of instances). See [`docs/runbook/files-on-s3.md`](docs/runbook/files-on-s3.md) |
 
 Or use Docker: `docker compose up --build`. This starts PostgreSQL 17 with the roles from `deploy/postgres/init.sql`, then the API.
+
+## Operations
+
+- [`docs/runbook/files-on-s3.md`](docs/runbook/files-on-s3.md): file storage on S3, what AWS must provide, the move from a volume.
+- [`docs/runbook/backup-restore.md`](docs/runbook/backup-restore.md): backup layers, RPO/RTO, restore procedures, drills.
+- `ops/backup/`: `pg-dump-to-s3.sh` (encrypted logical backup to S3), `restore.sh` (restore into a new database and check it), `backup-role.sql`.
+- `ops/files/check-records.sh`: every stored file the database lists is in the bucket.
 
 ## Tests
 

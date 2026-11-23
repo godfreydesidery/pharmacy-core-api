@@ -1,5 +1,7 @@
 package tz.co.pharmacy.modules.files.ports.inbound;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
@@ -98,6 +100,23 @@ public final class FileRules {
       throw Refusal.invalid("invalid_name", "name is required.", "name");
     }
     return base.length() > 200 ? base.substring(base.length() - 200) : base;
+  }
+
+  /**
+   * A Content-Disposition (RFC 6266) for a download of {@code name}: {@code inline} (shown in the
+   * browser, as an image or a PDF is) or {@code attachment} (saved), with an ASCII {@code filename}
+   * and the exact name as RFC 5987 {@code filename*}.
+   */
+  public static String disposition(boolean attachment, String name) {
+    String exact = name == null || name.isBlank() ? "file" : name;
+    String ascii = exact.replaceAll("[^\\x20-\\x7E]", "_").replace('"', '_').replace('\\', '_');
+    String encoded =
+        URLEncoder.encode(exact, StandardCharsets.UTF_8).replace("+", "%20").replace("*", "%2A");
+    return (attachment ? "attachment" : "inline")
+        + "; filename=\""
+        + ascii
+        + "\"; filename*=UTF-8''"
+        + encoded;
   }
 
   /** {@code tenants/{tenantUid}/{yyyy}/{mm}/{fileUid}}. */

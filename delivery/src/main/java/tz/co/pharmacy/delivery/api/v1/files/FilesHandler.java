@@ -9,6 +9,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +48,9 @@ import tz.co.pharmacy.platform.kernel.Uids;
 
 /**
  * Files and attachments (contract "Files"). The browser uploads with a presigned PUT: begin, PUT
- * the bytes to {@code uploadUrl}, then complete. Small files may also be posted as multipart.
+ * the bytes to {@code uploadUrl} (the API's blob route, whatever the store: it checks the size and
+ * type and streams them on), then complete. Small files may also be posted as multipart. Downloads
+ * are short presigned GETs of the store (S3 itself, or the blob route with local storage).
  *
  * <p>An attachment is as private as what it is attached to. Each owner type names the permission to
  * see its files, to attach one and to delete one ({@link #RULES}): a sale's prescription scan needs
@@ -94,7 +97,8 @@ public class FilesHandler {
   @PostMapping("/uploads/{fileUid}/complete")
   @Access(scope = AccessScope.TENANT)
   public ApiResponse<FileView> complete(@PathVariable UUID fileUid) {
-    reachable(fileUid, Rule::attach);
+    // The file is still pending here: find() sees only completed ones.
+    reachable(files.findUpload(fileUid), Rule::attach);
     return ApiResponse.ok(files.completeUpload(fileUid), "File stored");
   }
 
@@ -165,7 +169,7 @@ public class FilesHandler {
     return ApiResponse.ok("File deleted");
   }
 
-  /** The local store's presigned PUT: the signature is the authorisation. */
+  /** The presigned PUT of an upload: the signature is the authorisation. */
   @PutMapping("/blob/**")
   @Access(scope = AccessScope.PUBLIC)
   public ResponseEntity<Void> putBlob(
@@ -175,7 +179,7 @@ public class FilesHandler {
       @RequestHeader(HttpHeaders.CONTENT_TYPE) String contentType)
       throws IOException {
     try (InputStream content = request.getInputStream()) {
-      blobs.put(key(request), exp, sig, contentType, content);
+      blobs.put(key(request), exp, sig, contentType, request.getContentLengthLong(), content);
     }
     return ResponseEntity.ok().build();
   }
@@ -187,8 +191,9 @@ public class FilesHandler {
       HttpServletRequest request,
       @RequestParam long exp,
       @RequestParam String sig,
-      @RequestParam String ct) {
-    SignedBlobs.Blob blob = blobs.get(key(request), exp, sig, ct);
+      @RequestParam String ct,
+      @RequestParam(required = false) String cd) {
+    SignedBlobs.Blob blob = blobs.get(key(request), exp, sig, ct, cd);
     StreamingResponseBody body =
         out -> {
           try (InputStream content = blob.content()) {
@@ -199,7 +204,7 @@ public class FilesHandler {
         .contentType(MediaType.parseMediaType(blob.contentType()))
         .contentLength(blob.size())
         .cacheControl(CacheControl.maxAge(java.time.Duration.ofMinutes(5)).cachePrivate())
-        .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+        .header(HttpHeaders.CONTENT_DISPOSITION, blob.disposition())
         .header("X-Content-Type-Options", "nosniff")
         .body(body);
   }
@@ -215,8 +220,11 @@ public class FilesHandler {
 
   /** The file, when the caller may act on it this way; otherwise 403, or 404 across branches. */
   private FileView reachable(UUID fileUid, Function<Rule, String> action) {
-    FileView file =
-        files.find(fileUid).orElseThrow(() -> Refusal.notFound("file_not_found", "No such file."));
+    return reachable(files.find(fileUid), action);
+  }
+
+  private FileView reachable(Optional<FileView> found, Function<Rule, String> action) {
+    FileView file = found.orElseThrow(() -> Refusal.notFound("file_not_found", "No such file."));
     require(file.ownerType(), action);
     try {
       requireOwner(file.ownerType(), file.ownerUid());

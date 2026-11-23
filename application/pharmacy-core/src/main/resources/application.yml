@@ -7,7 +7,7 @@ spring:
       enabled: true
   servlet:
     multipart:
-      # Direct uploads (POST /api/v1/files); presigned uploads bypass the API with S3.
+      # Direct uploads (POST /api/v1/files); presigned uploads stream through the blob route.
       max-file-size: 10MB
       max-request-size: 11MB
   datasource:
@@ -152,17 +152,34 @@ pharmacy:
     link-ttl: ${PHARMACY_EXPORTS_LINK_TTL:PT15M}
     page-rows: ${PHARMACY_EXPORTS_PAGE_ROWS:5000}
   files:
-    # local (a directory; presigned URLs served by the API) or s3 (AWS S3, MinIO, Cloudflare R2).
+    # local (a directory, one instance only) or s3 (AWS S3, MinIO, Cloudflare R2; any number of
+    # instances). Uploads always come through the API's signed blob route (size and type checked,
+    # streamed on to the store); downloads are short presigned GETs of the store.
     storage: ${PHARMACY_FILES_STORAGE:local}
+    # Signs the upload links (and the local store's download links), with either store.
     signing-secret: ${PHARMACY_FILES_SIGNING_SECRET:local-development-file-signing-secret}
     local:
       root: ${PHARMACY_FILES_ROOT:target/files}
     s3:
+      # No access keys here: the AWS default credentials chain (the ECS task role in production;
+      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or AWS_PROFILE for MinIO or a laptop).
       bucket: ${PHARMACY_FILES_S3_BUCKET:}
+      # af-south-1 in production; blank: AWS_REGION.
       region: ${PHARMACY_FILES_S3_REGION:}
+      # MinIO, R2 and the like: http://localhost:9000; blank for AWS. Path-style requests default
+      # to on with an endpoint.
       endpoint: ${PHARMACY_FILES_S3_ENDPOINT:}
-      access-key: ${PHARMACY_FILES_S3_ACCESS_KEY:}
-      secret-key: ${PHARMACY_FILES_S3_SECRET_KEY:}
+      path-style: ${PHARMACY_FILES_S3_PATH_STYLE:}
+      # Keys go under this prefix (files/), so the bucket may hold other things.
+      prefix: ${PHARMACY_FILES_S3_PREFIX:}
+      # AES256 (SSE-S3, the default), aws:kms (the default once a KMS key is set) or none (MinIO
+      # without a KMS).
+      server-side-encryption: ${PHARMACY_FILES_S3_SSE:}
+      kms-key-id: ${PHARMACY_FILES_S3_KMS_KEY_ID:}
+    # The one-off copy of the local directory to S3 (docs/runbook/files-on-s3.md) is a command-line
+    # flag only, never an environment variable (left set, the API would copy and exit on every
+    # restart): --pharmacy.files.copy-local-to-s3=true --spring.main.web-application-type=none
+    # [--pharmacy.files.copy-verify=full].
   integrations:
     payments:
       provider: ${PHARMACY_PAYMENTS_PROVIDER:manual}

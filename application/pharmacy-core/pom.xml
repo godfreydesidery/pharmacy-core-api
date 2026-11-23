@@ -151,6 +151,14 @@
             <artifactId>spring-modulith-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- FakeS3, the in-process S3-compatible server, for FilesOnS3Test. -->
+        <dependency>
+            <groupId>tz.co.pharmacy</groupId>
+            <artifactId>pharmacy-files</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

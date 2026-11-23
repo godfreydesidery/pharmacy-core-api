@@ -54,9 +54,42 @@ class UrlSignerTest {
   }
 
   @Test
+  void aDispositionIsSignedTooAndLeavesOlderSignaturesValid() {
+    long expires = signer.expiresIn(Duration.ofMinutes(5));
+    String disposition = "inline; filename=\"scan.pdf\"";
+    String signed = signer.sign("GET", "k", expires, "application/pdf", disposition);
+    assertThatCode(() -> signer.verify("GET", "k", expires, "application/pdf", disposition, signed))
+        .doesNotThrowAnyException();
+    assertRefused(
+        () ->
+            signer.verify(
+                "GET", "k", expires, "application/pdf", "attachment; filename=\"x\"", signed),
+        "invalid_signature");
+    assertRefused(
+        () -> signer.verify("GET", "k", expires, "application/pdf", signed), "invalid_signature");
+    // Without a disposition the signature is the four-part one.
+    assertThat(signer.sign("GET", "k", expires, "application/pdf", null))
+        .isEqualTo(signer.sign("GET", "k", expires, "application/pdf"));
+  }
+
+  @Test
   void localUrlsPointAtTheSignedBlobRoute(@TempDir Path root) {
-    LocalObjectStorage storage = new LocalObjectStorage(root, signer);
-    String url = storage.presignGet("tenants/t/2026/11/f", "image/png", Duration.ofMinutes(5));
+    LocalObjectStorage storage = new LocalObjectStorage(root, new BlobUrls(signer));
+    String url =
+        storage.presignGet(
+            "tenants/t/2026/11/f",
+            "image/png",
+            "inline; filename=\"a.png\"",
+            Duration.ofMinutes(5));
+    assertThat(url)
+        .startsWith("/api/v1/files/blob/tenants/t/2026/11/f?exp=")
+        .contains("&ct=image%2Fpng&cd=inline%3B+filename%3D%22a.png%22&sig=");
+  }
+
+  @Test
+  void uploadUrlsPointAtTheSignedBlobRouteWhateverTheStore() {
+    String url =
+        new BlobUrls(signer).put("tenants/t/2026/11/f", "image/png", Duration.ofMinutes(10));
     assertThat(url)
         .startsWith("/api/v1/files/blob/tenants/t/2026/11/f?exp=")
         .contains("&ct=image%2Fpng&sig=");
@@ -64,7 +97,7 @@ class UrlSignerTest {
 
   @Test
   void aKeyCannotLeaveTheRoot(@TempDir Path root) {
-    LocalObjectStorage storage = new LocalObjectStorage(root, signer);
+    LocalObjectStorage storage = new LocalObjectStorage(root, new BlobUrls(signer));
     assertThatThrownBy(() -> storage.path("../etc/passwd")).isInstanceOf(Refusal.class);
     assertThatThrownBy(() -> storage.path("/etc/passwd")).isInstanceOf(Refusal.class);
   }
