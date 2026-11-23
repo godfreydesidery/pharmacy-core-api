@@ -126,6 +126,11 @@ Then set:
 | `PHARMACY_ACCESS_ENCRYPTIONKEY` | — | The legacy sealing key (id `legacy`), at least 32 characters |
 | `PHARMACY_KEYS_<ID>` | — | Named keys of the keyring; `PHARMACY_SEALING_TOTP` / `_PROVIDERS` / `_WEBHOOKS` name each purpose's active key. See `docs/runbook/rotating-keys.md` |
 | `PHARMACY_DB_POOL_SIZE` | `20` | Hikari pool size |
+| `PHARMACY_DB_STATEMENT_TIMEOUT` / `PHARMACY_DB_LOCK_TIMEOUT` / `PHARMACY_DB_IDLE_IN_TRANSACTION_TIMEOUT` | `30s` / `5s` / `60s` | Set on every pooled connection. A job's transactions get `PHARMACY_DB_JOB_STATEMENT_TIMEOUT` (`5m`); a `@Transactional(timeout = ...)` gets its own |
+| `PHARMACY_DB_CONNECTION_TIMEOUT_MS` | `10000` | Wait for a pooled connection, then 503 `database_busy` |
+| `PHARMACY_MAX_IN_FLIGHT` / `PHARMACY_MAX_IN_FLIGHT_WAIT_MS` | `100` / `250` | Requests in progress per instance; past it, 503 `server_busy` with `Retry-After` |
+| `PHARMACY_ASYNC_THREADS` / `PHARMACY_ASYNC_QUEUE` | `8` / `10000` | The bounded pool of the async event reactions |
+| `PHARMACY_EDGE_ACCESS_CACHE_SECONDS` | `30` | The edge's per-instance cache of a session's pharmacy, membership and branch (`0`: off) |
 | `PHARMACY_ROOT_EMAIL` / `PHARMACY_ROOT_PASSWORD` / `PHARMACY_ROOT_NAME` | — | First root administrator, created at start if none exists |
 | `PHARMACY_CORS_ORIGINS` | — | Comma-separated allowed origins for the web app |
 | `PHARMACY_SESSION_HOURS` | `12` | Session lifetime |

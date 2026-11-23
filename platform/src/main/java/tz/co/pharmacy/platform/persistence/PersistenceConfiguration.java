@@ -19,6 +19,14 @@ public class PersistenceConfiguration {
     return new MigrationsBeforeJpa();
   }
 
+  /**
+   * statement_timeout, lock_timeout and idle_in_transaction_session_timeout on every connection.
+   */
+  @Bean
+  static DatabaseTimeouts databaseTimeouts() {
+    return new DatabaseTimeouts();
+  }
+
   @Bean
   PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
     return new TenantAwareTransactionManager(entityManagerFactory);

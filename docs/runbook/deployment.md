@@ -36,6 +36,9 @@ needed.
 | Provider circuit breaker (`ProviderHealth`) | It only orders the providers to try; a tripped provider is still tried. Each instance learns after 3 failures of its own. The provider's last success and error are on its row, shared |
 | "Worked in this pharmacy" write throttle | Saves writes only; the one SIGN_IN audit entry per session and pharmacy is decided in the database |
 | Short caches | A pharmacy's 2FA policy (30 s), time zone, the SMTP sender built from a provider row |
+| The edge's access cache (`PHARMACY_EDGE_ACCESS_CACHE_SECONDS`, 30 s) | A session's pharmacy (status), membership (role permissions, branches) and branch (active), so most requests run one database transaction before their handler instead of four. The session itself is checked on every request. Sign-out, a member changed or deactivated, a role or branch changed, and a pharmacy suspended, closed, reopened or erased are evicted on every instance at once: the instance evicts, then sends `NOTIFY pharmacy_edge_access` (payload `t:<tenant>`, `u:<user>` or `*`). After a listener reconnect the cache is emptied. Anything else, such as the nightly subscription run suspending an unpaid pharmacy, is seen within 30 s |
+| Requests in progress (`PHARMACY_MAX_IN_FLIGHT`, 100) | It protects **this instance's** pool and threads. One over the limit waits `PHARMACY_MAX_IN_FLIGHT_WAIT_MS` (250 ms), then gets 503 `server_busy` with `Retry-After: 2`. The live stream and the health probes are not counted |
+| The async reactions' pool (`PHARMACY_ASYNC_THREADS` 8, `PHARMACY_ASYNC_QUEUE` 10,000) | The ledger postings, read models, webhooks and notices after commit. With a full queue a reaction is refused (logged `ASYNC_REJECTED`) and its event is delivered again by `event-resubmission` |
 | Stream heartbeats (25 s) | Each instance pings its own streams |
 | The export worker's poll (5 s) | Every instance polls; the claim makes each export one instance's |
 
@@ -87,6 +90,13 @@ logged at ERROR with the stable prefix **`JOB_FAILED`**:
 | `SENTRY_DSN` | optional | The error tracker (Sentry). Off when unset; no personal data is sent (`send-default-pii=false`, no request bodies). `SENTRY_ENVIRONMENT` tells servers apart |
 | `PHARMACY_JOB_RUNS_DAYS` | `30` | How long job runs are kept |
 | `PHARMACY_EVENTS_REPUBLISH_ON_START` | `false` | Keep false with several instances |
+| `PHARMACY_DB_STATEMENT_TIMEOUT` | `30s` | `statement_timeout` of every pooled connection. Longer statements are cancelled and the request gets 503 `database_busy`. A transaction declared with `@Transactional(timeout = ...)` raises it for itself (`SET LOCAL`). So does a scheduled job (`PHARMACY_DB_JOB_STATEMENT_TIMEOUT`, `5m`) |
+| `PHARMACY_DB_LOCK_TIMEOUT` | `5s` | `lock_timeout`. A longer lock wait fails, and the request gets 409 `busy_try_again` |
+| `PHARMACY_DB_IDLE_IN_TRANSACTION_TIMEOUT` | `60s` | `idle_in_transaction_session_timeout`. It ends a session left idle in an open transaction. It does not touch the job locks (idle outside a transaction) or the listener (outside the pool). `idle_session_timeout` is never set |
+| `PHARMACY_DB_CONNECTION_TIMEOUT_MS` | `10000` | How long a request waits for a pooled connection before 503 `database_busy` |
+| `PHARMACY_MAX_IN_FLIGHT` / `PHARMACY_MAX_IN_FLIGHT_WAIT_MS` | `100` / `250` | Requests in progress per instance, see above |
+| `PHARMACY_ASYNC_THREADS` / `PHARMACY_ASYNC_QUEUE` | `8` / `10000` | The async reactions' pool. Keep the threads under half of `PHARMACY_DB_POOL_SIZE` |
+| `PHARMACY_EDGE_ACCESS_CACHE_SECONDS` | `30` | The edge's access cache. `0` turns it off |
 
 **Database (RDS PostgreSQL)**
 

@@ -40,7 +40,11 @@ public final class Spreadsheet {
   /** The most rows one export holds; past it the person narrows the filters. */
   public static final int MAX_ROWS = 50_000;
 
-  private static final int PAGE = 100;
+  /**
+   * Rows read per page: each page is one short read of the list, by its cursor (the last uid for a
+   * list in uid order, an offset for the others), never counted.
+   */
+  private static final int PAGE = 500;
 
   private Spreadsheet() {}
 
@@ -51,11 +55,17 @@ public final class Spreadsheet {
     return new Column<>(en, sw, value);
   }
 
-  /** Every row of a numbered list, page by page. 422 too_many_rows past {@link #MAX_ROWS}. */
+  /**
+   * Every row of a list, page by page by cursor, as the list's own {@code nextCursor} leads: a list
+   * in uid order reads each page by keyset ({@code uid < last}), so an export of 50,000 rows runs
+   * no count and no offset (adversarial review PERF-5; before, each of its 500 pages was counted).
+   * 422 too_many_rows past {@link #MAX_ROWS}.
+   */
   public static <T> List<T> all(Function<PageQuery, Page<T>> list) {
     List<T> rows = new ArrayList<>();
-    for (int page = 1; ; page++) {
-      Page<T> next = list.apply(PageQuery.of(null, PAGE, page));
+    String cursor = null;
+    while (true) {
+      Page<T> next = list.apply(new PageQuery(cursor, PAGE));
       rows.addAll(next.items());
       if (rows.size() > MAX_ROWS) {
         throw Refusal.invalid(
@@ -63,10 +73,10 @@ public final class Spreadsheet {
             "More than " + MAX_ROWS + " rows match: narrow the filters and export again.",
             "format");
       }
-      long total = next.total() == null ? rows.size() : next.total();
-      if (next.items().size() < PAGE || rows.size() >= total) {
+      if (next.nextCursor() == null || next.items().isEmpty() || next.nextCursor().equals(cursor)) {
         return rows;
       }
+      cursor = next.nextCursor();
     }
   }
 

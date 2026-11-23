@@ -143,12 +143,7 @@ public class ModuleMigrations {
         .initSql(initSql())
         .table(HISTORY_TABLE)
         .locations("classpath:db/migration/" + schema)
-        .placeholders(Map.of("application_role", applicationRole))
-        // Flyway's lock on the schema history as a session advisory lock, not one held by an open
-        // transaction on its own connection: CREATE INDEX CONCURRENTLY (a script with
-        // executeInTransaction=false in its .sql.conf) waits for every open transaction, so it
-        // would wait for that one until the lock timeout.
-        .configuration(Map.of("flyway.postgresql.transactional.lock", "false"));
+        .placeholders(Map.of("application_role", applicationRole));
   }
 
   /** The settings of every migration connection. */

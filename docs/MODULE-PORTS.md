@@ -27,13 +27,15 @@ Rules:
 
 Composition (`application/pharmacy-core/src/main/java/tz/co/pharmacy/platform/composition`):
 - **Adapters.** `@Component class <Consumer><Provider>Adapter implements <consumer>.ports.outbound.Y` calls the provider's `ports.inbound`. The module that owns the outbound port writes the adapter.
-- **Reactions.** `@Component class <Target>Reactions` with methods `@Async @TransactionalEventListener void on(SomeEvent e) { EventScopes.run(e.metadata(), "<service>", () -> target.port(...)); }`. Use one listener method per target module, so a failure in one does not hold the others.
+- **Reactions.** `@Component class <Target>Reactions` with methods `@Async @TransactionalEventListener void on(SomeEvent e) { EventScopes.run(e.metadata(), "<service>", () -> target.port(...)); }`. Use one listener method per target module, so a failure in one does not hold the others. Every `@Async` method runs on the one bounded pool of `platform.config.AsyncExecution` (8 threads, a queue of 10,000). When the queue is full a reaction is refused, and its event is delivered again by the `event-resubmission` job. So an `@Async` method is always an AFTER_COMMIT `@TransactionalEventListener`, whose event the registry keeps.
 
 Delivery (`delivery/src/main/java/tz/co/pharmacy/delivery/api/v1/<area>/`):
 - `@RestController @RequestMapping("/api/v1/...")` classes.
 - Every method is annotated `@Access(scope = AccessScope.X, permission = "...")` and returns `ApiResponse<T>` (`ApiResponse.ok(data, "…")`, or `ApiResponse.created(...)` with `@ResponseStatus(HttpStatus.CREATED)`).
 - Request bodies are records in the handler file (or `<Area>Requests.java`) and are mapped to the module's commands. Responses are the module's views directly when they match the contract, otherwise a response record.
 - Lists return `ApiResponse<Page<View>>`, with paging from `@RequestParam(required=false) String cursor, Integer limit` and `Pages.of(cursor, limit)`.
+- `Page` is `{items, nextCursor, total, totalCapped}`. `total` is there only for a numbered page (`?page=`). A list paged by `Keyset.page` counts at most 10,001 rows: with more, `total` is 10,000 and `totalCapped` is true ("10,000+"). Lists with a count of their own (`Page.offset`, `Page.numbered`) give the exact total and `totalCapped: false`. `totalCapped` is null when there is no total (Batch 7, PERF-5).
+- Exports (`Spreadsheet.all`) read the list by its cursor in pages of 500, never by page number, so they run no count. A uid-ordered list then pages by keyset.
 - The JSON contract is `pharmacy-core-docs/contracts/api-v1.md`.
 
 ---

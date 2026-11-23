@@ -112,5 +112,10 @@
             <groupId>org.dhatim</groupId>
             <artifactId>fastexcel-reader</artifactId>
         </dependency>
+        <!-- The edge's 30-second access cache (PERF-9); version from Spring Boot. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
     </dependencies>
 </project>
