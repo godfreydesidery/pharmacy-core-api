@@ -26,6 +26,8 @@ import tz.co.pharmacy.modules.insurance.ports.inbound.CoverageLine;
 import tz.co.pharmacy.modules.insurance.ports.inbound.CoverageLineQuote;
 import tz.co.pharmacy.modules.insurance.ports.inbound.CoverageQuote;
 import tz.co.pharmacy.modules.insurance.ports.inbound.Insurance;
+import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustStockCommand;
+import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustmentReason;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Allocation;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockQueries;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
@@ -39,6 +41,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
 import tz.co.pharmacy.modules.sales.ports.inbound.PrescriptionDetails;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordReturnCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordSaleCommand;
+import tz.co.pharmacy.modules.sales.ports.inbound.ReturnDisposition;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleLineCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SalePreview;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnLineView;
@@ -122,6 +125,7 @@ class CheckoutService implements Checkout {
         priceBasket(
             command.pricePlan(), command.customerUid(), customerType, payerUid, lines, products);
     Map<UUID, BigDecimal> prices = basket.prices();
+    Map<UUID, PricingService.PricedLine> pricedBy = basket.lines();
     lockProducts(products.keySet());
 
     String number = sales.nextSaleNumber();
@@ -166,6 +170,8 @@ class CheckoutService implements Checkout {
       BigDecimal taxRate =
           product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent();
       boolean taxIncluded = pricesIncludeTax();
+      PricingService.PricedLine priced = pricedBy.get(product.uid());
+      boolean promoted = priced != null && "PROMOTION".equals(priced.source());
       for (Allocation allocation : allocations) {
         saleLines.add(
             new SaleLineCommand(
@@ -181,7 +187,11 @@ class CheckoutService implements Checkout {
                 taxRate,
                 allocation.serialNumbers(),
                 product.warrantyMonths(),
-                taxIncluded));
+                taxIncluded,
+                // The class at the moment of sale (FRD-6) and the promotion that priced it (FRD-8).
+                product.schedule() == null ? Schedule.OTC.name() : product.schedule().name(),
+                promoted ? priced.promotionUid() : null,
+                promoted ? priced.label() : null));
       }
     }
     requireControlledPrescription(command, products);
@@ -192,7 +202,7 @@ class CheckoutService implements Checkout {
         customerName,
         saleLines,
         products,
-        basket.plan().plan(),
+        basket.plan(),
         basket.normalTotal());
   }
 
@@ -233,7 +243,10 @@ class CheckoutService implements Checkout {
    * A cart priced: the plan it is sold under, the unit price per product, the Normal Sale total.
    */
   private record Basket(
-      PricingService.ResolvedPlan plan, Map<UUID, BigDecimal> prices, BigDecimal normalTotal) {}
+      PricingService.ResolvedPlan plan,
+      Map<UUID, BigDecimal> prices,
+      BigDecimal normalTotal,
+      Map<UUID, PricingService.PricedLine> lines) {}
 
   /**
    * The pricing plan: the customer's own (special prices, else their type's, else Normal Sale), or
@@ -286,7 +299,12 @@ class CheckoutService implements Checkout {
             .collect(
                 Collectors.toMap(
                     PricingService.PricedLine::productUid, PricingService.PricedLine::unitPrice));
-    return new Basket(plan, prices, normalTotal);
+    Map<UUID, PricingService.PricedLine> byProduct =
+        priced.stream()
+            .collect(
+                Collectors.toMap(
+                    PricingService.PricedLine::productUid, Function.identity(), (a, b) -> a));
+    return new Basket(plan, prices, normalTotal, byProduct);
   }
 
   /**
@@ -384,8 +402,9 @@ class CheckoutService implements Checkout {
       String customerName,
       List<SaleLineCommand> saleLines,
       Map<UUID, ProductView> products,
-      PricingService.PlanView pricedUnder,
+      PricingService.ResolvedPlan resolved,
       BigDecimal normalTotal) {
+    PricingService.PlanView pricedUnder = resolved.plan();
     UUID customer = command.customerUid();
     List<PaymentCommand> payments =
         new ArrayList<>(command.payments() == null ? List.of() : command.payments());
@@ -503,7 +522,8 @@ class CheckoutService implements Checkout {
                 command.prescription(),
                 pricedUnder.uid(),
                 pricedUnder.name(),
-                normalTotal));
+                normalTotal,
+                planSource(resolved)));
 
     BigDecimal onCredit = paidBy(sale, PaymentMethod.CREDIT);
     BigDecimal fromAccount = paidBy(sale, PaymentMethod.ACCOUNT_CREDIT);
@@ -542,6 +562,20 @@ class CheckoutService implements Checkout {
               claimLines(quote, saleLines, products)));
     }
     return sale;
+  }
+
+  /**
+   * FRD-14: where the sale's plan came from, kept on the sale for the reports. The customer's own
+   * plan (their special prices, their type's, their insurer's) is their price and any seller may
+   * use it: CUSTOMER. Another plan needs sales.price_plan: CHOSEN. Normal Sale by default: null.
+   */
+  private static String planSource(PricingService.ResolvedPlan resolved) {
+    UUID plan = resolved.plan().uid();
+    UUID own = resolved.customerDefault() == null ? null : resolved.customerDefault().uid();
+    if (!java.util.Objects.equals(plan, own)) {
+      return "CHOSEN";
+    }
+    return plan == null ? null : "CUSTOMER";
   }
 
   private static boolean onAccountMethod(PaymentMethod method) {
@@ -621,10 +655,67 @@ class CheckoutService implements Checkout {
   public SaleReturnView returnSale(RecordReturnCommand command) {
     SaleReturnView saleReturn = sales.recordReturn(command);
     for (SaleReturnLineView line : saleReturn.lines()) {
-      stock.restore(line.batchUid(), line.quantity(), saleReturn.number(), line.serialNumbers());
+      switch (line.disposition()) {
+        case SHELF ->
+            stock.restore(
+                line.batchUid(), line.quantity(), saleReturn.number(), line.serialNumbers());
+        case DAMAGED ->
+            writeOff(
+                line.productUid(),
+                line.batchUid(),
+                line.quantity(),
+                line.serialNumbers(),
+                saleReturn.number(),
+                "Returned damaged on " + saleReturn.number());
+        case QUARANTINE -> {
+          // Held aside, out of stock and not sellable, until a manager releases it.
+        }
+      }
     }
     sales.find(saleReturn.saleUid()).ifPresent(sale -> settleReturn(sale, saleReturn));
     return saleReturn;
+  }
+
+  /**
+   * FRD-4: returned units that are not fit to sell are written off at cost: they go back on the
+   * batch they were sold from (so the return's cost comes back to inventory, as for a restock) and
+   * leave it again as a DAMAGE adjustment, which the books post as a stock loss.
+   */
+  private void writeOff(
+      UUID productUid,
+      UUID batchUid,
+      int quantity,
+      List<String> serialNumbers,
+      String reference,
+      String note) {
+    stock.restore(batchUid, quantity, reference, serialNumbers);
+    stock.adjust(
+        new AdjustStockCommand(
+            productUid,
+            batchUid,
+            -quantity,
+            AdjustmentReason.DAMAGE,
+            note,
+            serialNumbers == null || serialNumbers.isEmpty() ? null : serialNumbers));
+  }
+
+  @Override
+  @Transactional
+  public SaleReturnView releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome) {
+    SaleService.ReleasedLine released = sales.releaseReturnLine(returnUid, lineUid, outcome);
+    if (released.outcome() == ReturnDisposition.SHELF) {
+      stock.restore(
+          released.batchUid(), released.quantity(), released.reference(), released.serialNumbers());
+    } else {
+      writeOff(
+          released.productUid(),
+          released.batchUid(),
+          released.quantity(),
+          released.serialNumbers(),
+          released.reference(),
+          "Released from quarantine as damaged (" + released.reference() + ")");
+    }
+    return released.saleReturn();
   }
 
   /**

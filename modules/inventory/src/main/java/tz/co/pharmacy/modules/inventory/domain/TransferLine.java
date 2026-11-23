@@ -32,6 +32,9 @@ public class TransferLine extends TenantEntity {
   private LocalDate expiryDate;
   private int quantity;
 
+  /** Units that arrived; null until the transfer is received (and on transfers received before). */
+  private Integer receivedQuantity;
+
   @Convert(converter = SerialNumbers.class)
   private List<String> serialNumbers = List.of();
 
@@ -52,5 +55,9 @@ public class TransferLine extends TenantEntity {
     this.expiryDate = expiryDate;
     this.quantity = quantity;
     this.serialNumbers = serialNumbers == null ? List.of() : List.copyOf(serialNumbers);
+  }
+
+  public void received(int quantity) {
+    this.receivedQuantity = quantity;
   }
 }

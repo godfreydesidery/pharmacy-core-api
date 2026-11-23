@@ -14,8 +14,12 @@ public interface Transformations {
   /**
    * Takes the inputs earliest expiry first and makes the output batch: its expiry is the earliest
    * input expiry (or an earlier one given, never a later one), its unit cost the inputs' cost
-   * shared over the output units. Refuses 422 insufficient_stock, serial_not_supported,
-   * expiry_after_inputs and same_product.
+   * shared over the output units. The recipe is followed exactly (FRD-2): a break bulk opens whole
+   * packs of the output's pack link, a repack fills own packs as their pack link says, a compound
+   * takes its formula; inputs left out come from the recipe. Refuses 422 insufficient_stock,
+   * serial_not_supported, expiry_after_inputs, same_product, no_recipe, recipe_mismatch,
+   * inputs_below_formula and schedule_downgrade (a prescription or controlled input made into a
+   * product of a lower class).
    */
   TransformationView transform(TransformCommand command);
 

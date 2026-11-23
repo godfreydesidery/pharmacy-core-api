@@ -33,6 +33,11 @@ public class Promotion extends TenantEntity {
     this.name = name;
   }
 
+  /** Off for good use: a promotion is never deleted, so sales priced by it keep naming it. */
+  public void switchOff() {
+    this.active = false;
+  }
+
   public void change(
       String name,
       BigDecimal percentOff,

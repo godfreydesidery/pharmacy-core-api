@@ -32,14 +32,17 @@ public final class Permissions {
   public static final String CATALOGUE_MANAGE = "catalogue.manage";
   public static final String PARTNERS_VIEW = "partners.view";
   public static final String PARTNERS_MANAGE = "partners.manage";
+  public static final String PARTNERS_CREDIT_LIMIT = "partners.credit_limit";
   public static final String FINANCE_VIEW = "finance.view";
   public static final String FINANCE_MANAGE = "finance.manage";
   public static final String FINANCE_WRITE_OFF = "finance.write_off";
+  public static final String FINANCE_PERIOD_LOCK = "finance.period_lock";
   public static final String REPORTS_VIEW = "reports.view";
   public static final String USERS_MANAGE = "users.manage";
   public static final String BRANCHES_MANAGE = "branches.manage";
   public static final String SETTINGS_MANAGE = "settings.manage";
   public static final String INTEGRATIONS_MANAGE = "integrations.manage";
+  public static final String APPROVALS_GRANT = "approvals.grant";
 
   private static final List<PermissionView> CATALOGUE =
       List.of(
@@ -68,15 +71,22 @@ public final class Permissions {
               CATALOGUE_MANAGE, "catalogue", "Manage products, categories and manufacturers"),
           new PermissionView(PARTNERS_VIEW, "partners", "View customers and suppliers"),
           new PermissionView(PARTNERS_MANAGE, "partners", "Manage customers and suppliers"),
+          new PermissionView(
+              PARTNERS_CREDIT_LIMIT, "partners", "Set and change customers' credit limits"),
           new PermissionView(FINANCE_VIEW, "finance", "View expenses, accounts and the journal"),
           new PermissionView(FINANCE_MANAGE, "finance", "Record expenses"),
           new PermissionView(
               FINANCE_WRITE_OFF, "finance", "Write off bad debts on customer accounts"),
+          new PermissionView(FINANCE_PERIOD_LOCK, "finance", "Lock and unlock the books' period"),
           new PermissionView(REPORTS_VIEW, "reports", "View reports"),
           new PermissionView(USERS_MANAGE, "administration", "Manage users and roles"),
           new PermissionView(BRANCHES_MANAGE, "administration", "Manage branches"),
           new PermissionView(SETTINGS_MANAGE, "administration", "Manage tenant settings"),
-          new PermissionView(INTEGRATIONS_MANAGE, "administration", "Manage webhooks"));
+          new PermissionView(INTEGRATIONS_MANAGE, "administration", "Manage webhooks"),
+          new PermissionView(
+              APPROVALS_GRANT,
+              "administration",
+              "Approve others' actions above the pharmacy's limit (refunds, write-offs, discounts)"));
 
   /** Every permission code. */
   public static final Set<String> ALL =
@@ -109,24 +119,39 @@ public final class Permissions {
     return DEFAULT_ROLES;
   }
 
-  /** The permissions of a default role; empty for any other code. */
+  /**
+   * The version of the presets below. A pharmacy's admin decides once per version whether to apply
+   * them to its built-in roles (the owner's decision of 23 Nov 2026: existing pharmacies keep their
+   * roles until their admin chooses); a later change of the presets takes a new version.
+   */
+  public static final String PRESETS_VERSION = "2026-11-23";
+
+  /**
+   * The permissions of a default role; empty for any other code. Selling is kept apart from
+   * refunding, adjusting stock and editing the catalogue (Pharmacist), and closing the books from
+   * running a branch (Branch Manager): segregation of duties, adversarial review FRD-6, FRD-10,
+   * FRD-17.
+   */
   public static Set<String> preset(String roleCode) {
     return switch (roleCode) {
       case "ADMIN" -> TENANT_ALL;
       case "BRANCH_MANAGER" ->
-          without(TENANT_ALL, USERS_MANAGE, SETTINGS_MANAGE, INTEGRATIONS_MANAGE, BRANCHES_MANAGE);
+          without(
+              TENANT_ALL,
+              USERS_MANAGE,
+              SETTINGS_MANAGE,
+              INTEGRATIONS_MANAGE,
+              BRANCHES_MANAGE,
+              FINANCE_PERIOD_LOCK);
       case "PHARMACIST" ->
           ordered(
               DASHBOARD_VIEW,
               SALES_SELL,
               SALES_VIEW,
-              SALES_REFUND,
               SALES_DISCOUNT,
               SALES_CREDIT,
               INVENTORY_VIEW,
-              INVENTORY_ADJUST,
               CATALOGUE_VIEW,
-              CATALOGUE_MANAGE,
               PARTNERS_VIEW,
               PARTNERS_MANAGE,
               PURCHASING_VIEW,
@@ -157,10 +182,12 @@ public final class Permissions {
               FINANCE_VIEW,
               FINANCE_MANAGE,
               FINANCE_WRITE_OFF,
+              FINANCE_PERIOD_LOCK,
               REPORTS_VIEW,
               SALES_VIEW,
               PURCHASING_VIEW,
-              PARTNERS_VIEW);
+              PARTNERS_VIEW,
+              PARTNERS_CREDIT_LIMIT);
       default -> Set.of();
     };
   }

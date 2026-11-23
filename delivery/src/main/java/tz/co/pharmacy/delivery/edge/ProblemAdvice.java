@@ -32,6 +32,7 @@ public class ProblemAdvice {
   ResponseEntity<ProblemDetail> refusal(Refusal refusal) {
     ResponseEntity<ProblemDetail> problem =
         problem(refusal.kind().status(), refusal.reason(), refusal.getMessage(), refusal.field());
+    refusal.extras().forEach(problem.getBody()::setProperty);
     if (refusal.retryAfterSeconds() == null) {
       return problem;
     }

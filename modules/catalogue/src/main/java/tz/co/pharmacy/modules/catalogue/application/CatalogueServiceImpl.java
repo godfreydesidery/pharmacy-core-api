@@ -11,7 +11,9 @@ import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -20,6 +22,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tz.co.pharmacy.modules.catalogue.domain.Category;
 import tz.co.pharmacy.modules.catalogue.domain.Manufacturer;
 import tz.co.pharmacy.modules.catalogue.domain.Product;
@@ -35,8 +39,10 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.ManufacturerView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductCommand;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductFilter;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductView;
+import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Storage;
 import tz.co.pharmacy.modules.catalogue.ports.outbound.ProductStock;
+import tz.co.pharmacy.platform.approval.ApprovalActions;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -58,6 +64,8 @@ class CatalogueServiceImpl implements CatalogueService {
   private final ProductStock stock;
   private final tz.co.pharmacy.platform.persistence.DocumentNumbers numbers;
   private final PriceHistory priceHistory;
+  private final tz.co.pharmacy.platform.approval.Approvals approvals;
+  private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -318,6 +326,21 @@ class CatalogueServiceImpl implements CatalogueService {
             "trackingMode");
       }
     }
+    Schedule scheduleBefore = product.getSchedule();
+    if (details.schedule() != scheduleBefore) {
+      // FRD-6: the dispensing class decides who may sell a medicine and how; a second person
+      // approves every change of it, and the change is kept with its before and after.
+      approveOnce(
+          ApprovalActions.SCHEDULE_CHANGE,
+          product.getName() + ": " + scheduleBefore + " to " + details.schedule());
+      Map<String, Object> was = new LinkedHashMap<>();
+      was.put("schedule", scheduleBefore == null ? null : scheduleBefore.name());
+      Map<String, Object> now = new LinkedHashMap<>();
+      now.put("schedule", details.schedule().name());
+      now.put("product", product.getName());
+      now.put("sku", product.getSku());
+      audit.record("SCHEDULE_CHANGED", "Product", product.getUid(), was, now);
+    }
     java.math.BigDecimal before = product.getSellingPrice();
     product.change(details);
     priceHistory.record(
@@ -333,6 +356,45 @@ class CatalogueServiceImpl implements CatalogueService {
     products.flush();
     publish(product);
     return view(product);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<ProductView> controlledRegisterProducts() {
+    return products.findControlledEver().stream().map(CatalogueServiceImpl::view).toList();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public boolean everControlled(UUID productUid) {
+    return products
+        .findByUid(productUid)
+        .map(p -> p.isEverControlled() || p.getSchedule() == Schedule.CONTROLLED)
+        .orElse(false);
+  }
+
+  private static final String APPROVED_ONCE = CatalogueServiceImpl.class.getName() + ".approved.";
+
+  /**
+   * {@link tz.co.pharmacy.platform.approval.Approvals#require} once per action in the transaction,
+   * so the products of one import are approved together; the mark goes with the transaction.
+   */
+  private void approveOnce(String action, String reference) {
+    String key = APPROVED_ONCE + action;
+    if (TransactionSynchronizationManager.hasResource(key)) {
+      return;
+    }
+    approvals.require(action, BigDecimal.ZERO, reference);
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.bindResource(key, Boolean.TRUE);
+      TransactionSynchronizationManager.registerSynchronization(
+          new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+              TransactionSynchronizationManager.unbindResourceIfPossible(key);
+            }
+          });
+    }
   }
 
   /** The next free automatic code of the pharmacy: P00001, P00002… past any already taken. */

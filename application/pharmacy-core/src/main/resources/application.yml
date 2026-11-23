@@ -94,6 +94,10 @@ pharmacy:
     root-password: ${PHARMACY_ROOT_PASSWORD:}
   seed:
     demo: ${PHARMACY_SEED_DEMO:false}
+  tenancy:
+    # A new pharmacy starts with "require an open shift to sell" on (owner's decision, 23 Nov 2026);
+    # its admin can turn it off in Settings. Existing pharmacies keep theirs.
+    require-open-shift-by-default: ${PHARMACY_REQUIRE_OPEN_SHIFT_BY_DEFAULT:true}
   files:
     # local (a directory; presigned URLs served by the API) or s3 (AWS S3, MinIO, Cloudflare R2).
     storage: ${PHARMACY_FILES_STORAGE:local}

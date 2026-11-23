@@ -54,6 +54,16 @@ public class StockCountHandler {
     return ApiResponse.ok(counts.get(uid), "Stock-take retrieved");
   }
 
+  /**
+   * The count with expected quantities, variances and its loss at cost, for whoever reviews it
+   * before posting; other views of an OPEN count are blind.
+   */
+  @GetMapping("/{uid}/review")
+  @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")
+  public ApiResponse<StockCountView> review(@PathVariable UUID uid) {
+    return ApiResponse.ok(counts.review(uid), "Stock-take retrieved for review");
+  }
+
   @PutMapping("/{uid}/counts")
   @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")
   public ApiResponse<StockCountView> record(

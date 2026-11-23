@@ -1,11 +1,6 @@
 package tz.co.pharmacy.delivery.api.v1.inventory;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -27,9 +22,7 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.PackagingService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PackagingService.FormulaItemCommand;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PackagingService.FormulaItemView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PackagingService.PackLinkView;
-import tz.co.pharmacy.modules.inventory.ports.inbound.TransformationType;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations;
-import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations.InputCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations.TransformCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Transformations.TransformationView;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -51,80 +44,7 @@ public class TransformationHandler {
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")
   public ApiResponse<TransformationView> transform(@RequestBody TransformCommand body) {
-    return ApiResponse.created(
-        transformations.transform(withRecipe(body)), "Transformation recorded");
-  }
-
-  /**
-   * Applies the product's recipe: a compounded product's formula, or the pack link of an own pack
-   * (so many bulk units per pack), scaled by the quantity made. Inputs left out are filled from the
-   * recipe; inputs given must cover it (422 inputs_below_formula).
-   */
-  private TransformCommand withRecipe(TransformCommand body) {
-    if (body == null
-        || body.output() == null
-        || body.output().productUid() == null
-        || body.output().quantity() == null
-        || body.output().quantity() <= 0) {
-      return body;
-    }
-    UUID output = body.output().productUid();
-    int made = body.output().quantity();
-    Map<UUID, Integer> required = new LinkedHashMap<>();
-    Map<UUID, String> names = new LinkedHashMap<>();
-    if (body.type() == TransformationType.COMPOUND) {
-      for (FormulaItemView item : packaging.formula(output)) {
-        required.put(
-            item.ingredientUid(),
-            item.quantity()
-                .multiply(BigDecimal.valueOf(made))
-                .setScale(0, RoundingMode.CEILING)
-                .intValueExact());
-        names.put(item.ingredientUid(), item.ingredientName());
-      }
-    } else if (body.type() == TransformationType.REPACK) {
-      packaging.packLinks().stream()
-          .filter(link -> link.packProductUid().equals(output))
-          .findFirst()
-          .ifPresent(
-              link -> {
-                required.put(link.unitProductUid(), link.unitsPerPack() * made);
-                names.put(link.unitProductUid(), link.unitProductName());
-              });
-    }
-    if (required.isEmpty()) {
-      return body;
-    }
-    if (body.inputs() == null || body.inputs().isEmpty()) {
-      List<InputCommand> inputs = new ArrayList<>();
-      required.forEach((product, quantity) -> inputs.add(new InputCommand(product, quantity)));
-      return new TransformCommand(body.type(), inputs, body.output(), body.note());
-    }
-    Map<UUID, Integer> given = new LinkedHashMap<>();
-    for (InputCommand input : body.inputs()) {
-      if (input != null && input.productUid() != null && input.quantity() != null) {
-        given.merge(input.productUid(), input.quantity(), Integer::sum);
-      }
-    }
-    required.forEach(
-        (product, quantity) -> {
-          int have = given.getOrDefault(product, 0);
-          if (have < quantity) {
-            throw Refusal.invalid(
-                "inputs_below_formula",
-                "Making "
-                    + made
-                    + " needs "
-                    + quantity
-                    + " of "
-                    + names.getOrDefault(product, "an ingredient")
-                    + " by its recipe; "
-                    + have
-                    + " given.",
-                "inputs");
-          }
-        });
-    return body;
+    return ApiResponse.created(transformations.transform(body), "Transformation recorded");
   }
 
   @GetMapping("/stock/transformations")

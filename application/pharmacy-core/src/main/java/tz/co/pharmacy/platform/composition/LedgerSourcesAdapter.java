@@ -28,6 +28,10 @@ class LedgerSourcesAdapter implements LedgerSources {
       select 'SALE_RETURN', uid, number, branch_uid, created_at from sales.sale_returns
        where created_at >= ? and created_at < ? and refund_total <> 0
       union all
+      select 'SALE_RETURN', l.uid, r.number, r.branch_uid, l.released_at
+        from sales.sale_return_lines l join sales.sale_returns r on r.id = l.return_id
+       where l.released_at >= ? and l.released_at < ? and l.cost <> 0
+      union all
       select 'VOUCHER', uid, code, branch_uid, created_at from sales.vouchers
        where created_at >= ? and created_at < ?
       union all
@@ -49,7 +53,7 @@ class LedgerSourcesAdapter implements LedgerSources {
          and m.quantity_change <> 0 and b.unit_cost > 0
       """;
 
-  private static final int RANGES = 8;
+  private static final int RANGES = 9;
 
   private final JdbcTemplate jdbc;
 

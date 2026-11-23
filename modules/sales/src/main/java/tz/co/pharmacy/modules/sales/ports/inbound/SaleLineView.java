@@ -5,6 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * {@code schedule}: the medicine's dispensing class when sold (null for lines from before it was
+ * kept); {@code promotionUid}, {@code promotionName}: the promotion that priced the line.
+ */
 public record SaleLineView(
     UUID uid,
     UUID productUid,
@@ -20,4 +24,7 @@ public record SaleLineView(
     BigDecimal lineTotal,
     List<String> serialNumbers,
     LocalDate warrantyEndsOn,
-    List<String> returnedSerialNumbers) {}
+    List<String> returnedSerialNumbers,
+    String schedule,
+    UUID promotionUid,
+    String promotionName) {}

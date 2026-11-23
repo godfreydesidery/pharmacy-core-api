@@ -35,6 +35,17 @@ class PlanningTest extends IntegrationTest {
                 .string("$.reason"))
         .isEqualTo("invalid_lead_time");
 
+    // Opening stock while setting up, before any trade (FRD-11).
+    // Never sold, but below its reorder level of 50 with 5 held, and no supplier yet: 45.
+    String gloves = product(admin, "Examination gloves", 50);
+    hq.post(
+            "/api/v1/stock/opening",
+            """
+            {"productUid":"%s","batchNumber":"G1","expiryDate":"%s","quantity":5,"unitCost":20}
+            """
+                .formatted(gloves, LocalDate.now().plusYears(2)))
+        .expect(201);
+
     // Sold 30 in the window: 1 a day. Lead time 5 + cover 30 = 35 wanted, 10 held: order 25.
     String amox = product(admin, "Amoxicillin 250mg", 0);
     hq.post(
@@ -52,15 +63,6 @@ class PlanningTest extends IntegrationTest {
              "payments":[{"method":"CASH","amount":9000}]}
             """
                 .formatted(UUID.randomUUID(), amox))
-        .expect(201);
-    // Never sold, but below its reorder level of 50 with 5 held, and no supplier yet: 45.
-    String gloves = product(admin, "Examination gloves", 50);
-    hq.post(
-            "/api/v1/stock/opening",
-            """
-            {"productUid":"%s","batchNumber":"G1","expiryDate":"%s","quantity":5,"unitCost":20}
-            """
-                .formatted(gloves, LocalDate.now().plusYears(2)))
         .expect(201);
 
     Response plan = hq.get("/api/v1/reorder-suggestions").expect(200);
@@ -170,8 +172,29 @@ class PlanningTest extends IntegrationTest {
             .string("$.data.number");
     Api.eventually(() -> admin.get("/api/v1/journal?limit=100").expect(200).body().contains(sale));
 
-    // Unlocking reopens the period.
-    admin.put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}").expect(200);
+    // Unlocking reopens the period; it always needs a second person's approval (FRD-10).
+    assertThat(
+            admin
+                .put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}")
+                .expect(403)
+                .string("$.reason"))
+        .isEqualTo("approval_required");
+    Api anonymous = api();
+    String manager =
+        tz.co.pharmacy.support.Staff.login(
+                admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x")
+            .signIn();
+    String approval =
+        admin
+            .post(
+                "/api/v1/approvals",
+                "{\"action\":\"PERIOD_UNLOCK\",\"login\":\"%s\",\"password\":\"Manager#2026x\"}"
+                    .formatted(manager))
+            .expect(201)
+            .string("$.data.token");
+    admin
+        .put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}", "X-Approval", approval)
+        .expect(200);
     hq.post("/api/v1/expenses", expense.formatted(through)).expect(201);
   }
 

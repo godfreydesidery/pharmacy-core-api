@@ -14,6 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.sales.domain.Shift;
 import tz.co.pharmacy.modules.sales.persistence.ShiftRepository;
 import tz.co.pharmacy.modules.sales.ports.inbound.Shifts;
+import tz.co.pharmacy.modules.sales.ports.outbound.SalesSettings;
+import tz.co.pharmacy.platform.approval.ApprovalActions;
+import tz.co.pharmacy.platform.approval.Approvals;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -33,11 +36,40 @@ class ShiftsImpl implements Shifts {
   private final ShiftRepository shifts;
   private final JdbcTemplate jdbc;
   private final Clock clock;
+  private final SalesSettings settings;
+  private final Approvals approvals;
 
-  ShiftsImpl(ShiftRepository shifts, DataSource dataSource, Clock clock) {
+  ShiftsImpl(
+      ShiftRepository shifts,
+      DataSource dataSource,
+      Clock clock,
+      SalesSettings settings,
+      Approvals approvals) {
     this.shifts = shifts;
     this.jdbc = new JdbcTemplate(dataSource);
     this.clock = clock;
+    this.settings = settings;
+    this.approvals = approvals;
+  }
+
+  /**
+   * FRD-7: when the pharmacy requires it, selling, refunding and issuing a voucher need the
+   * caller's own open shift at this branch (409 shift_required), so every shilling taken or paid
+   * out is in a cashier's drawer. The shift is share-locked for the caller's transaction: it cannot
+   * close until the sale or refund has committed, and its close then counts it. A platform service
+   * (the demo seed, a job) is no cashier and has no drawer: the rule is for people.
+   */
+  void requireOpenShift() {
+    if (ExecutionContext.actor().type() != tz.co.pharmacy.platform.kernel.Actor.ActorType.USER
+        || !settings.requireOpenShift()) {
+      return;
+    }
+    if (shifts
+        .shareOpen(ExecutionContext.requireBranch(), ExecutionContext.actor().uid())
+        .isEmpty()) {
+      throw Refusal.conflict(
+          "shift_required", "Open your till shift at this branch before selling or refunding.");
+    }
   }
 
   @Override
@@ -76,11 +108,18 @@ class ShiftsImpl implements Shifts {
           "invalid_amount", "The counted cash cannot be negative.", "countedCash");
     }
     Shift shift =
-        open()
+        shifts
+            .lockOpen(ExecutionContext.requireBranch(), ExecutionContext.actor().uid())
             .orElseThrow(
                 () -> Refusal.invalid("no_open_shift", "You have no open shift at this branch."));
     Instant now = clock.instant();
     Figures f = figures(shift, now);
+    // Cash short or over by more than the pharmacy's approval limit: a manager approves the close.
+    BigDecimal variance = Amounts.money(counted.subtract(f.expected(shift)));
+    approvals.require(
+        ApprovalActions.SHIFT_VARIANCE,
+        variance.abs(),
+        "Shift " + shift.getUid() + " (" + shift.getCashier() + ")");
     shift.close(f.expected(shift), counted, Checks.optionalText(note, "note", 500), now);
     return view(shift, f);
   }
@@ -93,6 +132,16 @@ class ShiftsImpl implements Shifts {
         Specs.equal("branchUid", ExecutionContext.requireBranch()),
         query,
         s -> view(s, figures(s, s.getClosedAt() == null ? clock.instant() : s.getClosedAt())));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<LastCount> lastCount() {
+    return shifts
+        .findFirstByBranchUidAndStatusOrderByClosedAtDesc(
+            ExecutionContext.requireBranch(), "CLOSED")
+        .filter(s -> s.getCountedCash() != null)
+        .map(s -> new LastCount(s.getCountedCash(), s.getClosedAt(), s.getCashierName()));
   }
 
   private Optional<Shift> open() {

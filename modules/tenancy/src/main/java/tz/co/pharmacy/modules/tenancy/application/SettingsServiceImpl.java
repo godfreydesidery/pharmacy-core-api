@@ -78,6 +78,22 @@ class SettingsServiceImpl implements SettingsService {
     row.changeLook(look(command.look()));
     row.changeIdleMinutes(command.idleMinutes());
     row.changeRequireTwoFactor(command.requireTwoFactor());
+    if (command.approvalLimit() != null && command.approvalLimit().signum() < 0) {
+      throw Refusal.invalid("invalid_amount", "approvalLimit cannot be negative.", "approvalLimit");
+    }
+    if (command.returnWindowDays() != null
+        && (command.returnWindowDays() < 0 || command.returnWindowDays() > 365)) {
+      throw Refusal.invalid(
+          "invalid_return_window",
+          "returnWindowDays must be between 0 and 365.",
+          "returnWindowDays");
+    }
+    row.changeControls(
+        command.approvalLimit() == null
+            ? null
+            : tz.co.pharmacy.platform.kernel.Amounts.money(command.approvalLimit()),
+        command.returnWindowDays(),
+        command.requireOpenShift());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     return view(tenant, row);
@@ -156,6 +172,9 @@ class SettingsServiceImpl implements SettingsService {
         row.isPricesIncludeTax(),
         row.getLook(),
         row.getIdleMinutes(),
-        row.isRequireTwoFactor());
+        row.isRequireTwoFactor(),
+        row.getApprovalLimit(),
+        row.getReturnWindowDays(),
+        row.isRequireOpenShift());
   }
 }

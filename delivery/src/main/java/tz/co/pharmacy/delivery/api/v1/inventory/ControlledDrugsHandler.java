@@ -19,7 +19,6 @@ import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.Spreadsheet;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.CatalogueService;
-import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductFilter;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
 import tz.co.pharmacy.modules.inventory.ports.inbound.MovementType;
@@ -48,9 +47,18 @@ public class ControlledDrugsHandler {
   private final SaleService sales;
   private final tz.co.pharmacy.platform.kernel.TenantCalendar calendar;
 
-  /** A controlled product and its sellable balance at the branch. */
+  /**
+   * A product of the register and its sellable balance at the branch; {@code schedule} is its class
+   * now ({@code controlledNow} false for a product once CONTROLLED and since changed).
+   */
   public record ControlledProduct(
-      UUID productUid, String name, String strength, String dosageForm, int onHand) {}
+      UUID productUid,
+      String name,
+      String strength,
+      String dosageForm,
+      int onHand,
+      Schedule schedule,
+      boolean controlledNow) {}
 
   /** One register line: in and out are the movement's units; balance is after it. */
   public record RegisterLine(
@@ -72,12 +80,9 @@ public class ControlledDrugsHandler {
   @GetMapping
   @Access(scope = AccessScope.BRANCH, permission = "inventory.view")
   public ApiResponse<List<ControlledProduct>> products() {
-    List<ProductView> controlled =
-        catalogue
-            .products(
-                new ProductFilter(null, null, null, null, Schedule.CONTROLLED),
-                PageQuery.of(null, 100))
-            .items();
+    // FRD-6: every product CONTROLLED now or at any time before, so a class changed and changed
+    // back never takes a product's movements out of the register.
+    List<ProductView> controlled = catalogue.controlledRegisterProducts();
     Map<UUID, Integer> onHand =
         stockQueries.onHand(controlled.stream().map(ProductView::uid).toList());
     return ApiResponse.ok(
@@ -89,7 +94,9 @@ public class ControlledDrugsHandler {
                         p.name(),
                         p.strength(),
                         p.dosageForm() == null ? null : p.dosageForm().name(),
-                        onHand.getOrDefault(p.uid(), 0)))
+                        onHand.getOrDefault(p.uid(), 0),
+                        p.schedule(),
+                        p.schedule() == Schedule.CONTROLLED))
             .toList(),
         "Controlled products retrieved");
   }
@@ -138,13 +145,16 @@ public class ControlledDrugsHandler {
         Spreadsheet.all(page -> lines(productUid, page)));
   }
 
-  /** The product, which must be a controlled drug: 404 product_not_found; 422 not_controlled. */
+  /**
+   * The product, which must be a controlled drug now or before: 404 product_not_found; 422
+   * not_controlled.
+   */
   private ProductView controlled(UUID productUid) {
     ProductView product =
         catalogue
             .product(productUid)
             .orElseThrow(() -> Refusal.notFound("product_not_found", "No such product."));
-    if (product.schedule() != Schedule.CONTROLLED) {
+    if (product.schedule() != Schedule.CONTROLLED && !catalogue.everControlled(productUid)) {
       throw Refusal.invalid(
           "not_controlled", product.name() + " is not a controlled drug.", "productUid");
     }

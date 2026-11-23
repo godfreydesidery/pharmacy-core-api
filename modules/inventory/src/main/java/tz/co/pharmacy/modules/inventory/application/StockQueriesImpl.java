@@ -36,6 +36,7 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.StockItemView;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockQueries;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockStatus;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockSummaryView;
+import tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferView;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -352,6 +353,28 @@ class StockQueriesImpl implements StockQueries {
 
   @Override
   public Page<TransferView> transfers(String direction, PageQuery query) {
+    Map<UUID, String> names = new HashMap<>();
+    return Keyset.page(
+        transfers, direction(direction), query, transfer -> views.transfer(transfer, names));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Page<TransferView> overdueTransfers(String direction, int days, PageQuery query) {
+    if (days < 1 || days > 365) {
+      throw Refusal.invalid("invalid_days", "days is between 1 and 365.", "days");
+    }
+    java.time.Instant before = clock.instant().minus(java.time.Duration.ofDays(days));
+    Specification<Transfer> overdue =
+        direction(direction)
+            .and(Specs.equal("status", TransferStatus.IN_TRANSIT))
+            .and((root, q, cb) -> cb.lessThan(root.get("createdAt"), before));
+    Map<UUID, String> names = new HashMap<>();
+    return Keyset.page(transfers, overdue, query, transfer -> views.transfer(transfer, names));
+  }
+
+  /** The current branch's transfers: OUTGOING, INCOMING or, with null, both. */
+  private static Specification<Transfer> direction(String direction) {
     UUID branch = ExecutionContext.requireBranch();
     Specification<Transfer> filter;
     if (direction == null || direction.isBlank()) {
@@ -367,8 +390,7 @@ class StockQueriesImpl implements StockQueries {
     } else {
       throw Refusal.invalid("invalid_direction", "direction is OUTGOING or INCOMING.", "direction");
     }
-    Map<UUID, String> names = new HashMap<>();
-    return Keyset.page(transfers, filter, query, transfer -> views.transfer(transfer, names));
+    return filter;
   }
 
   /**

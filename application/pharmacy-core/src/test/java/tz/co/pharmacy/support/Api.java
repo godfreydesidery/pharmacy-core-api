@@ -68,6 +68,17 @@ public final class Api {
     return send("PUT", path, json);
   }
 
+  /** A PUT with extra headers, given as name, value, name, value… */
+  public Response put(String path, String json, String... headers) {
+    HttpRequest.Builder request = request(path);
+    for (int i = 0; i + 1 < headers.length; i += 2) {
+      request.header(headers[i], headers[i + 1]);
+    }
+    request.header("Content-Type", "application/json");
+    request.PUT(HttpRequest.BodyPublishers.ofString(json == null ? "" : json));
+    return call(request);
+  }
+
   public Response delete(String path) {
     return send("DELETE", path, null);
   }

@@ -21,4 +21,10 @@ public record SettingsView(
     /* Minutes without use that sign a person out of this pharmacy. */
     int idleMinutes,
     /* Everyone who works here needs a second factor (an authenticator app or a passkey). */
-    boolean requireTwoFactor) {}
+    boolean requireTwoFactor,
+    /* Above this amount a refund, write-off, voucher or shift difference needs a manager. */
+    BigDecimal approvalLimit,
+    /* Days a sale's goods may come back without a manager. */
+    int returnWindowDays,
+    /* A cashier must open a shift before selling or refunding. */
+    boolean requireOpenShift) {}

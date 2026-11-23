@@ -35,6 +35,8 @@ public class Transfer extends TenantEntity {
 
   private String note;
   private Instant receivedAt;
+  private String receivedBy;
+  private UUID receivedByUid;
 
   @OneToMany(mappedBy = "transfer", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("id")
@@ -68,8 +70,10 @@ public class Transfer extends TenantEntity {
             serialNumbers));
   }
 
-  public void markReceived() {
+  public void markReceived(String by, UUID byUid) {
     this.status = TransferStatus.RECEIVED;
     this.receivedAt = Clocks.now();
+    this.receivedBy = by;
+    this.receivedByUid = byUid;
   }
 }

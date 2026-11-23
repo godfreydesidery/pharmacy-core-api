@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,7 +57,13 @@ public class PartnerHandler {
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
   public ApiResponse<CustomerView> createCustomer(@RequestBody CustomerRequest body) {
-    return ApiResponse.created(customers.create(body.toCommand()), "Customer created");
+    if (body == null) {
+      throw Refusal.malformed("A customer is required.");
+    }
+    // A credit limit needs its own permission (FRD-17): 403 credit_limit_not_allowed.
+    CreditLimits.require(BigDecimal.ZERO, body.creditLimit());
+    return ApiResponse.created(
+        customers.create(body.toCommand(body.creditLimit())), "Customer created");
   }
 
   @GetMapping("/customers/{uid}")
@@ -69,12 +76,63 @@ public class PartnerHandler {
         "Customer retrieved");
   }
 
+  /**
+   * An omitted {@code creditLimit} keeps the customer's limit. Changing it needs
+   * partners.credit_limit (403 credit_limit_not_allowed). One transaction: the customer's version
+   * makes a change that crossed another one refuse (409 stale_version) rather than act on a stale
+   * limit.
+   */
   @PutMapping("/customers/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  @Transactional
   public ApiResponse<CustomerView> changeCustomer(
       @PathVariable UUID uid, @RequestBody CustomerRequest body) {
-    return ApiResponse.ok(customers.change(uid, body.toCommand()), "Customer changed");
+    if (body == null) {
+      throw Refusal.malformed("A customer is required.");
+    }
+    CustomerView current =
+        customers
+            .find(uid)
+            .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    BigDecimal limit = body.creditLimit() == null ? current.creditLimit() : body.creditLimit();
+    CreditLimits.require(current.creditLimit(), limit);
+    return ApiResponse.ok(customers.change(uid, body.toCommand(limit)), "Customer changed");
   }
+
+  /**
+   * Sets only the customer's credit limit, for someone who decides credit without managing
+   * customers (the Accountant preset). Everything else about the customer stays as it is.
+   */
+  @PutMapping("/customers/{uid}/credit-limit")
+  @Access(scope = AccessScope.TENANT, permission = CreditLimits.PERMISSION)
+  @Transactional
+  public ApiResponse<CustomerView> changeCreditLimit(
+      @PathVariable UUID uid, @RequestBody CreditLimitRequest body) {
+    if (body == null || body.creditLimit() == null) {
+      throw Refusal.invalid("invalid_credit_limit", "creditLimit is required.", "creditLimit");
+    }
+    CustomerView c =
+        customers
+            .find(uid)
+            .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    return ApiResponse.ok(
+        customers.change(
+            uid,
+            new CustomerCommand(
+                c.name(),
+                c.phone(),
+                c.email(),
+                c.type(),
+                c.insuranceProvider(),
+                c.insuranceNumber(),
+                body.creditLimit(),
+                c.address(),
+                c.active(),
+                c.paymentTerms())),
+        "Credit limit changed");
+  }
+
+  public record CreditLimitRequest(BigDecimal creditLimit) {}
 
   // suppliers
 
@@ -127,7 +185,7 @@ public class PartnerHandler {
       Boolean active,
       String paymentTerms) {
 
-    CustomerCommand toCommand() {
+    CustomerCommand toCommand(BigDecimal creditLimit) {
       return new CustomerCommand(
           name,
           phone,

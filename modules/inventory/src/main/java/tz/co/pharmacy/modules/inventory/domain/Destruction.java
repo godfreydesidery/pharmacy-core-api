@@ -32,6 +32,14 @@ public class Destruction extends TenantEntity {
   private String certificateNumber;
   private String note;
   private String createdByName;
+
+  /**
+   * The manager whose approval the destruction used (FRD-5): they are its witness; witnessName
+   * keeps what was typed.
+   */
+  private String approvedByName;
+
+  private UUID approvedByUid;
   private BigDecimal totalCost = BigDecimal.ZERO;
 
   @OneToMany(mappedBy = "destruction", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -55,6 +63,12 @@ public class Destruction extends TenantEntity {
     this.witnessTitle = witnessTitle;
     this.certificateNumber = certificateNumber;
     this.note = note;
+  }
+
+  /** The approving manager, who witnesses the destruction. */
+  public void approvedBy(String name, UUID uid) {
+    this.approvedByName = name;
+    this.approvedByUid = uid;
   }
 
   /** The recorder's display name, for the certificate. */

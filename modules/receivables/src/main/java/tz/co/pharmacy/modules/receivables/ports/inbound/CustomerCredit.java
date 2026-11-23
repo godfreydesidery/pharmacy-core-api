@@ -42,7 +42,11 @@ public interface CustomerCredit {
   /** What is still unpaid of the sale's charge, or zero. */
   BigDecimal openForSale(UUID customerUid, UUID saleUid);
 
-  /** A bad debt written off against open charges, oldest first; 422 write_off_exceeds_open. */
+  /**
+   * A bad debt written off against open charges, oldest first; 422 write_off_exceeds_open. It
+   * always needs a second person's approval (CREDIT_WRITE_OFF, amount = the write-off): 403
+   * approval_required without one.
+   */
   EntryView writeOff(UUID customerUid, BigDecimal amount, String reason);
 
   /** An account on hold takes no new credit. */

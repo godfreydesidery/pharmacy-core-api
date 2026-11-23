@@ -36,6 +36,20 @@ public interface CatalogueService {
   /** Publishes product.changed; 409 duplicate_sku or duplicate_gtin. */
   ProductView createProduct(ProductCommand c);
 
-  /** 409 stale_version when {@code version} is not the product's; publishes product.changed. */
+  /**
+   * 409 stale_version when {@code version} is not the product's; publishes product.changed. A
+   * change of its dispensing class (schedule) needs a manager's approval (403 approval_required,
+   * SCHEDULE_CHANGE; one approval covers a whole import) and is audited (SCHEDULE_CHANGED, before
+   * and after).
+   */
   ProductView changeProduct(UUID uid, ProductCommand c, boolean active, long version);
+
+  /**
+   * The products of the controlled-drugs register, by name: every product CONTROLLED now or at any
+   * time before (FRD-6).
+   */
+  List<ProductView> controlledRegisterProducts();
+
+  /** Whether the product is CONTROLLED now or ever was. */
+  boolean everControlled(UUID productUid);
 }
