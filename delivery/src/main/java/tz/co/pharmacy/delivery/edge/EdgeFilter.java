@@ -94,7 +94,56 @@ public class EdgeFilter extends OncePerRequestFilter {
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
-    return !request.getRequestURI().startsWith("/api/");
+    // Decoded, so "/%61pi/..." or "/api;x/..." (which Spring maps to /api/...) cannot slip past.
+    String path = decodedOrNull(request.getRequestURI());
+    return path != null && !path.startsWith("/api");
+  }
+
+  /**
+   * The request's path, percent-decoded. Every prefix check here uses it, so an encoded or
+   * parameterised spelling of a route is checked as the route it reaches (adversarial review
+   * AUTH-7). {@link #requireCleanPath} has refused the spellings that decode to something else.
+   */
+  public static String path(HttpServletRequest request) {
+    String decoded = decodedOrNull(request.getRequestURI());
+    return decoded == null ? request.getRequestURI() : decoded;
+  }
+
+  private static String decodedOrNull(String uri) {
+    try {
+      return org.springframework.web.util.UriUtils.decode(
+          uri == null ? "" : uri, java.nio.charset.StandardCharsets.UTF_8);
+    } catch (IllegalArgumentException malformed) {
+      return null;
+    }
+  }
+
+  /**
+   * Refuses (400) a path that could be read two ways, as Spring Security's StrictHttpFirewall does:
+   * path parameters ({@code ;}), encoded slashes, backslashes or percent signs, double slashes, dot
+   * segments, control characters or a malformed escape.
+   */
+  static void requireCleanPath(HttpServletRequest request) {
+    String raw = request.getRequestURI() == null ? "" : request.getRequestURI();
+    String lower = raw.toLowerCase(java.util.Locale.ROOT);
+    String decoded = decodedOrNull(raw);
+    boolean unclean =
+        decoded == null
+            || raw.indexOf(';') >= 0
+            || lower.contains("%2f")
+            || lower.contains("%5c")
+            || lower.contains("%25")
+            || lower.contains("%3b")
+            || decoded.contains("//")
+            || decoded.contains("\\")
+            || decoded.contains("/./")
+            || decoded.contains("/../")
+            || decoded.endsWith("/.")
+            || decoded.endsWith("/..")
+            || decoded.chars().anyMatch(c -> c < 0x20 || c == 0x7f);
+    if (unclean) {
+      throw Refusal.malformed("The request path is not valid.");
+    }
   }
 
   @Override
@@ -106,19 +155,18 @@ public class EdgeFilter extends OncePerRequestFilter {
     SecurityHeaders.apply(request, response);
     MDC.put("correlationId", correlationId);
     try {
+      requireCleanPath(request);
       throttleSignIn(request);
       Frame frame = resolve(request, correlationId);
       ExecutionContext.enter(frame);
       TenantContext.enter(frame.tenantUid(), frame.actor() == null ? null : frame.actor().uid());
       if (frame.rootAdmin() && frame.tenantUid() != null && frame.actor() != null) {
         rootActivity.note(
-            frame.actor().uid(), frame.tenantUid(), request.getMethod(), request.getRequestURI());
+            frame.actor().uid(), frame.tenantUid(), request.getMethod(), path(request));
       }
       // Fair share: a pharmacy's own requests count against its limit (not the live stream, which
       // stays open, nor a root administrator's support work).
-      if (frame.tenantUid() != null
-          && !frame.rootAdmin()
-          && !STREAM_PATH.equals(request.getRequestURI())) {
+      if (frame.tenantUid() != null && !frame.rootAdmin() && !STREAM_PATH.equals(path(request))) {
         try (TenantConcurrency.Slot slot = fairShare.acquire(frame.tenantUid())) {
           chain.doFilter(request, response);
         }
@@ -205,7 +253,7 @@ public class EdgeFilter extends OncePerRequestFilter {
 
   /** A route of the person's own account, outside any pharmacy (all of /auth but the activity). */
   static boolean accountRoute(HttpServletRequest request) {
-    String uri = request.getRequestURI();
+    String uri = path(request);
     return uri.startsWith(AUTH_PREFIX) && !uri.equals(AUTH_PREFIX + "activity");
   }
 
@@ -216,7 +264,7 @@ public class EdgeFilter extends OncePerRequestFilter {
   private static String streamFallback(
       HttpServletRequest request, String headerName, String parameterName) {
     String header = request.getHeader(headerName);
-    if ((header == null || header.isBlank()) && STREAM_PATH.equals(request.getRequestURI())) {
+    if ((header == null || header.isBlank()) && STREAM_PATH.equals(path(request))) {
       return request.getParameter(parameterName);
     }
     return header;
@@ -224,9 +272,20 @@ public class EdgeFilter extends OncePerRequestFilter {
 
   private Principal authenticate(HttpServletRequest request) {
     String header = request.getHeader("Authorization");
-    if ((header == null || header.isBlank()) && STREAM_PATH.equals(request.getRequestURI())) {
-      String token = request.getParameter("token");
-      header = token == null || token.isBlank() ? null : "Bearer " + token;
+    if ((header == null || header.isBlank()) && STREAM_PATH.equals(path(request))) {
+      // EventSource sends no headers: the stream takes a 60-second ticket (never the session
+      // token, which would end up in access logs and browser history).
+      String ticket = request.getParameter("ticket");
+      if (ticket == null || ticket.isBlank()) {
+        return null;
+      }
+      return authentication
+          .authenticateStreamTicket(ticket.trim())
+          .orElseThrow(
+              () ->
+                  Refusal.unauthenticated(
+                      "stream_ticket_expired",
+                      "The stream ticket has expired; ask for a new one."));
     }
     if (header == null || header.isBlank()) {
       return null;
@@ -247,10 +306,10 @@ public class EdgeFilter extends OncePerRequestFilter {
    * accepting an invitation) are limited per client IP: 429 with Retry-After beyond the limit.
    */
   private void throttleSignIn(HttpServletRequest request) {
-    if (!"POST".equals(request.getMethod()) || !request.getRequestURI().startsWith(AUTH_PREFIX)) {
+    if (!"POST".equals(request.getMethod()) || !path(request).startsWith(AUTH_PREFIX)) {
       return;
     }
-    String path = request.getRequestURI().substring(AUTH_PREFIX.length());
+    String path = path(request).substring(AUTH_PREFIX.length());
     if (path.equals("sign-out")
         || path.startsWith("2fa/")
         || path.startsWith("change-password")

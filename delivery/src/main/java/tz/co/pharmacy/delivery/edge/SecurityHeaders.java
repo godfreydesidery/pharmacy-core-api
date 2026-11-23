@@ -19,7 +19,7 @@ final class SecurityHeaders {
         "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    if (request.getRequestURI().startsWith(EdgeFilter.AUTH_PREFIX)) {
+    if (EdgeFilter.path(request).startsWith(EdgeFilter.AUTH_PREFIX)) {
       response.setHeader("Cache-Control", "no-store");
     }
   }

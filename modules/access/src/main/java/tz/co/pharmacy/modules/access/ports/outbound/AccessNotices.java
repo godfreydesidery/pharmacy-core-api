@@ -39,6 +39,22 @@ public interface AccessNotices {
   /** To the mailbox (and the verified phone): the password was changed or reset. */
   void passwordChanged(UUID userUid, String name, String email, String phone, Instant at);
 
+  /** What changed in the security of an account, to tell its owner on their other channels. */
+  enum SecurityChange {
+    PASSKEY_ADDED,
+    TWO_FACTOR_ON,
+    TWO_FACTOR_OFF,
+    PHONE_VERIFIED
+  }
+
+  /**
+   * A second way into the account was added or one was removed: told by email and, when there is a
+   * verified phone, SMS (NIST SP 800-63B §6.1.2.3), so a stolen session cannot quietly keep a way
+   * back in (adversarial review AUTH-1). {@code phone} is masked for the email.
+   */
+  void securityChanged(
+      UUID userUid, String name, String email, String phone, SecurityChange change, Instant at);
+
   /** To the earlier holder of a phone that another account has now verified. */
   void phoneRemoved(UUID userUid, String name, String email, String phone);
 

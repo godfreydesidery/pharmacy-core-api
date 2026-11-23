@@ -32,8 +32,21 @@ public class NotificationStreams {
 
   private final Map<String, List<SseEmitter>> streams = new ConcurrentHashMap<>();
 
-  SseEmitter open(UUID tenantUid, UUID userUid, long unreadCount) {
+  /** The session each open stream belongs to, checked on every heartbeat. */
+  private final Map<SseEmitter, UUID> sessions = new ConcurrentHashMap<>();
+
+  private final tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService authentication;
+
+  public NotificationStreams(
+      tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService authentication) {
+    this.authentication = authentication;
+  }
+
+  SseEmitter open(UUID tenantUid, UUID userUid, UUID sessionUid, long unreadCount) {
     SseEmitter emitter = new SseEmitter(TIMEOUT.toMillis());
+    if (sessionUid != null) {
+      sessions.put(emitter, sessionUid);
+    }
     String key = key(tenantUid, userUid);
     List<SseEmitter> mine = streams.computeIfAbsent(key, k -> new CopyOnWriteArrayList<>());
     while (mine.size() >= MAX_PER_USER) {
@@ -65,6 +78,13 @@ public class NotificationStreams {
     streams.forEach(
         (key, emitters) -> {
           for (SseEmitter emitter : emitters) {
+            UUID session = sessions.get(emitter);
+            if (session != null && !authentication.sessionLive(session)) {
+              // Signed out, revoked or idle: the stream ends with its session (AUTH-11).
+              remove(key, emitter);
+              emitter.complete();
+              continue;
+            }
             try {
               emitter.send(SseEmitter.event().comment("ping"));
             } catch (IOException | IllegalStateException gone) {
@@ -83,6 +103,7 @@ public class NotificationStreams {
   }
 
   private void remove(String key, SseEmitter emitter) {
+    sessions.remove(emitter);
     List<SseEmitter> mine = streams.get(key);
     if (mine != null) {
       mine.remove(emitter);

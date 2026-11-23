@@ -50,6 +50,10 @@ class TwoFactorServiceImpl implements TwoFactorService {
   private static final Clock WALL_CLOCK = Clock.systemUTC();
 
   private final Clock clock;
+  private final tz.co.pharmacy.modules.access.persistence.SessionRepository sessions;
+  private final org.springframework.beans.factory.ObjectProvider<
+          tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+      notices;
 
   TwoFactorServiceImpl(
       UserRepository users,
@@ -62,7 +66,13 @@ class TwoFactorServiceImpl implements TwoFactorService {
       AuditLog audit,
       tz.co.pharmacy.modules.access.persistence.EmailChangeRepository emailChanges,
       PlatformTransactionManager transactionManager,
+      org.springframework.beans.factory.ObjectProvider<
+              tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+          notices,
+      tz.co.pharmacy.modules.access.persistence.SessionRepository sessions,
       Clock clock) {
+    this.sessions = sessions;
+    this.notices = notices;
     this.clock = clock;
     this.emailChanges = emailChanges;
     this.users = users;
@@ -113,6 +123,19 @@ class TwoFactorServiceImpl implements TwoFactorService {
 
   @Override
   @Transactional
+  public List<String> enable(UUID userUid, String code, UUID sessionUid) {
+    List<String> codes = enable(userUid, code);
+    if (sessionUid != null) {
+      sessions
+          .findByUid(sessionUid)
+          .filter(session -> session.getUserUid().equals(userUid))
+          .ifPresent(session -> session.reverified(clock.instant(), true));
+    }
+    return codes;
+  }
+
+  @Override
+  @Transactional
   public List<String> enable(UUID userUid, String code) {
     User user = user(userUid);
     if (user.isTwoFactorEnabled()) {
@@ -128,6 +151,9 @@ class TwoFactorServiceImpl implements TwoFactorService {
     user.enableTwoFactor(clock.instant(), step);
     List<String> codes = replaceRecoveryCodes(userUid);
     audit.record("TWO_FACTOR_ENABLED", "User", userUid, null, null);
+    tell(
+        user,
+        tz.co.pharmacy.modules.access.ports.outbound.AccessNotices.SecurityChange.TWO_FACTOR_ON);
     return codes;
   }
 
@@ -144,6 +170,18 @@ class TwoFactorServiceImpl implements TwoFactorService {
     user.disableTwoFactor();
     recoveryCodes.deleteAllOf(userUid);
     audit.record("TWO_FACTOR_DISABLED", "User", userUid, null, null);
+    tell(
+        user,
+        tz.co.pharmacy.modules.access.ports.outbound.AccessNotices.SecurityChange.TWO_FACTOR_OFF);
+  }
+
+  private void tell(
+      User user, tz.co.pharmacy.modules.access.ports.outbound.AccessNotices.SecurityChange change) {
+    String phone = user.hasVerifiedPhone() ? user.getPhone() : null;
+    notices.ifAvailable(
+        notice ->
+            notice.securityChanged(
+                user.getUid(), user.getName(), user.mailbox(), phone, change, clock.instant()));
   }
 
   @Override

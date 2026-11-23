@@ -69,6 +69,9 @@ class PasskeyServiceImpl implements PasskeyService {
   private final TransactionTemplate writes;
 
   private final Clock clock;
+  private final org.springframework.beans.factory.ObjectProvider<
+          tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+      notices;
 
   PasskeyServiceImpl(
       RelyingParty relyingParty,
@@ -79,7 +82,11 @@ class PasskeyServiceImpl implements PasskeyService {
       SignInGuard guard,
       AuditLog audit,
       PlatformTransactionManager transactionManager,
+      org.springframework.beans.factory.ObjectProvider<
+              tz.co.pharmacy.modules.access.ports.outbound.AccessNotices>
+          notices,
       Clock clock) {
+    this.notices = notices;
     this.clock = clock;
     this.relyingParty = relyingParty;
     this.users = users;
@@ -112,7 +119,7 @@ class PasskeyServiceImpl implements PasskeyService {
                 .authenticatorSelection(
                     AuthenticatorSelectionCriteria.builder()
                         .residentKey(ResidentKeyRequirement.REQUIRED)
-                        .userVerification(UserVerificationRequirement.PREFERRED)
+                        .userVerification(UserVerificationRequirement.REQUIRED)
                         .build())
                 .timeout(TIMEOUT_MILLIS)
                 .build());
@@ -183,6 +190,18 @@ class PasskeyServiceImpl implements PasskeyService {
                 label,
                 transports));
     audit.record("PASSKEY_REGISTERED", "User", userUid, null, Map.of("name", label));
+    User owner = user(userUid);
+    String phone = owner.hasVerifiedPhone() ? owner.getPhone() : null;
+    notices.ifAvailable(
+        notice ->
+            notice.securityChanged(
+                owner.getUid(),
+                owner.getName(),
+                owner.mailbox(),
+                phone,
+                tz.co.pharmacy.modules.access.ports.outbound.AccessNotices.SecurityChange
+                    .PASSKEY_ADDED,
+                clock.instant()));
     return view(passkey);
   }
 
@@ -191,7 +210,7 @@ class PasskeyServiceImpl implements PasskeyService {
     AssertionRequest request =
         relyingParty.startAssertion(
             StartAssertionOptions.builder()
-                .userVerification(UserVerificationRequirement.PREFERRED)
+                .userVerification(UserVerificationRequirement.REQUIRED)
                 .timeout(TIMEOUT_MILLIS)
                 .build());
     return ExecutionContext.callAs(
@@ -242,7 +261,10 @@ class PasskeyServiceImpl implements PasskeyService {
                         log.info("Passkey sign-in rejected: {}", rejected.getMessage());
                         throw rejected();
                       }
-                      if (!result.isSuccess()) {
+                      // A passkey stands for two factors only when the device checked the
+                      // person (PIN, fingerprint, face): one without user verification is refused
+                      // (adversarial review AUTH-10; WebAuthn Level 3 §6.2.3).
+                      if (!result.isSuccess() || !result.isUserVerified()) {
                         throw rejected();
                       }
                       Passkey passkey =

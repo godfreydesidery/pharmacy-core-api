@@ -101,6 +101,9 @@ pharmacy:
     # The log providers write only a masked address and the length: a message may carry a reset
     # link or a sign-in code. The local and test profiles log the whole message.
     log-bodies: false
+    # A sent account message (reset or invitation link, a code) keeps no text: the outbox and
+    # backups hold no live secret. The local and test profiles keep it to follow links.
+    keep-account-messages: false
     # Local numbers (0712…) are sent as +<code>712… (255 = Tanzania).
     default-country-code: ${PHARMACY_NOTIFY_COUNTRY_CODE:255}
     email:

@@ -43,6 +43,12 @@ public class Session extends MutableEntity {
   /** A pharmacy set {@code idleMinutes}: only a stricter one may change it now. */
   private boolean idlePinned;
 
+  /** When its password or passkey was last proved: at sign-in, or by confirming it again. */
+  private Instant verifiedAt;
+
+  /** It proved a second factor: an authenticator or recovery code, or a verified passkey. */
+  private boolean secondFactor;
+
   public Session(
       String tokenHash,
       UUID userUid,
@@ -50,7 +56,8 @@ public class Session extends MutableEntity {
       String ip,
       String userAgent,
       String method,
-      Integer idleMinutes) {
+      Integer idleMinutes,
+      boolean secondFactor) {
     this.tokenHash = tokenHash;
     this.userUid = userUid;
     this.expiresAt = expiresAt;
@@ -60,6 +67,16 @@ public class Session extends MutableEntity {
     this.lastSeenAt = Clocks.now();
     this.activeAt = this.lastSeenAt;
     this.idleMinutes = idleMinutes;
+    this.verifiedAt = this.lastSeenAt;
+    this.secondFactor = secondFactor;
+  }
+
+  /** The person proved who they are again ({@code secondFactor}: with a second factor too). */
+  public void reverified(Instant at, boolean secondFactor) {
+    this.verifiedAt = at;
+    if (secondFactor) {
+      this.secondFactor = true;
+    }
   }
 
   public boolean liveAt(Instant at) {

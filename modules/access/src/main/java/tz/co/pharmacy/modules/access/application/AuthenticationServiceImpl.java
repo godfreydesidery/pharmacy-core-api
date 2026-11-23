@@ -46,6 +46,12 @@ class AuthenticationServiceImpl implements AuthenticationService {
 
   private final UserRepository users;
   private final SessionRepository sessions;
+  private final tz.co.pharmacy.modules.access.persistence.PasswordResetRepository resets;
+  private final SecretBox secrets;
+
+  /** How long a stream ticket opens the notification stream. */
+  static final Duration STREAM_TICKET = Duration.ofSeconds(60);
+
   private final MembershipRepository memberships;
   private final SignInChallengeRepository challenges;
   private final PasskeyRepository passkeys;
@@ -69,6 +75,8 @@ class AuthenticationServiceImpl implements AuthenticationService {
       MembershipRepository memberships,
       SignInChallengeRepository challenges,
       PasskeyRepository passkeys,
+      tz.co.pharmacy.modules.access.persistence.PasswordResetRepository resets,
+      SecretBox secrets,
       Passwords passwords,
       SignInGuard guard,
       SessionIssuer issuer,
@@ -86,6 +94,8 @@ class AuthenticationServiceImpl implements AuthenticationService {
     this.tenantSwitch = tenantSwitch;
     this.users = users;
     this.sessions = sessions;
+    this.resets = resets;
+    this.secrets = secrets;
     this.memberships = memberships;
     this.challenges = challenges;
     this.passkeys = passkeys;
@@ -204,10 +214,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                                 .filter(User::isActive)
                                 .map(
                                     user ->
-                                        new Live(
-                                            session,
-                                            user,
-                                            issuer.principal(user).inSession(session.getUid())))));
+                                        new Live(session, user, issuer.principal(user, session)))));
     if (live == null || live.isEmpty()) {
       return Optional.empty();
     }
@@ -224,6 +231,70 @@ class AuthenticationServiceImpl implements AuthenticationService {
   }
 
   private record Live(Session session, User user, Principal principal) {}
+
+  @Override
+  public String streamTicket(UUID sessionUid) {
+    if (sessionUid == null) {
+      throw Refusal.unauthenticated("unauthenticated", "Sign in to open the stream.");
+    }
+    String plain = sessionUid + "|" + clock.instant().plus(STREAM_TICKET).getEpochSecond();
+    byte[] sealed =
+        java.util.Base64.getDecoder()
+            .decode(secrets.seal(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    return "pst_" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(sealed);
+  }
+
+  @Override
+  public Optional<Principal> authenticateStreamTicket(String ticket) {
+    if (ticket == null || !ticket.startsWith("pst_")) {
+      return Optional.empty();
+    }
+    String[] parts;
+    try {
+      byte[] sealed = java.util.Base64.getUrlDecoder().decode(ticket.substring(4));
+      parts =
+          new String(
+                  secrets.open(java.util.Base64.getEncoder().encodeToString(sealed)),
+                  java.nio.charset.StandardCharsets.UTF_8)
+              .split("\\|");
+    } catch (RuntimeException forged) {
+      return Optional.empty();
+    }
+    Instant now = clock.instant();
+    if (parts.length != 2 || Long.parseLong(parts[1]) < now.getEpochSecond()) {
+      return Optional.empty();
+    }
+    UUID sessionUid = UUID.fromString(parts[0]);
+    return reads.execute(
+        status ->
+            sessions
+                .findByUid(sessionUid)
+                .filter(session -> session.liveAt(now) && !session.idleAt(now))
+                .flatMap(
+                    session ->
+                        users
+                            .findByUid(session.getUserUid())
+                            .filter(User::isActive)
+                            .map(user -> issuer.principal(user, session))));
+  }
+
+  @Override
+  public boolean sessionLive(UUID sessionUid) {
+    if (sessionUid == null) {
+      return false;
+    }
+    Instant now = clock.instant();
+    Boolean live =
+        reads.execute(
+            status ->
+                sessions
+                    .findByUid(sessionUid)
+                    .filter(session -> session.liveAt(now) && !session.idleAt(now))
+                    .flatMap(session -> users.findByUid(session.getUserUid()))
+                    .map(User::isActive)
+                    .orElse(false));
+    return Boolean.TRUE.equals(live);
+  }
 
   /** 401 session_idle, so the app can tell the person why they have to sign in again. */
   static Refusal idleRefusal(Integer idleMinutes) {
@@ -320,17 +391,32 @@ class AuthenticationServiceImpl implements AuthenticationService {
   @Override
   public void changePassword(
       UUID userUid, String currentPassword, String newPassword, String currentToken) {
-    String hash = passwords.hash(newPassword, "newPassword");
+    Instant now = clock.instant();
+    User known =
+        reads.execute(
+            status ->
+                users
+                    .findByUid(userUid)
+                    .orElseThrow(() -> Refusal.notFound("user_not_found", "No such user.")));
+    Passwords.acceptable(newPassword, "newPassword", known.getEmail());
+    // The current password first, and a wrong one counts like a failed sign-in: a stolen session
+    // must not be a way to guess the password without end (AUTH-5), nor to make the server hash
+    // new passwords for nothing (AUTH-6).
+    if (!passwords.matches(currentPassword, known.getPasswordHash())) {
+      boolean locked = recordFailure(known, known.getEmail(), ClientInfo.UNKNOWN, now, "password");
+      if (locked) {
+        throw guard.locked(guard.lockFor());
+      }
+      throw Refusal.invalid(
+          "invalid_current_password", "The current password is wrong.", "currentPassword");
+    }
+    String hash = passwords.hash(newPassword, "newPassword", known.getEmail());
     writes.executeWithoutResult(
         status -> {
           User user =
               users
                   .findByUid(userUid)
                   .orElseThrow(() -> Refusal.notFound("user_not_found", "No such user."));
-          if (!passwords.matches(currentPassword, user.getPasswordHash())) {
-            throw Refusal.invalid(
-                "invalid_current_password", "The current password is wrong.", "currentPassword");
-          }
           if (user.isPasswordChangeRequired()
               && passwords.matches(newPassword, user.getPasswordHash())) {
             throw Refusal.invalid(
@@ -339,6 +425,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 "newPassword");
           }
           user.changePassword(hash);
+          resets.closeOpen(userUid, now);
           int revoked =
               currentToken == null
                   ? 0

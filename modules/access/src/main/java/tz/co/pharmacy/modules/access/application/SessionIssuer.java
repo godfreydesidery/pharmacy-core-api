@@ -93,15 +93,17 @@ class SessionIssuer {
                                       user.getUid(), from.userAgent());
                           String token = Tokens.newToken();
                           Instant expiresAt = now.plus(sessionLength);
-                          sessions.save(
-                              new Session(
-                                  Tokens.hash(token),
-                                  user.getUid(),
-                                  expiresAt,
-                                  trim(from.ip(), 64),
-                                  trim(from.userAgent(), 400),
-                                  method,
-                                  idle.initial()));
+                          Session session =
+                              sessions.save(
+                                  new Session(
+                                      Tokens.hash(token),
+                                      user.getUid(),
+                                      expiresAt,
+                                      trim(from.ip(), 64),
+                                      trim(from.userAgent(), 400),
+                                      method,
+                                      idle.initial(),
+                                      provesSecondFactor(method)));
                           User row = users.findByUid(user.getUid()).orElse(user);
                           users.markSignedIn(user.getUid(), now);
                           Map<String, Object> details = new LinkedHashMap<>();
@@ -123,7 +125,7 @@ class SessionIssuer {
                                         from.ip(),
                                         now));
                           }
-                          return new SignInResult(token, expiresAt, principal(row));
+                          return new SignInResult(token, expiresAt, principal(row, session));
                         })));
   }
 
@@ -166,7 +168,12 @@ class SessionIssuer {
                                 }))));
   }
 
-  Principal principal(User user) {
+  /**
+   * The signed-in user of {@code session}. The second factor is what this session proved, not what
+   * the account has set up: a password-only sign-in of an account that also has a passkey has no
+   * second factor (adversarial review AUTH-2).
+   */
+  Principal principal(User user, Session session) {
     return new Principal(
         user.getUid(),
         user.getName(),
@@ -174,8 +181,14 @@ class SessionIssuer {
         user.isRootAdmin(),
         twoFactorRequired(user) && !user.isTwoFactorEnabled(),
         user.isPasswordChangeRequired(),
-        null,
-        user.isTwoFactorEnabled() || passkeys.countByUserUid(user.getUid()) > 0);
+        session.getUid(),
+        session.isSecondFactor(),
+        session.getVerifiedAt());
+  }
+
+  /** A sign-in by an authenticator code or a (user-verified) passkey proved two factors. */
+  static boolean provesSecondFactor(String method) {
+    return "TWO_FACTOR".equals(method) || "PASSKEY".equals(method);
   }
 
   boolean twoFactorRequired(User user) {

@@ -64,6 +64,15 @@ class TemplatesImpl implements Templates {
   public TemplateView override(
       String key, Channel channel, String locale, TemplateCommand command) {
     known(key, channel, locale);
+    if (key.startsWith("access.")
+        && tz.co.pharmacy.platform.kernel.ExecutionContext.tenantUid().isPresent()) {
+      // Account messages go out under the platform's name with links and codes into an account:
+      // a pharmacy may not reword them (it could turn an invitation into phishing, INT-20).
+      throw Refusal.invalid(
+          "template_fixed",
+          "Account messages (sign-in, reset, invitation) are set by the platform.",
+          "key");
+    }
     Checks.required(command, "template");
     String body = Checks.text(command.body(), "body", 4000);
     String subject =

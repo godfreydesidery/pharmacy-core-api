@@ -158,6 +158,25 @@ class TenantDataService implements TenantData {
         });
   }
 
+  private static final java.util.Set<String> MESSAGE_TEXT =
+      java.util.Set.of("body", "html_body", "subject");
+
+  /**
+   * A message's text leaves masked: an account message (a link or a code that opens an account) not
+   * at all, any other with the secret values of its links replaced (adversarial review ISO-3).
+   */
+  private static String maskedText(String column) {
+    return "case when category = 'access' and '"
+        + column
+        + "' <> 'subject' then null else regexp_replace(\""
+        + column
+        // No question mark in this SQL: the statement may be prepared, where ? is a parameter.
+        + "\", '(\\W(token|code|key|secret|signature|sig)=)[^&[:space:]\"''<>]+', '\\1***',"
+        + " 'gi') end as \""
+        + column
+        + "\"";
+  }
+
   /** schema.table of every table with a tenant_uid; quoted names come from the catalogue. */
   private List<String> tables() {
     return jdbc.query(TENANT_TABLES, (rs, i) -> rs.getString(1) + "." + rs.getString(2));
@@ -172,8 +191,12 @@ class TenantDataService implements TenantData {
             String.class,
             name[0],
             name[1]);
+    boolean messages = "notifications".equals(name[0]) && "messages".equals(name[1]);
     List<String> kept =
-        columns.stream().filter(c -> !SECRET.matcher(c).matches()).map(c -> '"' + c + '"').toList();
+        columns.stream()
+            .filter(c -> !SECRET.matcher(c).matches())
+            .map(c -> messages && MESSAGE_TEXT.contains(c) ? maskedText(c) : '"' + c + '"')
+            .toList();
     return "select "
         + String.join(", ", kept)
         + " from \""

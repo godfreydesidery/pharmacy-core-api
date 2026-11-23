@@ -240,6 +240,71 @@ final class TemplateCatalog {
         Map.of(
             "name", "Amina Hassan", "newEmail", "a***@example.com", "time", "22 Nov 2026 10:15"));
     define(
+        TemplateKeys.ACCESS_PASSKEY_ADDED,
+        new Default(
+            "A passkey was added to your account",
+            "Hello {{name}}, a passkey was added to your Pharmacy Core account on {{time}}. It"
+                + " signs in without a password. If this was not you, reset your password with"
+                + " Forgot password now: that removes every passkey and signs out every device.",
+            "A passkey was added to your Pharmacy Core account. Not you? Reset your password now."),
+        new Default(
+            "Nenosiri-funguo limeongezwa kwenye akaunti yako",
+            "Habari {{name}}, nenosiri-funguo (passkey) limeongezwa kwenye akaunti yako ya"
+                + " Pharmacy Core tarehe {{time}}. Huingia bila nenosiri. Kama si wewe, badilisha"
+                + " nenosiri lako sasa kwa Umesahau nenosiri: hilo huondoa kila nenosiri-funguo na"
+                + " kutoa kila kifaa.",
+            "Nenosiri-funguo limeongezwa kwenye akaunti yako ya Pharmacy Core. Si wewe? Badilisha"
+                + " nenosiri sasa."),
+        Map.of("name", "Amina Hassan", "time", "22 Nov 2026 10:15"));
+    define(
+        TemplateKeys.ACCESS_TWO_FACTOR_ON,
+        new Default(
+            "Two-factor sign-in was turned on",
+            "Hello {{name}}, two-factor sign-in was turned on for your Pharmacy Core account on"
+                + " {{time}}. If this was not you, contact support now.",
+            "Two-factor sign-in was turned on for your Pharmacy Core account. Not you? Contact"
+                + " support."),
+        new Default(
+            "Uthibitisho wa hatua mbili umewashwa",
+            "Habari {{name}}, uthibitisho wa hatua mbili umewashwa kwenye akaunti yako ya"
+                + " Pharmacy Core tarehe {{time}}. Kama si wewe, wasiliana na msaada sasa.",
+            "Uthibitisho wa hatua mbili umewashwa kwenye akaunti yako ya Pharmacy Core. Si wewe?"
+                + " Wasiliana na msaada."),
+        Map.of("name", "Amina Hassan", "time", "22 Nov 2026 10:15"));
+    define(
+        TemplateKeys.ACCESS_TWO_FACTOR_OFF,
+        new Default(
+            "Two-factor sign-in was turned off",
+            "Hello {{name}}, two-factor sign-in was turned off for your Pharmacy Core account on"
+                + " {{time}}. If this was not you, reset your password with Forgot password now and"
+                + " contact support.",
+            "Two-factor sign-in was turned off for your Pharmacy Core account. Not you? Reset your"
+                + " password now."),
+        new Default(
+            "Uthibitisho wa hatua mbili umezimwa",
+            "Habari {{name}}, uthibitisho wa hatua mbili umezimwa kwenye akaunti yako ya Pharmacy"
+                + " Core tarehe {{time}}. Kama si wewe, badilisha nenosiri sasa kwa Umesahau"
+                + " nenosiri na uwasiliane na msaada.",
+            "Uthibitisho wa hatua mbili umezimwa kwenye akaunti yako ya Pharmacy Core. Si wewe?"
+                + " Badilisha nenosiri sasa."),
+        Map.of("name", "Amina Hassan", "time", "22 Nov 2026 10:15"));
+    define(
+        TemplateKeys.ACCESS_PHONE_VERIFIED,
+        new Default(
+            "A phone number was verified on your account",
+            "Hello {{name}}, the phone number {{phone}} was verified on your Pharmacy Core account on"
+                + " {{time}}. It can now receive codes to reset your password. If this was not you,"
+                + " reset your password with Forgot password now.",
+            "{{phone}} was verified on your Pharmacy Core account. Not you? Reset your password."),
+        new Default(
+            "Namba ya simu imethibitishwa kwenye akaunti yako",
+            "Habari {{name}}, namba ya simu {{phone}} imethibitishwa kwenye akaunti yako ya Pharmacy"
+                + " Core tarehe {{time}}. Sasa inaweza kupokea namba za kubadilisha nenosiri lako."
+                + " Kama si wewe, badilisha nenosiri sasa kwa Umesahau nenosiri.",
+            "{{phone}} imethibitishwa kwenye akaunti yako ya Pharmacy Core. Si wewe? Badilisha"
+                + " nenosiri."),
+        Map.of("name", "Amina Hassan", "phone", "+255 7** *** 678", "time", "22 Nov 2026 10:15"));
+    define(
         TemplateKeys.ACCESS_PASSWORD_CHANGED,
         new Default(
             "Your password was changed",

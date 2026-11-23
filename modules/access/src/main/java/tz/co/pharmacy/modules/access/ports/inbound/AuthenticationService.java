@@ -35,6 +35,20 @@ public interface AuthenticationService {
   Optional<Principal> authenticate(String token);
 
   /**
+   * A ticket for the live notification stream of session {@code sessionUid}: EventSource cannot
+   * send an Authorization header, and a session token in a URL ends up in access logs and browser
+   * history. The ticket is sealed (AES-GCM) with the session and a 60-second expiry, so it holds no
+   * token, opens nothing else, and works on any instance (adversarial review AUTH-11).
+   */
+  String streamTicket(UUID sessionUid);
+
+  /** The signed-in user of a live stream ticket, as {@link #authenticate} gives for a token. */
+  Optional<Principal> authenticateStreamTicket(String ticket);
+
+  /** The session still lets its user in: not revoked, expired or idle, and the user is active. */
+  boolean sessionLive(UUID sessionUid);
+
+  /**
    * The person used the app (a key, a click, a touch): the inactivity clock restarts, with the
    * limit of the pharmacy they work in ({@code pharmacyIdleMinutes}; null before one is chosen).
    * Requests alone never restart it. 401 session_expired when the session is no longer live.

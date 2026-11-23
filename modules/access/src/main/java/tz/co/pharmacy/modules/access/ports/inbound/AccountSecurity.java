@@ -56,6 +56,14 @@ public interface AccountSecurity {
   /** Sends a code to {@code phone} to verify it. 422 invalid_phone; 429 too_many_codes. */
   void sendPhoneCode(UUID userUid, String phone, ClientInfo client);
 
+  /**
+   * The person confirms who they are again on session {@code token}: their password, and their
+   * authenticator or recovery code when two-factor is on. The session may then make sensitive
+   * changes to the account for a few minutes ("sudo mode"). A wrong password or code counts toward
+   * the account lock, as at sign-in.
+   */
+  void confirmIdentity(UUID userUid, String token, String password, String code, ClientInfo client);
+
   /** Verifies the phone with the code sent to it. 422 invalid_code. */
   void verifyPhone(UUID userUid, String code);
 
