@@ -49,6 +49,7 @@ class UserAdministrationImpl implements UserAdministration {
   private final Passwords passwords;
   private final AuditLog audit;
   private final SessionRepository sessions;
+  private final Seats seats;
   private final java.time.Clock clock;
 
   UserAdministrationImpl(
@@ -58,12 +59,14 @@ class UserAdministrationImpl implements UserAdministration {
       Passwords passwords,
       AuditLog audit,
       SessionRepository sessions,
+      Seats seats,
       java.time.Clock clock) {
     this.users = users;
     this.roles = roles;
     this.memberships = memberships;
     this.passwords = passwords;
     this.sessions = sessions;
+    this.seats = seats;
     this.clock = clock;
     this.audit = audit;
   }
@@ -82,12 +85,44 @@ class UserAdministrationImpl implements UserAdministration {
     if (byLower.isEmpty()) {
       return names;
     }
-    for (User user : users.findAllByEmails(byLower.keySet())) {
+    List<User> found = users.findAllByEmails(byLower.keySet());
+    Map<UUID, Membership> former = formerMembers(found.stream().map(User::getUid).toList());
+    for (User user : found) {
       String reference = byLower.get(user.getEmail().toLowerCase(java.util.Locale.ROOT));
-      String name = user.getName();
-      names.put(reference, name == null || name.isBlank() ? user.getEmail() : name);
+      displayName(user, former).ifPresent(name -> names.put(reference, name));
     }
     return names;
+  }
+
+  /**
+   * The person's name as this pharmacy may show it: as they are now, or, once they left it, as it
+   * kept them then (their name, else their email then); empty when it kept nothing.
+   */
+  private static Optional<String> displayName(User user, Map<UUID, Membership> former) {
+    Membership left = former.get(user.getUid());
+    if (left != null) {
+      String kept = left.getFormerName();
+      return Optional.ofNullable(kept == null || kept.isBlank() ? left.getFormerEmail() : kept);
+    }
+    String name = user.getName();
+    return Optional.of(name == null || name.isBlank() ? user.getEmail() : name);
+  }
+
+  /** The people among {@code userUids} who no longer work in the current pharmacy, if any. */
+  private Map<UUID, Membership> formerMembers(Collection<UUID> userUids) {
+    Optional<UUID> tenant = TenantContext.tenantUid();
+    if (tenant.isEmpty() || userUids.isEmpty()) {
+      return Map.of();
+    }
+    return memberships.findAllByTenantUidAndUserUidIn(tenant.get(), userUids).stream()
+        .filter(membership -> !membership.isActive())
+        .collect(Collectors.toMap(Membership::getUserUid, Function.identity(), (a, b) -> a));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public long seatsInUse() {
+    return seats.inUse(TenantContext.requireTenant());
   }
 
   @Override
@@ -101,9 +136,10 @@ class UserAdministrationImpl implements UserAdministration {
     if (uids.isEmpty()) {
       return names;
     }
-    for (User user : users.findAllByUidIn(uids)) {
-      String name = user.getName();
-      names.put(user.getUid(), name == null || name.isBlank() ? user.getEmail() : name);
+    List<User> found = users.findAllByUidIn(uids);
+    Map<UUID, Membership> former = formerMembers(uids);
+    for (User user : found) {
+      displayName(user, former).ifPresent(name -> names.put(user.getUid(), name));
     }
     return names;
   }
@@ -159,6 +195,7 @@ class UserAdministrationImpl implements UserAdministration {
     if (memberships.existsByUserUidAndTenantUid(user.getUid(), tenant)) {
       throw Refusal.conflict("already_a_member", email + " is already a member of this tenant.");
     }
+    seats.requireNewSeat(tenant);
     Membership membership =
         memberships.save(new Membership(user.getUid(), role, command.allBranches(), branches));
     // A personal account's phone is the person's, verified by them (G9); an admin never sets it.
@@ -175,8 +212,10 @@ class UserAdministrationImpl implements UserAdministration {
             .orElseThrow(() -> Refusal.notFound("membership_not_found", "No such member."));
     Role role = role(command.roleUid());
     Set<UUID> branches = branches(command.allBranches(), command.branchUids());
+    // A missing "active" keeps the member as they are: it never reactivates anyone (INT-6).
+    boolean active = command.active() == null ? membership.isActive() : command.active();
     UUID self = ExecutionContext.current().map(frame -> frame.actor().uid()).orElse(null);
-    if (!command.active() && membership.getUserUid().equals(self)) {
+    if (!active && membership.getUserUid().equals(self)) {
       throw Refusal.invalid(
           "cannot_deactivate_self", "You cannot deactivate your own membership.", "active");
     }
@@ -186,11 +225,15 @@ class UserAdministrationImpl implements UserAdministration {
       requireGrantable(role.getPermissions());
     }
     boolean wasActive = membership.isActive();
-    boolean keepsPeople = command.active() && managesPeople(role);
+    boolean keepsPeople = active && managesPeople(role);
     if (wasActive && managesPeople(membership.getRole()) && !keepsPeople) {
       requireAnotherPeopleManager(membership);
     }
-    membership.change(role, command.allBranches(), branches, command.active());
+    if (!wasActive && active) {
+      // Back at work: a seat of the plan's users cap again.
+      seats.requireNewSeat(membership.getTenantUid());
+    }
+    membership.change(role, command.allBranches(), branches, active);
     User user = users.findByUid(membership.getUserUid()).orElse(null);
     String phone = phone(command.phone());
     if (user != null && user.isManagedBy(membership.getTenantUid())) {
@@ -201,14 +244,14 @@ class UserAdministrationImpl implements UserAdministration {
               : Checks.text(command.name(), "name", 120),
           phone,
           ManagedLoginsImpl.contactEmail(command.contactEmail()));
-      if (wasActive && !command.active()) {
+      if (wasActive && !active) {
         sessions.revokeAll(user.getUid(), clock.instant(), null);
       }
     }
     if (command.staff() != null) {
       staff(membership, command.staff());
     }
-    if (wasActive && !command.active() && user != null) {
+    if (wasActive && !active && user != null) {
       // From now on the pharmacy sees the person as they are at this moment.
       membership.left(user.getName(), user.getEmail(), user.getPhone());
     }
@@ -219,10 +262,8 @@ class UserAdministrationImpl implements UserAdministration {
   @Transactional(readOnly = true)
   public List<RoleView> roles() {
     // Row-level security also lets a person see their own roles in other pharmacies (to sign in
-    // there); this pharmacy's list shows only its own (adversarial review ISO-7).
-    UUID tenant = TenantContext.requireTenant();
-    return roles.findAllByOrderByNameAsc().stream()
-        .filter(role -> tenant.equals(role.getTenantUid()))
+    // there); this pharmacy's list names its tenant, so it shows only its own (ISO-7).
+    return roles.findAllByTenantUidOrderByNameAsc(TenantContext.requireTenant()).stream()
         .map(AccessViews::role)
         .toList();
   }
@@ -238,11 +279,7 @@ class UserAdministrationImpl implements UserAdministration {
           "code must be letters, digits or underscores, such as NIGHT_SHIFT.",
           "code");
     }
-    if (roles.findAllByOrderByNameAsc().stream()
-        .anyMatch(
-            other ->
-                code.equals(other.getCode())
-                    && TenantContext.requireTenant().equals(other.getTenantUid()))) {
+    if (roles.existsByTenantUidAndCode(TenantContext.requireTenant(), code)) {
       throw Refusal.conflict("duplicate_code", "A role with code " + code + " exists.");
     }
     requireGrantable(permissions(command.permissions()));
@@ -360,15 +397,11 @@ class UserAdministrationImpl implements UserAdministration {
     Permissions.defaultRoles()
         .forEach(
             (code, name) -> {
-              if (!roles.findAllByOrderByNameAsc().stream()
-                  .anyMatch(
-                      other ->
-                          code.equals(other.getCode())
-                              && TenantContext.requireTenant().equals(other.getTenantUid()))) {
+              if (!roles.existsByTenantUidAndCode(tenant, code)) {
                 roles.save(new Role(code, name, null, true, Permissions.preset(code)));
               }
             });
-    Role admin = roles.findByCode("ADMIN").orElseThrow();
+    Role admin = roles.findByTenantUidAndCode(tenant, "ADMIN").orElseThrow();
     String email = Checks.email(administrator.email(), "admin.email");
     Optional<User> found = users.findByEmail(email);
     if (found.isPresent()) {
@@ -554,8 +587,7 @@ class UserAdministrationImpl implements UserAdministration {
   private Role role(UUID roleUid) {
     Checks.required(roleUid, "roleUid");
     return roles
-        .findByUid(roleUid)
-        .filter(role -> role.getTenantUid().equals(TenantContext.requireTenant()))
+        .findByUidAndTenantUid(roleUid, TenantContext.requireTenant())
         .orElseThrow(() -> Refusal.invalid("role_not_found", "No such role.", "roleUid"));
   }
 

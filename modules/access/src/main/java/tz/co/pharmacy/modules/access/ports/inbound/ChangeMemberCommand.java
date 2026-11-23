@@ -6,13 +6,14 @@ import java.util.UUID;
 /**
  * {@code phone} is set only on a user who has none yet; people edit their own on their account. A
  * managed login of this pharmacy is the exception: its {@code name}, {@code phone} and {@code
- * contactEmail} are the pharmacy's to keep (a null name keeps it).
+ * contactEmail} are the pharmacy's to keep (a null name keeps it). A null {@code active} keeps the
+ * member active or not as they are: it never reactivates a former member.
  */
 public record ChangeMemberCommand(
     UUID roleUid,
     boolean allBranches,
     List<UUID> branchUids,
-    boolean active,
+    Boolean active,
     String phone,
     String name,
     String contactEmail,

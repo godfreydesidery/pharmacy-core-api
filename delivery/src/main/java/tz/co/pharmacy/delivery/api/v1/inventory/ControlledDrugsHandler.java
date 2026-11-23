@@ -18,6 +18,7 @@ import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.Spreadsheet;
+import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.CatalogueService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.ProductView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
@@ -111,9 +112,15 @@ public class ControlledDrugsHandler {
     return ApiResponse.ok(lines(productUid, Pages.of(cursor, limit)), "Register retrieved");
   }
 
-  /** The whole register of the product at this branch, to Excel or CSV, for the inspector. */
+  /**
+   * The whole register of the product at this branch, to Excel or CSV, for the inspector. It names
+   * every patient and prescription, so it needs {@code data.export} besides {@code inventory.view}
+   * (ISO-10); the register on screen needs only the latter.
+   */
   @GetMapping("/{productUid}/register/export")
-  @Access(scope = AccessScope.BRANCH, permission = "inventory.view")
+  @Access(
+      scope = AccessScope.BRANCH,
+      allOf = {"inventory.view", Permissions.DATA_EXPORT})
   public ResponseEntity<byte[]> exportRegister(
       @PathVariable UUID productUid,
       @RequestParam(required = false) String format,

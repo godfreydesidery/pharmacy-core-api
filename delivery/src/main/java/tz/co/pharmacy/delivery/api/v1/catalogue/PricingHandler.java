@@ -19,6 +19,7 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.delivery.edge.BranchAccess;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService.BranchPriceView;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.PricingService.PriceListCommand;
@@ -78,7 +79,10 @@ public class PricingHandler {
     return ApiResponse.ok(pricing.branchPrices(), "Branch prices retrieved");
   }
 
-  /** {@code price} null removes the branch price. */
+  /**
+   * {@code price} null removes the branch price. The branch must be one the caller may work in (403
+   * branch_not_allowed), as when it is named in {@code X-Branch-Id} (ISO-9).
+   */
   public record BranchPriceRequest(UUID productUid, UUID branchUid, BigDecimal price) {}
 
   @PutMapping("/branch-prices")
@@ -87,7 +91,8 @@ public class PricingHandler {
     if (body == null) {
       throw Refusal.malformed("The request needs a body.");
     }
-    pricing.setBranchPrice(body.productUid(), body.branchUid(), body.price());
+    pricing.setBranchPrice(
+        body.productUid(), BranchAccess.requireAllowedBranch(body.branchUid()), body.price());
     return ApiResponse.ok(null, "Branch price saved");
   }
 

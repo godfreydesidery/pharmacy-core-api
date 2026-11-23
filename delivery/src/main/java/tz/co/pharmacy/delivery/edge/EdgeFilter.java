@@ -238,10 +238,9 @@ public class EdgeFilter extends OncePerRequestFilter {
       BranchView branch =
           TenantContext.callAs(tenantUid, () -> branches.find(branchUid))
               .filter(BranchView::active)
-              .orElseThrow(
-                  () -> Refusal.forbidden("branch_not_allowed", "You may not use this branch."));
+              .orElseThrow(BranchAccess::notAllowed);
       if (allowedBranches != null && !allowedBranches.contains(branch.uid())) {
-        throw Refusal.forbidden("branch_not_allowed", "You may not use this branch.");
+        throw BranchAccess.notAllowed();
       }
     }
     return new Frame(

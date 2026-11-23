@@ -193,8 +193,7 @@ class RolePresetsImpl implements RolePresets {
   /** This pharmacy's built-in roles, in the presets' order. */
   private List<Role> builtIn(UUID tenant) {
     List<String> codes = List.copyOf(Permissions.defaultRoles().keySet());
-    return roles.findAllByOrderByNameAsc().stream()
-        .filter(role -> tenant.equals(role.getTenantUid()))
+    return roles.findAllByTenantUidOrderByNameAsc(tenant).stream()
         .filter(Role::isSystem)
         .filter(role -> codes.contains(role.getCode()))
         .sorted(Comparator.comparingInt(role -> codes.indexOf(role.getCode())))

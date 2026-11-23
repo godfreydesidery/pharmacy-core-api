@@ -9,6 +9,9 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
  */
 public interface TenantUsage {
 
-  /** Branches, active users, products, or SMS sent this calendar month. */
+  /**
+   * Branches, users (active members and pending invitations), products, or SMS sent this calendar
+   * month.
+   */
   long used(UUID tenantUid, PlanLimit limit);
 }

@@ -17,9 +17,14 @@ public interface Recalls {
   /** 404 batch_not_found. */
   RecallBatch batch(UUID batchUid);
 
-  /** 422 reason required. Quarantining a quarantined batch updates its reason. */
+  /**
+   * 422 reason required. Quarantining a quarantined batch updates its reason. 403
+   * branch_not_allowed when some of the batch is at (or travelling to or from) a branch the caller
+   * may not work in: the quarantine holds it at every branch.
+   */
   RecallBatch quarantine(UUID batchUid, String reason);
 
+  /** 403 branch_not_allowed as for {@link #quarantine}. */
   RecallBatch release(UUID batchUid);
 
   record RecallBatch(
