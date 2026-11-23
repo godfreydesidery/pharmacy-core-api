@@ -40,6 +40,7 @@ public final class Permissions {
   public static final String BRANCHES_MANAGE = "branches.manage";
   public static final String SETTINGS_MANAGE = "settings.manage";
   public static final String INTEGRATIONS_MANAGE = "integrations.manage";
+  public static final String APPROVALS_GRANT = "approvals.grant";
 
   private static final List<PermissionView> CATALOGUE =
       List.of(
@@ -76,7 +77,11 @@ public final class Permissions {
           new PermissionView(USERS_MANAGE, "administration", "Manage users and roles"),
           new PermissionView(BRANCHES_MANAGE, "administration", "Manage branches"),
           new PermissionView(SETTINGS_MANAGE, "administration", "Manage tenant settings"),
-          new PermissionView(INTEGRATIONS_MANAGE, "administration", "Manage webhooks"));
+          new PermissionView(INTEGRATIONS_MANAGE, "administration", "Manage webhooks"),
+          new PermissionView(
+              APPROVALS_GRANT,
+              "administration",
+              "Approve others' actions above the pharmacy's limit (refunds, write-offs, discounts)"));
 
   /** Every permission code. */
   public static final Set<String> ALL =

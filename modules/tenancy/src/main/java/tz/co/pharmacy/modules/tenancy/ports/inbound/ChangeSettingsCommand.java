@@ -20,4 +20,43 @@ public record ChangeSettingsCommand(
     /* Minutes without use that sign a person out, 5 to 60; null keeps the current limit. */
     Integer idleMinutes,
     /* Require a second factor of everyone who works here; null keeps the current rule. */
-    Boolean requireTwoFactor) {}
+    Boolean requireTwoFactor,
+    /* Above this amount a refund, write-off, voucher or shift difference needs a manager. */
+    BigDecimal approvalLimit,
+    /* Days a sale's goods may come back without a manager, 0 to 365. */
+    Integer returnWindowDays,
+    /* A cashier must open a shift before selling or refunding. */
+    Boolean requireOpenShift) {
+
+  /** The command of the twelve settings that came before the controls. */
+  public ChangeSettingsCommand(
+      BigDecimal defaultTaxRatePercent,
+      String invoicePrefix,
+      String receiptFooter,
+      BigDecimal maxDiscountPercent,
+      Integer expiryAlertDays,
+      Boolean lowStockAlerts,
+      Boolean smsReceipts,
+      java.util.List<String> acceptedCurrencies,
+      Boolean pricesIncludeTax,
+      String look,
+      Integer idleMinutes,
+      Boolean requireTwoFactor) {
+    this(
+        defaultTaxRatePercent,
+        invoicePrefix,
+        receiptFooter,
+        maxDiscountPercent,
+        expiryAlertDays,
+        lowStockAlerts,
+        smsReceipts,
+        acceptedCurrencies,
+        pricesIncludeTax,
+        look,
+        idleMinutes,
+        requireTwoFactor,
+        null,
+        null,
+        null);
+  }
+}

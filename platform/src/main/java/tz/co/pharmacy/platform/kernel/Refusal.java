@@ -14,17 +14,51 @@ public class Refusal extends RuntimeException {
   /** Seconds before a retry may succeed, for LOCKED and TOO_MANY_REQUESTS; otherwise null. */
   private final Long retryAfterSeconds;
 
+  /**
+   * Extra members of the problem (RFC 9457 §3.2 extensions), such as the action and amount of an
+   * {@code approval_required}; strings, numbers or booleans.
+   */
+  private final java.util.Map<String, Object> extras;
+
   public Refusal(RefusalKind kind, String reason, String detail, String field) {
     this(kind, reason, detail, field, null);
   }
 
   private Refusal(
       RefusalKind kind, String reason, String detail, String field, Long retryAfterSeconds) {
+    this(kind, reason, detail, field, retryAfterSeconds, java.util.Map.of());
+  }
+
+  private Refusal(
+      RefusalKind kind,
+      String reason,
+      String detail,
+      String field,
+      Long retryAfterSeconds,
+      java.util.Map<String, Object> extras) {
     super(detail);
     this.kind = kind;
     this.reason = reason;
     this.field = field;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.extras = extras;
+  }
+
+  /** The same refusal with an extra problem member {@code name}. */
+  public Refusal with(String name, Object value) {
+    java.util.Map<String, Object> more = new java.util.LinkedHashMap<>(extras);
+    more.put(name, value);
+    return new Refusal(
+        kind,
+        reason,
+        getMessage(),
+        field,
+        retryAfterSeconds,
+        java.util.Collections.unmodifiableMap(more));
+  }
+
+  public java.util.Map<String, Object> extras() {
+    return extras;
   }
 
   /** 423: locked for {@code retryAfterSeconds}, such as {@code account_locked}. */
@@ -76,7 +110,7 @@ public class Refusal extends RuntimeException {
 
   /** The same refusal about the given field. */
   public Refusal about(String fieldPath) {
-    return new Refusal(kind, reason, getMessage(), fieldPath);
+    return new Refusal(kind, reason, getMessage(), fieldPath, retryAfterSeconds, extras);
   }
 
   public RefusalKind kind() {

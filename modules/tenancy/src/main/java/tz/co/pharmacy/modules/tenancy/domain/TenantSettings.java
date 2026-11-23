@@ -40,6 +40,18 @@ public class TenantSettings extends TenantEntity {
   /** Everyone who works here needs a second factor (an authenticator app or a passkey). */
   private boolean requireTwoFactor;
 
+  /**
+   * Above this amount (base currency) a refund, a stock write-off, a voucher or a shift's cash
+   * difference needs a manager's approval (the owner's rule, default TZS 50,000).
+   */
+  private BigDecimal approvalLimit;
+
+  /** Days after a sale its goods may come back without a manager's approval. */
+  private int returnWindowDays;
+
+  /** A cashier must open a till shift before selling or refunding. */
+  private boolean requireOpenShift;
+
   /** The looks a pharmacy can choose. */
   public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
 
@@ -83,6 +95,20 @@ public class TenantSettings extends TenantEntity {
     }
   }
 
+  /** Null keeps the current value of each. */
+  public void changeControls(
+      BigDecimal approvalLimit, Integer returnWindowDays, Boolean requireOpenShift) {
+    if (approvalLimit != null) {
+      this.approvalLimit = approvalLimit;
+    }
+    if (returnWindowDays != null) {
+      this.returnWindowDays = returnWindowDays;
+    }
+    if (requireOpenShift != null) {
+      this.requireOpenShift = requireOpenShift;
+    }
+  }
+
   public void changeRequireTwoFactor(Boolean requireTwoFactor) {
     if (requireTwoFactor != null) {
       this.requireTwoFactor = requireTwoFactor;
@@ -108,6 +134,10 @@ public class TenantSettings extends TenantEntity {
     settings.pricesIncludeTax = true;
     settings.look = "PREMIUM";
     settings.idleMinutes = 15;
+    settings.approvalLimit = new BigDecimal("50000.00");
+    settings.returnWindowDays = 7;
+    // A new pharmacy ties cash to a cashier from its first sale (owner's decision, 23 Nov 2026).
+    settings.requireOpenShift = true;
     return settings;
   }
 

@@ -78,7 +78,10 @@ public class SettingsHandler {
                 body.pricesIncludeTax(),
                 body.look(),
                 body.idleMinutes(),
-                body.requireTwoFactor())),
+                body.requireTwoFactor(),
+                body.approvalLimit(),
+                body.returnWindowDays(),
+                body.requireOpenShift())),
         "Settings changed");
   }
 
@@ -136,5 +139,8 @@ public class SettingsHandler {
       Boolean pricesIncludeTax,
       String look,
       Integer idleMinutes,
-      Boolean requireTwoFactor) {}
+      Boolean requireTwoFactor,
+      java.math.BigDecimal approvalLimit,
+      Integer returnWindowDays,
+      Boolean requireOpenShift) {}
 }

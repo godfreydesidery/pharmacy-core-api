@@ -155,6 +155,8 @@ public class EdgeFilter extends OncePerRequestFilter {
     SecurityHeaders.apply(request, response);
     MDC.put("correlationId", correlationId);
     try {
+      tz.co.pharmacy.platform.approval.ApprovalContext.enter(
+          request.getHeader(tz.co.pharmacy.platform.approval.Approvals.HEADER));
       requireCleanPath(request);
       throttleSignIn(request);
       Frame frame = resolve(request, correlationId);
@@ -176,6 +178,7 @@ public class EdgeFilter extends OncePerRequestFilter {
     } catch (Refusal refusal) {
       Problems.write(response, refusal, correlationId);
     } finally {
+      tz.co.pharmacy.platform.approval.ApprovalContext.leave();
       ExecutionContext.leave();
       TenantContext.leave();
       MDC.remove("correlationId");
