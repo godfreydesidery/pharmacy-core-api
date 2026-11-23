@@ -95,6 +95,9 @@ class CustomerCreditImpl implements CustomerCredit {
   @Override
   @Transactional
   public void checkCredit(UUID customerUid, BigDecimal amount) {
+    // Held until the caller's transaction ends, so the check and the charge that follows it are
+    // one step: two tills cannot both see room under the limit and both charge.
+    accounts.lockCredit(Checks.required(customerUid, "customerUid"));
     CreditAccount account = accountOf(customerUid);
     if (account.isOnHold()) {
       throw Refusal.invalid(

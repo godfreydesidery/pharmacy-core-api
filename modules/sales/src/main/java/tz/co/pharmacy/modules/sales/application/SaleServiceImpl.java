@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -14,11 +13,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tz.co.pharmacy.modules.sales.domain.RefundSplit;
 import tz.co.pharmacy.modules.sales.domain.Sale;
 import tz.co.pharmacy.modules.sales.domain.SaleLine;
 import tz.co.pharmacy.modules.sales.domain.SalePayment;
 import tz.co.pharmacy.modules.sales.domain.SaleReturn;
 import tz.co.pharmacy.modules.sales.domain.SaleReturnLine;
+import tz.co.pharmacy.modules.sales.domain.SaleReturnRefund;
 import tz.co.pharmacy.modules.sales.domain.SaleTotals;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
 import tz.co.pharmacy.modules.sales.events.SaleReturned;
@@ -34,6 +35,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.ReturnLineCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleFilter;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleLineCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleLineView;
+import tz.co.pharmacy.modules.sales.ports.inbound.SaleRefundView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnLineView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleService;
@@ -273,9 +275,15 @@ class SaleServiceImpl implements SaleService {
       if (payment.method() == PaymentMethod.VOUCHER) {
         vouchers.spend(reference, amount, "payments[" + i + "].reference");
       } else if (payment.method() != PaymentMethod.CASH) {
+        // A confirmed push payment whose excess checkout keeps on account is verified for the
+        // amount the provider confirmed, not the part left on the sale.
+        BigDecimal authorized =
+            payment.authorizedAmount() != null && payment.authorizedAmount().compareTo(amount) > 0
+                ? Amounts.money(payment.authorizedAmount())
+                : amount;
         PaymentAuthorization authorization =
             paymentAuthorizations.authorize(
-                payment.method(), payment.channel(), amount, reference, number);
+                payment.method(), payment.channel(), authorized, reference, number);
         if (authorization == null || !authorization.approved()) {
           throw Refusal.invalid(
               "payment_declined",
@@ -385,8 +393,9 @@ class SaleServiceImpl implements SaleService {
           "sale_other_branch", "A sale is returned at the branch that sold it.", "saleUid");
     }
     String reason = Checks.text(command.reason(), "reason", 500);
-    PaymentMethod refundMethod = Checks.required(command.refundMethod(), "refundMethod");
+    PaymentMethod requested = command.refundMethod();
     List<ReturnLineCommand> lineCommands = Checks.notEmpty(command.lines(), "lines");
+    List<SaleReturn> earlier = returns.findBySaleUidOrderByIdAsc(sale.getUid());
 
     SaleReturn saleReturn =
         new SaleReturn(
@@ -395,7 +404,7 @@ class SaleServiceImpl implements SaleService {
             sale.getUid(),
             sale.getNumber(),
             reason,
-            refundMethod);
+            requested == null ? PaymentMethod.CASH : requested);
     for (int i = 0; i < lineCommands.size(); i++) {
       ReturnLineCommand lineCommand = lineCommands.get(i);
       String field = "lines[" + i + "]";
@@ -425,6 +434,16 @@ class SaleServiceImpl implements SaleService {
             field + ".serialNumbers");
       }
       line.returned(units);
+      BigDecimal refund = SaleTotals.share(line.getLineTotal(), units, line.getQuantity());
+      BigDecimal tax = SaleTotals.share(line.getTax(), units, line.getQuantity());
+      if (line.returnable() == 0) {
+        // The last units of a line take what is left of it, so the line's refunds add up to
+        // exactly its total and tax: 10.00 over 3 units goes back as 3.33, 3.33 and 3.34.
+        List<SaleReturnLine> before = new ArrayList<>(saleReturn.getLines());
+        earlier.forEach(r -> before.addAll(r.getLines()));
+        refund = Amounts.money(line.getLineTotal().subtract(refundedOf(before, line, true)));
+        tax = Amounts.money(line.getTax().subtract(refundedOf(before, line, false)));
+      }
       SaleReturnLine returnLine =
           new SaleReturnLine(
               line.getUid(),
@@ -433,13 +452,28 @@ class SaleServiceImpl implements SaleService {
               line.getBatchUid(),
               line.getBatchNumber(),
               units,
-              SaleTotals.share(line.getLineTotal(), units, line.getQuantity()),
-              SaleTotals.share(line.getTax(), units, line.getQuantity()),
+              refund,
+              tax,
               Amounts.times(line.getUnitCost(), units));
       returnLine.withSerials(returnedSerials);
       saleReturn.addLine(returnLine);
     }
-    refundInForeignCurrency(sale, saleReturn, command.refundCurrency());
+    List<RefundSplit.Share> shares = splitRefund(sale, earlier, saleReturn.getRefundTotal());
+    saleReturn.refundedBy(
+        shares.stream()
+            .map(
+                share ->
+                    new SaleReturnRefund(
+                        share.tender().method(), share.amount(), share.tender().reference()))
+            .toList(),
+        headline(requested, shares));
+    refundInForeignCurrency(sale, saleReturn, command.refundCurrency(), shares);
+    requireAllowedRefundMethod(sale, requested);
+    for (RefundSplit.Share share : shares) {
+      if (share.tender().method() == PaymentMethod.VOUCHER && share.tender().reference() != null) {
+        vouchers.creditBack(share.tender().reference(), share.amount());
+      }
+    }
     sale.refreshReturnStatus();
     SaleReturn saved = returns.save(saleReturn);
 
@@ -467,8 +501,103 @@ class SaleServiceImpl implements SaleService {
                     .toList(),
                 saved.getRefundCurrency(),
                 saved.getRefundForeignAmount(),
-                saved.getFxDifference()));
+                saved.getFxDifference(),
+                saved.getRefunds().stream()
+                    .map(
+                        refund ->
+                            new SaleReturned.Refund(refund.getMethod().name(), refund.getAmount()))
+                    .toList()));
     return returnView(saved);
+  }
+
+  /** What the earlier returns of the line refunded: their refunds, or their tax. */
+  private static BigDecimal refundedOf(List<SaleReturnLine> lines, SaleLine line, boolean refund) {
+    return lines.stream()
+        .filter(earlier -> earlier.getSaleLineUid().equals(line.getUid()))
+        .map(earlier -> refund ? earlier.getRefund() : earlier.getTax())
+        .reduce(Amounts.ZERO, BigDecimal::add);
+  }
+
+  /**
+   * The owner's rule: a refund goes back the way the sale was paid. Each tender gets its share (see
+   * {@link RefundSplit}); a return from before the split counts as refunded by its method.
+   */
+  private static List<RefundSplit.Share> splitRefund(
+      Sale sale, List<SaleReturn> earlier, BigDecimal refund) {
+    java.util.Map<RefundSplit.Tender, BigDecimal> before = new java.util.LinkedHashMap<>();
+    BigDecimal beforeTotal = Amounts.ZERO;
+    for (SaleReturn r : earlier) {
+      beforeTotal = beforeTotal.add(r.getRefundTotal());
+      if (r.getRefunds().isEmpty()) {
+        before.merge(
+            new RefundSplit.Tender(r.getRefundMethod(), null), r.getRefundTotal(), BigDecimal::add);
+      }
+      for (SaleReturnRefund share : r.getRefunds()) {
+        before.merge(
+            new RefundSplit.Tender(share.getMethod(), share.getReference()),
+            share.getAmount(),
+            BigDecimal::add);
+      }
+    }
+    boolean completes = sale.getLines().stream().allMatch(line -> line.returnable() == 0);
+    return RefundSplit.split(
+        RefundSplit.kept(sale), sale.getTotal(), before, beforeTotal, refund, completes);
+  }
+
+  /**
+   * The method the return shows: the one the till named, else the largest share paid back to the
+   * patient, else (a sale the insurer paid in full) INSURANCE.
+   */
+  private static PaymentMethod headline(PaymentMethod requested, List<RefundSplit.Share> shares) {
+    if (requested != null) {
+      return requested;
+    }
+    return shares.stream()
+        .filter(share -> share.tender().method() != PaymentMethod.INSURANCE)
+        .max(java.util.Comparator.comparing(RefundSplit.Share::amount))
+        .or(() -> shares.stream().findFirst())
+        .map(share -> share.tender().method())
+        .orElse(PaymentMethod.CASH);
+  }
+
+  /**
+   * A refund method the till names must be a way the sale was paid: never INSURANCE (the insurer
+   * share comes off the claim; it is not the patient's money), the customer's account (CREDIT or
+   * ACCOUNT_CREDIT) only for a customer's sale paid partly on or from it, a voucher only for a sale
+   * paid by voucher, and cash, mobile money, card, bank transfer or cheque only when the sale was
+   * paid so. 422 refund_method_not_allowed otherwise.
+   */
+  private static void requireAllowedRefundMethod(Sale sale, PaymentMethod requested) {
+    if (requested == null) {
+      return;
+    }
+    Set<PaymentMethod> paid = java.util.EnumSet.noneOf(PaymentMethod.class);
+    sale.getPayments().forEach(payment -> paid.add(payment.getMethod()));
+    boolean account =
+        requested == PaymentMethod.CREDIT || requested == PaymentMethod.ACCOUNT_CREDIT;
+    boolean allowed =
+        requested != PaymentMethod.INSURANCE
+            && (account
+                ? sale.getCustomerUid() != null
+                    && (paid.contains(PaymentMethod.CREDIT)
+                        || paid.contains(PaymentMethod.ACCOUNT_CREDIT))
+                : paid.contains(requested));
+    if (allowed) {
+      return;
+    }
+    String ways =
+        paid.stream()
+            .filter(method -> method != PaymentMethod.INSURANCE)
+            .map(PaymentMethod::name)
+            .collect(java.util.stream.Collectors.joining(", "));
+    throw Refusal.invalid(
+        "refund_method_not_allowed",
+        (requested == PaymentMethod.INSURANCE
+                ? "The insurer's share comes off the claim; it is never paid to the patient. "
+                : "")
+            + "A refund goes back the way the sale was paid"
+            + (ways.isEmpty() ? "; leave refundMethod out." : " (" + ways + ")."),
+        "refundMethod");
   }
 
   /**
@@ -477,7 +606,8 @@ class SaleServiceImpl implements SaleService {
    * today's rate, and the difference from the booked base value is a realised exchange gain or
    * loss. Only cash-like refunds can be foreign: credit and insurance live in the base currency.
    */
-  private void refundInForeignCurrency(Sale sale, SaleReturn saleReturn, String requested) {
+  private void refundInForeignCurrency(
+      Sale sale, SaleReturn saleReturn, String requested, List<RefundSplit.Share> shares) {
     if (requested == null || requested.isBlank()) {
       return;
     }
@@ -501,6 +631,13 @@ class SaleServiceImpl implements SaleService {
           "A sale paid partly on credit, by insurance or from account credit is refunded in "
               + base
               + ".",
+          "refundCurrency");
+    }
+    if (shares.stream().map(share -> share.tender().method()).distinct().count() > 1) {
+      // The refund goes back by several methods; only one of them could be paid in the currency.
+      throw Refusal.invalid(
+          "foreign_refund_not_allowed",
+          "A sale paid in several ways is refunded in " + base + ".",
           "refundCurrency");
     }
     BigDecimal saleRate =
@@ -532,8 +669,12 @@ class SaleServiceImpl implements SaleService {
         SaleServiceImpl::returnView);
   }
 
-  private static Instant startOf(LocalDate date) {
-    return date == null ? null : date.atStartOfDay(ZoneOffset.UTC).toInstant();
+  /**
+   * The start of the pharmacy's own day, in its time zone, as the ledger and the reports cut days:
+   * a sale at 01:30 in Dar es Salaam (22:30 UTC the day before) is on the local day.
+   */
+  private Instant startOf(LocalDate date) {
+    return date == null ? null : date.atStartOfDay(calendar.zone()).toInstant();
   }
 
   static SaleView view(Sale sale) {
@@ -642,7 +783,13 @@ class SaleServiceImpl implements SaleService {
                         line.getSerialNumbers()))
             .toList(),
         saleReturn.getCreatedAt(),
-        saleReturn.getCreatedBy());
+        saleReturn.getCreatedBy(),
+        saleReturn.getRefunds().isEmpty()
+            ? List.of(
+                new SaleRefundView(saleReturn.getRefundMethod(), saleReturn.getRefundTotal(), null))
+            : saleReturn.getRefunds().stream()
+                .map(r -> new SaleRefundView(r.getMethod(), r.getAmount(), r.getReference()))
+                .toList());
   }
 
   @Override

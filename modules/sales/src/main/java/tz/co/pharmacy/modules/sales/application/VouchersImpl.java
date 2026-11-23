@@ -157,6 +157,19 @@ class VouchersImpl implements Vouchers {
     voucher.spend(Amounts.money(amount));
   }
 
+  /** Puts {@code amount} back on the voucher named by {@code code}: a refund of a sale it paid. */
+  @Transactional
+  void creditBack(String code, BigDecimal amount) {
+    Voucher voucher =
+        vouchers
+            .lockByCode(code)
+            .orElseThrow(
+                () ->
+                    Refusal.invalid(
+                        "voucher_not_found", "No voucher " + code + ".", "refundMethod"));
+    voucher.refunded(Amounts.money(amount));
+  }
+
   private String generated() {
     StringBuilder sb = new StringBuilder("V-");
     java.security.SecureRandom random = new java.security.SecureRandom();

@@ -181,7 +181,9 @@ public class SalesHandler {
             new RecordReturnCommand(
                 uid,
                 body.reason(),
-                Checks.oneOf(PaymentMethod.class, body.refundMethod(), "refundMethod"),
+                body.refundMethod() == null || body.refundMethod().isBlank()
+                    ? null
+                    : Checks.oneOf(PaymentMethod.class, body.refundMethod(), "refundMethod"),
                 lines,
                 body.refundCurrency())),
         "Sale return recorded");

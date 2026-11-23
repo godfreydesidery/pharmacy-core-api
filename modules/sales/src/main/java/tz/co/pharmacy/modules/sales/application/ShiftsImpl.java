@@ -159,9 +159,11 @@ class ShiftsImpl implements Shifts {
         " from sales.shifts o where o.branch_uid = r.branch_uid and o.opened_at <= r.created_at"
             + " and (o.closed_at is null or o.closed_at >= r.created_at)";
     jdbc.query(
-        "select coalesce(sum(r.refund_total + coalesce(r.fx_difference, 0)), 0) as cash"
+        "select coalesce(sum("
+            + ReturnSql.cashPaidOut("r")
+            + "), 0) as cash"
             + " from sales.sale_returns r"
-            + " where r.branch_uid = ? and r.refund_method = 'CASH'"
+            + " where r.branch_uid = ?"
             + " and r.created_at >= ? and r.created_at <= ?"
             + " and (r.created_by_uid = ?"
             + " or (not exists (select 1"

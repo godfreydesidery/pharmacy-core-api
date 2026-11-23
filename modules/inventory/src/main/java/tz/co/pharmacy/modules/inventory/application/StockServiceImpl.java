@@ -114,6 +114,16 @@ class StockServiceImpl implements StockService, ProductSnapshots {
 
   @Override
   @Transactional
+  public void lockProducts(java.util.Collection<UUID> productUids) {
+    productUids.stream()
+        .filter(java.util.Objects::nonNull)
+        .distinct()
+        .sorted()
+        .forEach(products::lockSnapshot);
+  }
+
+  @Override
+  @Transactional
   public List<Allocation> allocate(UUID productUid, int quantity, String reference) {
     return allocate(productUid, quantity, reference, null);
   }

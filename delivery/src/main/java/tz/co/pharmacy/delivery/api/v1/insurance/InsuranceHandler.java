@@ -174,7 +174,12 @@ public class InsuranceHandler {
             .toList();
     return ApiResponse.ok(
         checkout.coverageQuote(
-            Checks.required(body.memberUid(), "memberUid"), lines, body.preauthNumber()),
+            Checks.required(body.memberUid(), "memberUid"),
+            lines,
+            body.preauthNumber(),
+            body.customerUid(),
+            body.pricePlan(),
+            body.discountPercent()),
         "Coverage quoted");
   }
 
@@ -326,7 +331,17 @@ public class InsuranceHandler {
 
   public record QuoteLine(UUID productUid, Integer quantity) {}
 
-  public record QuoteRequest(UUID memberUid, List<QuoteLine> lines, String preauthNumber) {}
+  /**
+   * {@code customerUid}, {@code pricePlan} and {@code discountPercent} as the sale will send them,
+   * so the quote is priced exactly as checkout prices the sale.
+   */
+  public record QuoteRequest(
+      UUID memberUid,
+      List<QuoteLine> lines,
+      String preauthNumber,
+      UUID customerUid,
+      String pricePlan,
+      java.math.BigDecimal discountPercent) {}
 
   public record AdjudicationRequest(
       String status, List<ClaimLineView> lines, String note, String rejectedTo) {}

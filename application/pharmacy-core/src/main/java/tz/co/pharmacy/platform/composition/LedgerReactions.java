@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,22 +96,80 @@ public class LedgerReactions {
     EventScopes.run(
         event.metadata(),
         SERVICE,
-        () ->
-            once(
-                () ->
-                    ledger.postReturn(
-                        new ReturnPosting(
-                            event.returnUid(),
-                            event.number(),
-                            event.branchUid(),
-                            localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
-                            sum(event.lines(), SaleCompleted.Line::net),
-                            sum(event.lines(), SaleCompleted.Line::tax),
-                            cost(event.lines()),
-                            event.refundMethod(),
-                            event.refundCurrency(),
-                            event.refundForeignAmount(),
-                            event.fxDifference()))));
+        () -> {
+          LocalDate date = localDate(event.metadata().tenantUid(), event.metadata().occurredAt());
+          for (ReturnPosting posting : returnPostings(event, date)) {
+            once(() -> ledger.postReturn(posting));
+          }
+        });
+  }
+
+  /**
+   * A return refunds the way its sale was paid, so it posts one entry per way: each credits that
+   * way's account (cash, bank, mobile money; 1100 for the customer's account; 1110 for the
+   * insurer's share, off the claim; 2300 for a voucher) with its share, and debits sales returns
+   * and tax payable in proportion. The first entry is the return's own (it carries the cost and a
+   * foreign refund's exchange difference); the others are keyed by the return and the method, so
+   * each posts once. An event from before the split posts one entry, as before.
+   */
+  static List<ReturnPosting> returnPostings(SaleReturned event, LocalDate date) {
+    Map<String, BigDecimal> shares = new LinkedHashMap<>();
+    String first = event.refundMethod();
+    if (event.shares().stream().anyMatch(share -> share.method().equals(first))) {
+      shares.put(first, BigDecimal.ZERO);
+    }
+    event.shares().forEach(share -> shares.merge(share.method(), share.amount(), BigDecimal::add));
+    shares.values().removeIf(amount -> amount == null || amount.signum() <= 0);
+    BigDecimal net = sum(event.lines(), SaleCompleted.Line::net);
+    BigDecimal tax = sum(event.lines(), SaleCompleted.Line::tax);
+    if (shares.size() <= 1) {
+      return List.of(
+          new ReturnPosting(
+              event.returnUid(),
+              event.number(),
+              event.branchUid(),
+              date,
+              net,
+              tax,
+              cost(event.lines()),
+              shares.isEmpty() ? event.refundMethod() : shares.keySet().iterator().next(),
+              event.refundCurrency(),
+              event.refundForeignAmount(),
+              event.fxDifference()));
+    }
+    BigDecimal total = shares.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+    List<ReturnPosting> postings = new ArrayList<>();
+    BigDecimal taxLeft = tax;
+    int i = 0;
+    for (Map.Entry<String, BigDecimal> share : shares.entrySet()) {
+      boolean last = ++i == shares.size();
+      BigDecimal shareTax =
+          last
+              ? taxLeft
+              : tax.multiply(share.getValue())
+                  .divide(total, 2, java.math.RoundingMode.HALF_UP)
+                  .min(share.getValue());
+      taxLeft = taxLeft.subtract(shareTax);
+      boolean own = postings.isEmpty();
+      postings.add(
+          new ReturnPosting(
+              own
+                  ? event.returnUid()
+                  : UUID.nameUUIDFromBytes(
+                      (event.returnUid() + "/" + share.getKey())
+                          .getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+              event.number(),
+              event.branchUid(),
+              date,
+              share.getValue().subtract(shareTax),
+              shareTax,
+              own ? cost(event.lines()) : BigDecimal.ZERO,
+              share.getKey(),
+              own ? event.refundCurrency() : null,
+              own ? event.refundForeignAmount() : null,
+              own ? event.fxDifference() : null));
+    }
+    return postings;
   }
 
   @Async

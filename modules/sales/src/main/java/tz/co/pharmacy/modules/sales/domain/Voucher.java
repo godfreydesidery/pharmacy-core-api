@@ -53,6 +53,18 @@ public class Voucher extends TenantEntity {
     }
   }
 
+  /**
+   * A return of a sale paid with this voucher: the voucher's share of the refund goes back onto its
+   * balance, so the liability the ledger books back (2300) is the customer's to spend again. A
+   * used-up voucher becomes spendable again; a voided one stays void.
+   */
+  public void refunded(BigDecimal amount) {
+    this.balance = Amounts.money(balance.add(amount));
+    if ("SPENT".equals(status) && balance.signum() > 0) {
+      this.status = "ACTIVE";
+    }
+  }
+
   public void voided() {
     this.status = "VOID";
   }

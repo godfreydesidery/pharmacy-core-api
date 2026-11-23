@@ -271,6 +271,7 @@ interface StockService {                                  // current branch = Ex
   List<Allocation> allocate(UUID productUid, int quantity, String reference);
   void restore(UUID batchUid, int quantity, String reference);   // SALE_RETURN at the current branch
   MovementView adjust(AdjustStockCommand command);         // 422 insufficient_stock if it would go below 0; publishes stock.adjusted
+  void lockProducts(Collection<UUID> productUids);         // the per-product locks allocate takes, all at once in uid order (until the tx ends)
   TransferView dispatch(TransferCommand command);          // from the current branch, FEFO; 422 same_branch
   TransferView receiveTransfer(UUID transferUid);          // current branch must be the destination: 403 not_destination
 }
@@ -364,7 +365,11 @@ record ReturnLineCommand(UUID saleLineUid, int quantity) {}
 record RecordReturnCommand(UUID saleUid, String reason, PaymentMethod refundMethod, List<ReturnLineCommand> lines) {}
 record SaleReturnLineView(UUID saleLineUid, UUID productUid, String productName, UUID batchUid, String batchNumber, int quantity, BigDecimal refund) {}
 record SaleReturnView(UUID uid, String number, UUID saleUid, String saleNumber, String reason, PaymentMethod refundMethod,
-                      BigDecimal refundTotal, List<SaleReturnLineView> lines, Instant createdAt, String createdBy) {}
+                      BigDecimal refundTotal, /* foreign refund fields */ List<SaleReturnLineView> lines, Instant createdAt,
+                      String createdBy, List<SaleRefundView> refunds) {}
+record SaleRefundView(PaymentMethod method, BigDecimal amount, String reference) {}  // one share of the refund
+// PaymentCommand also carries BigDecimal authorizedAmount (checkout only: a confirmed push payment whose excess
+// went on account is verified for the confirmed amount; null = amount).
 
 interface SaleService {            // current branch for writes and lists
   String nextSaleNumber();         // "<invoicePrefix>-<branchCode>-000123" (prefix and branch code via ports.outbound.SalesSettings)
@@ -379,7 +384,13 @@ interface SaleService {            // current branch for writes and lists
   Optional<SaleView> find(UUID uid);
   Page<SaleSummaryView> list(SaleFilter filter, PageQuery query);   // keyset
   List<SaleSummaryView> recent(Set<UUID> branchUids, int limit);
-  /** 422 return_exceeds_sold; updates returnedQuantity and status; SRN-<branchCode>-000001; publishes sale.returned. */
+  /** 422 return_exceeds_sold; updates returnedQuantity and status; SRN-<branchCode>-000001; publishes sale.returned.
+      The refund goes back the way the sale was paid (domain.RefundSplit, cumulative per tender, the last return of a
+      sale takes exactly what is left): cash share in cash, MOBILE_MONEY/CARD/BANK_TRANSFER/CHEQUE by that method,
+      CREDIT/ACCOUNT_CREDIT to the customer's account, VOUCHER back onto the voucher, INSURANCE off the claim.
+      refundMethod is optional; when named it must be a way the sale was paid other than INSURANCE (CREDIT and
+      ACCOUNT_CREDIT both mean the account, never for a walk-in): 422 refund_method_not_allowed. A line's last units
+      refund lineTotal − already refunded (and the same for tax). */
   SaleReturnView recordReturn(RecordReturnCommand command);
   Page<SaleReturnView> returns(PageQuery query);
 }
@@ -398,7 +409,12 @@ record SaleCompleted(EventMetadata metadata, UUID saleUid, String number, UUID b
   public record Payment(String method, BigDecimal amount) {}
 }
 record SaleReturned(EventMetadata metadata, UUID returnUid, String number, UUID saleUid, UUID branchUid, String refundMethod,
-                    BigDecimal refundTotal, List<SaleCompleted.Line> lines) implements DomainEvent {}   // "sale.returned"
+                    BigDecimal refundTotal, List<SaleCompleted.Line> lines, /* foreign refund fields */
+                    List<Refund> refunds) implements DomainEvent {   // "sale.returned"
+  public record Refund(String method, BigDecimal amount) {}  // null refunds (older events): refundMethod took it all
+}
+// The ledger posts one return entry per refund method (the first keyed by returnUid, the others by
+// nameUUIDFromBytes(returnUid + "/" + method)).
 ```
 
 ## checkout (`tz.co.pharmacy.application.checkout`, application service)
@@ -414,11 +430,18 @@ interface Checkout {
   SaleView checkout(CheckoutCommand command);          // @Transactional; an existing idempotencyKey returns that sale
   SaleReturnView returnSale(RecordReturnCommand command); // sales.recordReturn + inventory.restore per line
   Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query);  // catalogue.products(active) + inventory.onHand
+  /** Priced exactly as checkout prices the sale (plan, branch prices, promotions, breaks); 422 member_not_of_customer. */
+  CoverageQuote coverageQuote(UUID memberUid, List<CheckoutLine> lines, String preauthNumber,
+                              UUID customerUid, String pricePlan, BigDecimal discountPercent);
 }
 ```
 `checkout` does the following:
 1. Validates the lines (`Checks.notEmpty`, quantity > 0; 422 `product_not_found` / `product_inactive`).
-2. Takes the number from `saleService.nextSaleNumber()`.
+2. Refuses a `memberUid` not of the customer (422 `member_not_of_customer`), prices the cart, then takes every
+   product's stock lock (lines and their pack products) in uid order with `stockService.lockProducts(...)`,
+   so tills selling the same products in another order queue instead of deadlocking. A lock lost anyway
+   (deadlock 40P01, lock timeout, serialization failure) is 409 `busy_try_again` with `Retry-After`.
+   Then takes the number from `saleService.nextSaleNumber()`.
 3. Runs `stockService.allocate(product, qty, number)` for each line.
 4. Builds one `SaleLineCommand` per allocation (prices from the catalogue, tax rate = the product's, `prescriptionRequired` = schedule != OTC).
 5. Takes the customer name from `CustomerService.find` (422 `customer_not_found`).
