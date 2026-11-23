@@ -33,11 +33,35 @@ public class AuditConfiguration {
     return new JdbcAuditLog(new JdbcTemplate(dataSource), labels);
   }
 
+  /**
+   * {@code pharmacy.audit.ignored-entities}: entity classes, by fully qualified name, left out of
+   * the automatic trail besides those marked {@link AuditIgnore} (PERF-7). A name that is not a
+   * class stops the start, so a renamed entity cannot quietly come back into the trail.
+   */
   @Bean
   EntityAuditListener entityAuditListener(
-      DataSource dataSource, EntityManagerFactory entityManagerFactory) {
+      DataSource dataSource,
+      EntityManagerFactory entityManagerFactory,
+      org.springframework.core.env.Environment environment) {
+    java.util.Set<Class<?>> ignored = new java.util.HashSet<>();
+    for (String name :
+        org.springframework.boot.context.properties.bind.Binder.get(environment)
+            .bind(
+                "pharmacy.audit.ignored-entities",
+                org.springframework.boot.context.properties.bind.Bindable.listOf(String.class))
+            .orElse(java.util.List.of())) {
+      if (name.isBlank()) {
+        continue;
+      }
+      try {
+        ignored.add(Class.forName(name.trim(), false, AuditConfiguration.class.getClassLoader()));
+      } catch (ClassNotFoundException unknown) {
+        throw new IllegalStateException(
+            "pharmacy.audit.ignored-entities names " + name + ", which is no class", unknown);
+      }
+    }
     EntityAuditListener listener =
-        new EntityAuditListener(new AuditWriter(new JdbcTemplate(dataSource)));
+        new EntityAuditListener(new AuditWriter(new JdbcTemplate(dataSource)), ignored);
     EventListenerRegistry registry =
         entityManagerFactory
             .unwrap(SessionFactoryImplementor.class)
@@ -46,6 +70,9 @@ public class AuditConfiguration {
     registry.appendListeners(EventType.POST_INSERT, listener);
     registry.appendListeners(EventType.POST_UPDATE, listener);
     registry.appendListeners(EventType.POST_DELETE, listener);
+    // After Hibernate's own flush: the entries the flush made are written in one batch.
+    registry.appendListeners(EventType.FLUSH, listener);
+    log.info("Audit trail: {} ledger entity classes left out by configuration", ignored.size());
     return listener;
   }
 

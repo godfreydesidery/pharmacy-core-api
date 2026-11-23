@@ -7,9 +7,17 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gap-tolerant document numbers per tenant and key, such as {@code INV-HQ} → 123 → "INV-HQ-000123".
- * The sequence row is locked only for the instant of the upsert, so numbering scales with the
- * number of keys, not with the number of tenants.
+ * Document numbers per tenant and key, such as {@code INV-HQ} → 123 → "INV-HQ-000123", without gaps
+ * and without duplicates.
+ *
+ * <p>The number is an upsert of the key's row in {@code platform.document_sequences}, inside the
+ * caller's transaction. That row stays locked until the caller's transaction commits or rolls back:
+ * a second transaction taking the same key (another till of the same branch) waits for the first to
+ * end. A rollback takes the number back with it, so the numbers a key hands out run without gaps;
+ * the price is that numbering is serial per key (per branch for sales), and the caller must take
+ * the number late in a transaction that does database work only: never with a payment provider, a
+ * tax authority or any other call out still to come (PERF-1). Different keys, and different
+ * tenants, never wait for each other.
  */
 @Component
 public class DocumentNumbers {
@@ -20,7 +28,10 @@ public class DocumentNumbers {
     this.jdbc = new JdbcTemplate(dataSource);
   }
 
-  /** The next number for {@code key} in the current tenant, inside the caller's transaction. */
+  /**
+   * The next number for {@code key} in the current tenant, inside the caller's transaction, whose
+   * key row it locks until that transaction ends.
+   */
   @Transactional(propagation = Propagation.MANDATORY)
   public long next(String key) {
     return jdbc.queryForObject(

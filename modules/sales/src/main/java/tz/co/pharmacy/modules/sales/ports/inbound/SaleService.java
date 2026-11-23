@@ -10,8 +10,31 @@ import tz.co.pharmacy.platform.kernel.PageQuery;
 /** Sales at the current branch ({@code ExecutionContext.requireBranch()}) for writes and lists. */
 public interface SaleService {
 
-  /** The next invoice number, such as {@code INV-HQ-000123}, inside the caller's transaction. */
+  /**
+   * The next invoice number, such as {@code INV-HQ-000123}, inside the caller's transaction. The
+   * branch's number row stays locked until that transaction ends (gapless numbering, see {@code
+   * DocumentNumbers}), so the caller takes it after every call out and holds the transaction only
+   * for database work (PERF-1).
+   */
   String nextSaleNumber();
+
+  /**
+   * Runs before the sale's transaction and outside any (PERF-1): asks the payment providers about
+   * every push request among {@code payments} that they have not confirmed yet, so that {@link
+   * #record} makes no call out while it holds the sale number and the stock. Refuses 422 {@code
+   * payment_declined} for a request still waiting for the customer; every other decision is {@link
+   * #record}'s.
+   */
+  void preparePayments(List<PaymentCommand> payments);
+
+  /**
+   * Issues the sale's fiscal receipt when it is still due, after the sale committed and in
+   * transactions of its own (PERF-1): takes a short lease on the sale, calls the fiscal port with
+   * no transaction open, then records the reference. Does nothing when the receipt was issued or
+   * another caller holds the lease. A failure of the port leaves the receipt due and is thrown, so
+   * the {@code sale.completed} reaction that calls this is delivered again by the outbox.
+   */
+  void fiscalise(UUID saleUid);
 
   Optional<SaleView> findByIdempotencyKey(String key);
 
@@ -42,7 +65,8 @@ public interface SaleService {
    * discountPercent %, tax = (gross − discount) × taxRate %, lineTotal = gross − discount + tax.
    * Refuses 422 {@code prescription_required}, {@code discount_not_allowed}, {@code
    * customer_required}, {@code payment_short}, {@code payment_declined}. Publishes {@code
-   * sale.completed}.
+   * sale.completed}. The fiscal receipt is not issued here: the sale is saved with it due ({@link
+   * SaleView#fiscalDue()}) and {@link #fiscalise} issues it after commit.
    */
   SaleView record(RecordSaleCommand command);
 

@@ -2,6 +2,8 @@ package tz.co.pharmacy.modules.tenancy.application;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tz.co.pharmacy.modules.tenancy.domain.Tenant;
 import tz.co.pharmacy.modules.tenancy.domain.TenantSettings;
 import tz.co.pharmacy.modules.tenancy.persistence.SettingsRepository;
@@ -29,16 +31,43 @@ class SettingsServiceImpl implements SettingsService {
     this.tenants = tenants;
   }
 
+  /**
+   * Read once per transaction and kept for the rest of it (PERF-10): a checkout asks for the
+   * pharmacy's settings at the till, in pricing, in the sale and in its shift check, and each ask
+   * used to read the tenant and settings rows again. The copy lives in the transaction's resources
+   * (one thread, one transaction, one tenant), never across transactions or requests; {@link
+   * #change} drops it.
+   */
   @Override
   @Transactional(readOnly = true)
   public SettingsView current() {
-    return view(tenant(), row());
+    String key = MEMO + TenantContext.requireTenant();
+    if (TransactionSynchronizationManager.getResource(key) instanceof SettingsView kept) {
+      return kept;
+    }
+    SettingsView view = view(tenant(), row());
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.bindResource(key, view);
+      TransactionSynchronizationManager.registerSynchronization(
+          new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+              TransactionSynchronizationManager.unbindResourceIfPossible(key);
+            }
+          });
+    }
+    return view;
   }
+
+  /** The transaction resource under which {@link #current} keeps a tenant's settings. */
+  private static final String MEMO = SettingsServiceImpl.class.getName() + ".current:";
 
   @Override
   @Transactional
   public SettingsView change(ChangeSettingsCommand command) {
     Checks.required(command, "settings");
+    TransactionSynchronizationManager.unbindResourceIfPossible(
+        MEMO + TenantContext.requireTenant());
     TenantSettings row = row();
     String prefix =
         command.invoicePrefix() == null

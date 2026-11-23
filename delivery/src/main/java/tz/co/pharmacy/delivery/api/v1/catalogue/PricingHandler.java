@@ -52,6 +52,20 @@ public class PricingHandler {
     return ApiResponse.ok(Pages.slice(pricing.priceLists()), "Price lists retrieved");
   }
 
+  /**
+   * One plan with all its items. The list above comes without them (PERF-11); a plan's items are
+   * also served a page at a time by {@code GET /pricing-plans/{plan}/items}.
+   */
+  @GetMapping("/price-lists/{uid}")
+  @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
+  public ApiResponse<PriceListView> priceList(@PathVariable UUID uid) {
+    return ApiResponse.ok(
+        pricing
+            .priceList(uid)
+            .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such price list.")),
+        "Price list retrieved");
+  }
+
   @PostMapping("/price-lists")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")

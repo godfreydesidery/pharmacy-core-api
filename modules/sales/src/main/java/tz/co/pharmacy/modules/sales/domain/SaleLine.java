@@ -17,8 +17,15 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.platform.persistence.TenantEntity;
+import tz.co.pharmacy.platform.persistence.audit.AuditIgnore;
 
-/** One batch of one product on a sale, priced. */
+/**
+ * One batch of one product on a sale, priced. Left out of the automatic audit trail (PERF-7): the
+ * sale's own audit entry records the document, and its lines are their own record in this table,
+ * which nothing deletes. The only later change, the units returned, is recorded by the return
+ * (sale_returns and sale_return_lines, both audited).
+ */
+@AuditIgnore
 @Entity
 @Table(name = "sale_lines", schema = "sales")
 @Getter

@@ -77,7 +77,19 @@ public class Sale extends TenantEntity {
   private String prescriberRegistration;
   private String prescriptionReference;
   private String patientName;
+
+  /**
+   * The tax authority's reference of the fiscal receipt. Written once, after the sale committed, by
+   * {@code SaleService.fiscalise} with SQL of its own: an update of the sale (a return) never
+   * writes these two columns, so it cannot put back a value it read before the receipt was issued.
+   */
+  @Column(updatable = false)
   private String fiscalReference;
+
+  /** Whether the fiscal receipt is still to be issued (a fiscal integration is on). */
+  @Column(nullable = false, updatable = false)
+  private boolean fiscalDue;
+
   private String cashierName;
 
   @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -151,8 +163,9 @@ public class Sale extends TenantEntity {
     this.changeDue = changeDue;
   }
 
-  public void fiscalised(String fiscalReference) {
-    this.fiscalReference = fiscalReference;
+  /** A new sale whose fiscal receipt is issued after it commits (PERF-1). */
+  public void fiscalReceiptDue(boolean due) {
+    this.fiscalDue = due;
   }
 
   /** After a return: RETURNED once every unit came back, otherwise PARTIALLY_RETURNED. */

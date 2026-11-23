@@ -60,9 +60,17 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
- * Each use case runs in the one transaction it opens; the modules' write methods join it, so a
- * refusal from any of them, such as {@code insufficient_stock} on the third line or {@code
- * payment_short}, leaves none of the stock taken and no sale.
+ * Each use case runs in one transaction; the modules' write methods join it, so a refusal from any
+ * of them, such as {@code insufficient_stock} on the third line or {@code payment_short}, leaves
+ * none of the stock taken and no sale.
+ *
+ * <p>A checkout keeps every call out of that transaction (PERF-1). The branch's sale number is a
+ * row lock held until commit (numbering is gapless), and the products' stock locks are held as
+ * long, so a slow payment provider or tax authority would hold every other till of the branch. The
+ * payment providers are asked first, outside any transaction ({@link SaleService#preparePayments});
+ * then one transaction takes the idempotency key, the stock locks, the number, the stock and the
+ * sale, all database work; the fiscal receipt is issued after commit by the {@code sale.completed}
+ * reaction ({@link SaleService#fiscalise}).
  */
 @Service
 @RequiredArgsConstructor
@@ -81,14 +89,32 @@ class CheckoutService implements Checkout {
   private final SettingsService settings;
   private final Entitlements entitlements;
   private final TenantCalendar calendar;
+  private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
   /** The permission to sell on account: credit sales and balances put on account. */
   static final String CREDIT_PERMISSION = "sales.credit";
 
+  /**
+   * Not {@code @Transactional}: the payment providers are asked before the sale's transaction
+   * starts, and that transaction is the template's below.
+   */
   @Override
-  @Transactional
   public SaleView checkout(CheckoutCommand command) {
     String key = Checks.optionalText(command.idempotencyKey(), "idempotencyKey", 100);
+    List<CheckoutLine> lines = Checks.notEmpty(command.lines(), "lines");
+    for (int i = 0; i < lines.size(); i++) {
+      Checks.required(lines.get(i).productUid(), "lines[" + i + "].productUid");
+      Checks.positive(lines.get(i).quantity(), "lines[" + i + "].quantity");
+    }
+    // Outside any transaction: a push request still pending is asked about now, so nothing below
+    // waits on a provider while it holds the number and the stock.
+    sales.preparePayments(command.payments());
+    return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+        .execute(status -> sell(command, key, lines));
+  }
+
+  /** The sale's one transaction: database work only. */
+  private SaleView sell(CheckoutCommand command, String key, List<CheckoutLine> lines) {
     if (key != null) {
       // Same-key requests take turns, so a retry sent while the first is still running gets its
       // sale back rather than a conflict.
@@ -97,11 +123,8 @@ class CheckoutService implements Checkout {
         return existing.get();
       }
     }
-    List<CheckoutLine> lines = Checks.notEmpty(command.lines(), "lines");
-    for (int i = 0; i < lines.size(); i++) {
-      Checks.required(lines.get(i).productUid(), "lines[" + i + "].productUid");
-      Checks.positive(lines.get(i).quantity(), "lines[" + i + "].quantity");
-    }
+    // The pharmacy's settings, read once for the whole sale (PERF-10).
+    boolean taxIncluded = settings.current().pricesIncludeTax();
     requireMultiCurrencyFor(command.payments());
     Map<UUID, ProductView> products =
         catalogue
@@ -126,8 +149,9 @@ class CheckoutService implements Checkout {
             command.pricePlan(), command.customerUid(), customerType, payerUid, lines, products);
     Map<UUID, BigDecimal> prices = basket.prices();
     Map<UUID, PricingService.PricedLine> pricedBy = basket.lines();
-    lockProducts(products.keySet());
+    Map<UUID, PackagingService.PackLinkView> packs = lockProducts(products.keySet());
 
+    // Last of the locks, after every call out: the branch's number row (gapless, held to commit).
     String number = sales.nextSaleNumber();
     List<SaleLineCommand> saleLines = new ArrayList<>();
     for (int i = 0; i < lines.size(); i++) {
@@ -155,7 +179,7 @@ class CheckoutService implements Checkout {
             field + ".serialNumbers");
       }
       if (serials.isEmpty()) {
-        openPacksFor(product.uid(), line.quantity(), number);
+        openPacksFor(packs.get(product.uid()), product.uid(), line.quantity(), number);
       }
       List<Allocation> allocations;
       try {
@@ -169,7 +193,6 @@ class CheckoutService implements Checkout {
       }
       BigDecimal taxRate =
           product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent();
-      boolean taxIncluded = pricesIncludeTax();
       PricingService.PricedLine priced = pricedBy.get(product.uid());
       boolean promoted = priced != null && "PROMOTION".equals(priced.source());
       for (Allocation allocation : allocations) {
@@ -209,14 +232,16 @@ class CheckoutService implements Checkout {
   /**
    * Takes the stock lock of every product the cart may draw on (each line's, and the pack it can be
    * opened from) up front, in one fixed order, before any stock is taken: two tills selling [A, B]
-   * and [B, A] then queue rather than deadlock (the loser of a deadlock would be refused).
+   * and [B, A] then queue rather than deadlock (the loser of a deadlock would be refused). Returns
+   * the products' packs, read in one query, for break bulk below.
    */
-  private void lockProducts(java.util.Set<UUID> productUids) {
+  private Map<UUID, PackagingService.PackLinkView> lockProducts(java.util.Set<UUID> productUids) {
+    Map<UUID, PackagingService.PackLinkView> packs =
+        productUids.isEmpty() ? Map.of() : packaging.packsOf(List.copyOf(productUids));
     java.util.Set<UUID> all = new java.util.HashSet<>(productUids);
-    for (UUID product : productUids) {
-      packaging.packOf(product).ifPresent(link -> all.add(link.packProductUid()));
-    }
+    packs.values().forEach(link -> all.add(link.packProductUid()));
     stock.lockProducts(all);
+    return packs;
   }
 
   /**
@@ -362,28 +387,27 @@ class CheckoutService implements Checkout {
    * strip from a box), opens just enough packs first. If even the packs fall short the sale reports
    * the unit's shortage as usual.
    */
-  private void openPacksFor(UUID productUid, int quantity, String saleNumber) {
-    packaging
-        .packOf(productUid)
-        .ifPresent(
-            link -> {
-              int onHand = stockQueries.onHand(List.of(productUid)).getOrDefault(productUid, 0);
-              if (onHand >= quantity) {
-                return;
-              }
-              int packs = (quantity - onHand + link.unitsPerPack() - 1) / link.unitsPerPack();
-              try {
-                transformations.transform(
-                    new Transformations.TransformCommand(
-                        TransformationType.BREAK_BULK,
-                        List.of(new Transformations.InputCommand(link.packProductUid(), packs)),
-                        new Transformations.OutputCommand(
-                            productUid, packs * link.unitsPerPack(), null, null),
-                        "Opened at the till for " + saleNumber));
-              } catch (Refusal notEnoughPacks) {
-                // Fall through: allocation below refuses with the unit's own shortage.
-              }
-            });
+  private void openPacksFor(
+      PackagingService.PackLinkView link, UUID productUid, int quantity, String saleNumber) {
+    if (link == null) {
+      return;
+    }
+    int onHand = stockQueries.onHand(List.of(productUid)).getOrDefault(productUid, 0);
+    if (onHand >= quantity) {
+      return;
+    }
+    int packs = (quantity - onHand + link.unitsPerPack() - 1) / link.unitsPerPack();
+    try {
+      transformations.transform(
+          new Transformations.TransformCommand(
+              TransformationType.BREAK_BULK,
+              List.of(new Transformations.InputCommand(link.packProductUid(), packs)),
+              new Transformations.OutputCommand(
+                  productUid, packs * link.unitsPerPack(), null, null),
+              "Opened at the till for " + saleNumber));
+    } catch (Refusal notEnoughPacks) {
+      // Fall through: allocation below refuses with the unit's own shortage.
+    }
   }
 
   private static boolean blank(String value) {

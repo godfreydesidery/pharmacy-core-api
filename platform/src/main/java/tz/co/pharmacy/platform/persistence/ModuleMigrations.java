@@ -121,9 +121,18 @@ public class ModuleMigrations {
             "pharmacy.migrations.statement-timeout", DEFAULT_STATEMENT_TIMEOUT));
   }
 
-  /** The Flyway of one schema, as the owner, with the timeouts on every connection. */
+  /**
+   * The Flyway of one schema, as the owner, with the timeouts on every connection.
+   *
+   * <p>Flyway's lock against a second migrator is a session-level advisory lock, not the
+   * transactional one (Flyway's default on PostgreSQL): the transactional lock keeps a transaction
+   * open for the whole run, and {@code CREATE INDEX CONCURRENTLY} waits for every open transaction
+   * to end, so it would wait on Flyway itself until {@code lock_timeout} cancels it. The session
+   * lock still lets one migrator in at a time and ends with its connection.
+   */
   public FluentConfiguration configure(String schema) {
     return Flyway.configure()
+        .configuration(Map.of("flyway.postgresql.transactional.lock", "false"))
         .dataSource(url, ownerUsername, ownerPassword)
         .schemas(schema)
         .defaultSchema(schema)

@@ -78,9 +78,8 @@ class PriceListImport {
   /** {@code allMedicines}: the template lists every active medicine, not only those priced. */
   Importer<Plan> forList(UUID uid, boolean allMedicines) {
     PriceListView list =
-        pricing.priceLists().stream()
-            .filter(candidate -> candidate.uid().equals(uid))
-            .findFirst()
+        pricing
+            .priceList(uid)
             .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such price list."));
     return new ListImport(list, allMedicines);
   }
