@@ -108,9 +108,18 @@ with a new migration instead.
 
 ### Non-transactional migrations (`CREATE INDEX CONCURRENTLY`)
 
-`CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Put it **alone** in its own migration file, which
-Flyway then runs without a transaction. Keep `lock_timeout` in mind: it still waits for a brief lock at the start
-and the end.
+`CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Put it **alone** in its own migration file, with a
+`<script>.sql.conf` beside it that says `executeInTransaction=false`. Start it with
+`drop index concurrently if exists` of the same index, so a run that failed half-way can simply run again
+(partners V6, V7, purchasing V6). Flyway takes its own lock as a session advisory lock
+(`flyway.postgresql.transactional.lock=false`, `ModuleMigrations`). With its default transactional lock, a
+transaction stays open for the whole run, and the index build waits for it until `lock_timeout`.
+
+Keep `lock_timeout` in mind. The build waits for every transaction that is older than it, in the whole database,
+and that wait also ends at `lock_timeout` (5 s). With the API's limits (30 s statements, 60 s idle in a
+transaction) this is short, but a long report or job can make it fail. Run it again, or give the migrate-only task
+`PHARMACY_MIGRATIONS_LOCK_TIMEOUT=2min` for that release. The wait blocks no reads or writes: the build's
+`SHARE UPDATE EXCLUSIVE` lock does not conflict with them.
 
 If such a migration fails, two things are left behind:
 - a failed row in the history (`success = false`);

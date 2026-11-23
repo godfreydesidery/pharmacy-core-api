@@ -32,9 +32,12 @@ import tz.co.pharmacy.platform.kernel.Page;
 public class AccountSecurityHandler {
 
   private final AccountSecurity security;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
-  public AccountSecurityHandler(AccountSecurity security) {
+  public AccountSecurityHandler(
+      AccountSecurity security, tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
     this.security = security;
+    this.accessCache = accessCache;
   }
 
   /**
@@ -149,6 +152,8 @@ public class AccountSecurityHandler {
         given.password(),
         given.code(),
         EdgeFilter.client(request));
+    // The staff login's memberships moved to this account: no cached access of either stays.
+    accessCache.forgetAll();
     return ApiResponse.ok("The staff login is now part of your account");
   }
 
@@ -163,6 +168,7 @@ public class AccountSecurityHandler {
         tenantUid,
         body == null ? null : body.password(),
         body == null ? null : body.code());
+    accessCache.forgetUser(self());
     return ApiResponse.ok("You no longer work in that pharmacy");
   }
 

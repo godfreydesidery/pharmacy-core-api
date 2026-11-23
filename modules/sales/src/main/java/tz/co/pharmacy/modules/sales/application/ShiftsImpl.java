@@ -127,11 +127,13 @@ class ShiftsImpl implements Shifts {
   @Override
   @Transactional(readOnly = true)
   public Page<ShiftView> list(PageQuery query) {
-    return Keyset.page(
-        shifts,
-        Specs.equal("branchUid", ExecutionContext.requireBranch()),
-        query,
-        s -> view(s, figures(s, s.getClosedAt() == null ? clock.instant() : s.getClosedAt())));
+    Page<Shift> page =
+        Keyset.page(
+            shifts, Specs.equal("branchUid", ExecutionContext.requireBranch()), query, s -> s);
+    Instant now = clock.instant();
+    Map<java.util.UUID, Figures> figures =
+        figures(page.items(), s -> s.getClosedAt() == null ? now : s.getClosedAt());
+    return page.map(s -> view(s, figures.get(s.getUid())));
   }
 
   @Override
@@ -169,35 +171,65 @@ class ShiftsImpl implements Shifts {
   }
 
   private Figures figures(Shift shift, Instant until) {
-    Object[] window = {
-      shift.getBranchUid(),
-      shift.getCreatedByUid(),
-      shift.getOpenedAt().atOffset(ZoneOffset.UTC),
-      until.atOffset(ZoneOffset.UTC)
-    };
-    long[] count = {0};
-    BigDecimal[] totals = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
-    String where =
-        " where s.branch_uid = ? and s.created_by_uid = ? and s.created_at >= ?"
-            + " and s.created_at <= ?";
+    return figures(java.util.List.of(shift), s -> until).get(shift.getUid());
+  }
+
+  /**
+   * The figures of several shifts in four statements whatever their number (adversarial review
+   * PERF-16: the list ran four per shift), each shift a row of a {@code VALUES} window: its branch,
+   * cashier, opening and {@code until}.
+   */
+  private Map<java.util.UUID, Figures> figures(
+      java.util.List<Shift> shifts, java.util.function.Function<Shift, Instant> until) {
+    Map<java.util.UUID, Figures> figures = new java.util.HashMap<>();
+    if (shifts.isEmpty()) {
+      return figures;
+    }
+    StringBuilder windows =
+        new StringBuilder("with w (uid, branch_uid, user_uid, opened, until) as (values ");
+    java.util.List<Object> parameters = new java.util.ArrayList<>();
+    for (int i = 0; i < shifts.size(); i++) {
+      Shift shift = shifts.get(i);
+      windows.append(i == 0 ? "" : ", ").append("(?::uuid, ?::uuid, ?::uuid, ?::timestamptz,");
+      windows.append(" ?::timestamptz)");
+      parameters.add(shift.getUid());
+      parameters.add(shift.getBranchUid());
+      parameters.add(shift.getCreatedByUid());
+      parameters.add(shift.getOpenedAt().atOffset(ZoneOffset.UTC));
+      parameters.add(until.apply(shift).atOffset(ZoneOffset.UTC));
+    }
+    windows.append(") ");
+    String w = windows.toString();
+    Object[] window = parameters.toArray();
+    Map<java.util.UUID, Long> count = new java.util.HashMap<>();
+    Map<java.util.UUID, BigDecimal[]> totals = new java.util.HashMap<>();
+    String inWindow =
+        " s.branch_uid = w.branch_uid and s.created_by_uid = w.user_uid"
+            + " and s.created_at >= w.opened and s.created_at <= w.until";
     jdbc.query(
-        "select count(*) as sales, coalesce(sum(s.total), 0) as total,"
-            + " coalesce(sum(s.change_due), 0) as change from sales.sales s"
-            + where,
+        w
+            + "select w.uid, count(s.id) as sales, coalesce(sum(s.total), 0) as total,"
+            + " coalesce(sum(s.change_due), 0) as change from w left join sales.sales s on"
+            + inWindow
+            + " group by w.uid",
         r -> {
-          count[0] = r.getLong("sales");
-          totals[0] = r.getBigDecimal("total");
-          totals[1] = r.getBigDecimal("change");
+          java.util.UUID uid = r.getObject("uid", java.util.UUID.class);
+          count.put(uid, r.getLong("sales"));
+          totals.put(
+              uid, new BigDecimal[] {r.getBigDecimal("total"), r.getBigDecimal("change"), null});
         },
         window);
-    Map<String, BigDecimal> tenders = new TreeMap<>();
+    Map<java.util.UUID, Map<String, BigDecimal>> tenders = new java.util.HashMap<>();
     jdbc.query(
-        "select p.method, coalesce(sum(coalesce(p.base_amount, p.amount)), 0) as amount"
-            + " from sales.sale_payments p join sales.sales s on s.id = p.sale_id"
-            + where
-            + " group by p.method",
+        w
+            + "select w.uid, p.method, coalesce(sum(coalesce(p.base_amount, p.amount)), 0) as"
+            + " amount from w join sales.sales s on"
+            + inWindow
+            + " join sales.sale_payments p on s.id = p.sale_id group by w.uid, p.method",
         r -> {
-          tenders.put(r.getString("method"), Amounts.money(r.getBigDecimal("amount")));
+          tenders
+              .computeIfAbsent(r.getObject("uid", java.util.UUID.class), k -> new TreeMap<>())
+              .put(r.getString("method"), Amounts.money(r.getBigDecimal("amount")));
         },
         window);
     // Cash refunds paid from this drawer. A refund counts against the open shift of whoever paid
@@ -207,49 +239,58 @@ class ShiftsImpl implements Shifts {
     String openShift =
         " from sales.shifts o where o.branch_uid = r.branch_uid and o.opened_at <= r.created_at"
             + " and (o.closed_at is null or o.closed_at >= r.created_at)";
+    Map<java.util.UUID, BigDecimal> refunds = new java.util.HashMap<>();
     jdbc.query(
-        "select coalesce(sum("
+        w
+            + "select w.uid, coalesce(sum("
             + ReturnSql.cashPaidOut("r")
             + "), 0) as cash"
-            + " from sales.sale_returns r"
-            + " where r.branch_uid = ?"
-            + " and r.created_at >= ? and r.created_at <= ?"
-            + " and (r.created_by_uid = ?"
+            + " from w join sales.sale_returns r on r.branch_uid = w.branch_uid"
+            + " and r.created_at >= w.opened and r.created_at <= w.until"
+            + " and (r.created_by_uid = w.user_uid"
             + " or (not exists (select 1"
             + openShift
             + " and o.created_by_uid = r.created_by_uid)"
             + " and (exists (select 1 from sales.sales s where s.uid = r.sale_uid"
-            + " and s.created_by_uid = ?)"
+            + " and s.created_by_uid = w.user_uid)"
             + " or (not exists (select 1 from sales.sales s where s.uid = r.sale_uid"
             + " and exists (select 1"
             + openShift
             + " and o.created_by_uid = s.created_by_uid))"
             + " and (select count(*)"
             + openShift
-            + ") = 1))))",
+            + ") = 1))))"
+            + " group by w.uid",
         r -> {
-          totals[2] = r.getBigDecimal("cash");
+          refunds.put(r.getObject("uid", java.util.UUID.class), r.getBigDecimal("cash"));
         },
-        window[0],
-        window[2],
-        window[3],
-        window[1],
-        window[1]);
+        window);
     // Vouchers this cashier sold for cash at this branch: the money is in the drawer.
-    BigDecimal voucherCash =
-        jdbc.queryForObject(
-            "select coalesce(sum(v.initial_value), 0) from sales.vouchers v"
-                + " where v.branch_uid = ? and v.created_by_uid = ? and v.paid_by = 'CASH'"
-                + " and v.created_at >= ? and v.created_at <= ?",
-            BigDecimal.class,
-            window);
-    return new Figures(
-        count[0],
-        Amounts.money(totals[0]),
-        Amounts.money(totals[1]),
-        tenders,
-        Amounts.money(totals[2]),
-        Amounts.money(voucherCash));
+    Map<java.util.UUID, BigDecimal> vouchers = new java.util.HashMap<>();
+    jdbc.query(
+        w
+            + "select w.uid, coalesce(sum(v.initial_value), 0) as cash from w join sales.vouchers v"
+            + " on v.branch_uid = w.branch_uid and v.created_by_uid = w.user_uid"
+            + " and v.paid_by = 'CASH' and v.created_at >= w.opened and v.created_at <= w.until"
+            + " group by w.uid",
+        r -> {
+          vouchers.put(r.getObject("uid", java.util.UUID.class), r.getBigDecimal("cash"));
+        },
+        window);
+    for (Shift shift : shifts) {
+      java.util.UUID uid = shift.getUid();
+      BigDecimal[] sums = totals.get(uid);
+      figures.put(
+          uid,
+          new Figures(
+              count.getOrDefault(uid, 0L),
+              Amounts.money(sums == null ? BigDecimal.ZERO : sums[0]),
+              Amounts.money(sums == null ? BigDecimal.ZERO : sums[1]),
+              tenders.getOrDefault(uid, new TreeMap<>()),
+              Amounts.money(refunds.getOrDefault(uid, BigDecimal.ZERO)),
+              Amounts.money(vouchers.getOrDefault(uid, BigDecimal.ZERO))));
+    }
+    return figures;
   }
 
   private static ShiftView view(Shift s, Figures f) {

@@ -3,7 +3,8 @@ spring:
     name: pharmacy-core-api
   threads:
     virtual:
-      # Java 21 virtual threads for requests and async event listeners.
+      # Java 21 virtual threads for requests. The async event reactions run on their own bounded
+      # pool (pharmacy.async), and the requests in progress are capped (pharmacy.edge.max-in-flight).
       enabled: true
   servlet:
     multipart:
@@ -15,8 +16,11 @@ spring:
     username: ${PHARMACY_DB_USER:pharmacy_app}
     password: ${PHARMACY_DB_PASSWORD:}
     hikari:
+      # pharmacy.database's statement, lock and idle-in-transaction timeouts are added to it.
       connection-init-sql: SET TIME ZONE 'UTC'
       maximum-pool-size: ${PHARMACY_DB_POOL_SIZE:20}
+      # How long a request waits for a free connection before it is answered 503 database_busy.
+      connection-timeout: ${PHARMACY_DB_CONNECTION_TIMEOUT_MS:10000}
   jpa:
     open-in-view: false
     hibernate:
@@ -73,6 +77,12 @@ pharmacy:
   retention:
     # platform.job_runs older than this are deleted by the nightly retention.
     job-runs-days: ${PHARMACY_JOB_RUNS_DAYS:30}
+  async:
+    # The pool of the @Async event reactions (ledger, read models, webhooks, notices): this many
+    # threads (keep it under half the database pool) and a queue of this many; past the queue a
+    # reaction is refused and delivered again by the event-resubmission job.
+    threads: ${PHARMACY_ASYNC_THREADS:8}
+    queue: ${PHARMACY_ASYNC_QUEUE:10000}
   events:
     # Event publications whose listener failed (a ledger posting, a read model, a webhook) are
     # delivered again every 5 minutes once 5 minutes old, by one instance at a time.
@@ -88,6 +98,15 @@ pharmacy:
       # Documents younger than this are still being posted; the reconciliation leaves them out.
       grace: PT15M
   database:
+    # Set on every pooled connection when it opens (PERF-2; the application role cannot ALTER ROLE):
+    # a statement running longer is cancelled (503 database_busy), a lock wait longer fails (409
+    # busy_try_again), a session idle inside a transaction longer is ended. PostgreSQL durations
+    # (30s, 500ms, 2min); 0 turns one off. A transaction with @Transactional(timeout = ...) and a
+    # scheduled job (job-statement-timeout) raise the statement limit for themselves (SET LOCAL).
+    statement-timeout: ${PHARMACY_DB_STATEMENT_TIMEOUT:30s}
+    lock-timeout: ${PHARMACY_DB_LOCK_TIMEOUT:5s}
+    idle-in-transaction-timeout: ${PHARMACY_DB_IDLE_IN_TRANSACTION_TIMEOUT:60s}
+    job-statement-timeout: ${PHARMACY_DB_JOB_STATEMENT_TIMEOUT:5m}
     # The owner role runs the migrations (migrate-and-run, migrate-only). A run-only API needs
     # neither: leave both unset there.
     owner-username: ${PHARMACY_DB_OWNER_USER:pharmacy_owner}
@@ -128,6 +147,14 @@ pharmacy:
     # pool size), and how long one over the limit waits for a slot before a 429.
     tenant-concurrency: ${PHARMACY_TENANT_CONCURRENCY:10}
     tenant-wait-ms: ${PHARMACY_TENANT_WAIT_MS:2000}
+    # Requests this instance works on at once, whoever sends them (the live stream aside): one over
+    # waits this long for a slot, then is answered 503 server_busy with Retry-After (PERF-2).
+    max-in-flight: ${PHARMACY_MAX_IN_FLIGHT:100}
+    max-in-flight-wait-ms: ${PHARMACY_MAX_IN_FLIGHT_WAIT_MS:250}
+    # How long the edge keeps a session's pharmacy, membership and branch (PERF-9); 0 turns it off.
+    # Revocations (sign-out, a member changed, a pharmacy suspended or closed) evict at once on
+    # every instance; anything else is seen within this time.
+    access-cache-seconds: ${PHARMACY_EDGE_ACCESS_CACHE_SECONDS:30}
   bootstrap:
     # The first root administrator, created at start when none exists (then change the password).
     root-name: ${PHARMACY_ROOT_NAME:Root Administrator}

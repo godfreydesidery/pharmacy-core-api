@@ -28,9 +28,12 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class BranchHandler {
 
   private final BranchService branches;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
-  public BranchHandler(BranchService branches) {
+  public BranchHandler(
+      BranchService branches, tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
     this.branches = branches;
+    this.accessCache = accessCache;
   }
 
   /** Every branch of the tenant, for any member: the branch switcher needs them. */
@@ -52,9 +55,11 @@ public class BranchHandler {
   @Access(scope = AccessScope.TENANT, permission = Permissions.BRANCHES_MANAGE)
   public ApiResponse<BranchView> change(
       @PathVariable UUID branchUid, @RequestBody BranchRequest body) {
-    return ApiResponse.ok(
-        branches.change(branchUid, command(body), body.active() == null || body.active()),
-        "Branch changed");
+    BranchView changed =
+        branches.change(branchUid, command(body), body.active() == null || body.active());
+    // A closed branch is refused at the next request, on every instance (PERF-9).
+    accessCache.forgetTenant(tz.co.pharmacy.platform.kernel.ExecutionContext.requireTenant());
+    return ApiResponse.ok(changed, "Branch changed");
   }
 
   private static BranchCommand command(BranchRequest body) {

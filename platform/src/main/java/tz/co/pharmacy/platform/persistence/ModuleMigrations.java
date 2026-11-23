@@ -121,9 +121,16 @@ public class ModuleMigrations {
             "pharmacy.migrations.statement-timeout", DEFAULT_STATEMENT_TIMEOUT));
   }
 
-  /** The Flyway of one schema, as the owner, with the timeouts on every connection. */
+  /**
+   * The Flyway of one schema, as the owner, with the timeouts on every connection. Flyway's lock
+   * against a second migrating process is a session advisory lock, not its default transactional
+   * one: a transaction held open for the whole run would be a snapshot that {@code CREATE INDEX
+   * CONCURRENTLY} waits for until its {@code lock_timeout}, so it could never build (Batch 7,
+   * PERF-6).
+   */
   public FluentConfiguration configure(String schema) {
     return Flyway.configure()
+        .configuration(Map.of("flyway.postgresql.transactional.lock", "false"))
         .dataSource(url, ownerUsername, ownerPassword)
         .schemas(schema)
         .defaultSchema(schema)

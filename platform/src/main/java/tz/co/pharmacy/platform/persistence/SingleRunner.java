@@ -51,13 +51,35 @@ public class SingleRunner {
   private final InstanceName instance;
   private final MeterRegistry meters;
 
+  /**
+   * The statement timeout of the transactions a job begins ({@code
+   * pharmacy.database.job-statement-timeout}, 5 minutes): a nightly purge or a run over every
+   * pharmacy has no one waiting on it, and should not fail at the 30 seconds a request gets.
+   */
+  private final Duration jobStatementTimeout;
+
   public SingleRunner(
       DataSource dataSource, JobRuns runs, InstanceName instance, MeterRegistry meters) {
+    this(dataSource, runs, instance, meters, DEFAULT_JOB_STATEMENT_TIMEOUT);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public SingleRunner(
+      DataSource dataSource,
+      JobRuns runs,
+      InstanceName instance,
+      MeterRegistry meters,
+      @org.springframework.beans.factory.annotation.Value(
+              "${pharmacy.database.job-statement-timeout:PT5M}")
+          Duration jobStatementTimeout) {
     this.dataSource = dataSource;
     this.runs = runs;
     this.instance = instance;
     this.meters = meters;
+    this.jobStatementTimeout = jobStatementTimeout;
   }
+
+  static final Duration DEFAULT_JOB_STATEMENT_TIMEOUT = Duration.ofMinutes(5);
 
   /** Runs {@code job} unless another instance is running the job of this name; returns whether. */
   public boolean runAlone(String jobName, Runnable job) {
@@ -116,7 +138,7 @@ public class SingleRunner {
     long start = System.nanoTime();
     Throwable thrown = null;
     try {
-      job.accept(run);
+      StatementTimeout.runWith(jobStatementTimeout, () -> job.accept(run));
     } catch (RuntimeException | Error failure) {
       thrown = failure;
     }

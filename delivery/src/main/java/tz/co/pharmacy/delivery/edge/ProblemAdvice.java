@@ -131,6 +131,38 @@ public class ProblemAdvice {
     return false;
   }
 
+  /** Seconds a client waits before retrying a request the database was too busy for. */
+  static final long DATABASE_BUSY_RETRY_SECONDS = 2;
+
+  /**
+   * The database was too busy for this request: no pooled connection became free in time ({@code
+   * spring.datasource.hikari.connection-timeout}), or a statement ran past its {@code
+   * statement_timeout} (SQLState 57014). Nothing was written; the same request may succeed in a
+   * moment. 503 database_busy, Retry-After (adversarial review PERF-2).
+   */
+  static boolean databaseBusy(Throwable failure) {
+    for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+      if (t instanceof org.springframework.dao.QueryTimeoutException
+          || t instanceof java.sql.SQLTransientConnectionException) {
+        return true;
+      }
+      if (t instanceof java.sql.SQLException sql && "57014".equals(sql.getSQLState())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static ResponseEntity<ProblemDetail> databaseBusy() {
+    ResponseEntity<ProblemDetail> problem =
+        problem(503, "database_busy", "The server is busy; retry in a moment.", null);
+    problem.getBody().setProperty("retryAfterSeconds", DATABASE_BUSY_RETRY_SECONDS);
+    return ResponseEntity.status(503)
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .header("Retry-After", String.valueOf(DATABASE_BUSY_RETRY_SECONDS))
+        .body(problem.getBody());
+  }
+
   @ExceptionHandler(DataIntegrityViolationException.class)
   ResponseEntity<ProblemDetail> integrity(DataIntegrityViolationException exception) {
     log.warn("Integrity violation: {}", exception.getMostSpecificCause().getMessage());
@@ -143,6 +175,10 @@ public class ProblemAdvice {
       // A deadlock or lock timeout surfaced wrapped (at commit, through JPA): still a retry.
       log.info("Lost a lock to another request: {}", exception.toString());
       return busy();
+    }
+    if (databaseBusy(exception)) {
+      log.warn("The database was too busy for a request: {}", exception.toString());
+      return databaseBusy();
     }
     log.error("Unexpected failure", exception);
     return problem(500, "internal_error", "Something went wrong; it has been logged.", null);

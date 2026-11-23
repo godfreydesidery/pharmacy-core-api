@@ -51,6 +51,7 @@ public class PlatformHandler {
   private final TenantData data;
   private final java.time.Clock clock;
   private final int eraseAfterDays;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
   public PlatformHandler(
       TenantService tenants,
@@ -60,7 +61,9 @@ public class PlatformHandler {
       tz.co.pharmacy.modules.tenancy.ports.inbound.Subscriptions subscriptions,
       TenantData data,
       java.time.Clock clock,
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache,
       @Value("${pharmacy.tenancy.erase-after-days:30}") int eraseAfterDays) {
+    this.accessCache = accessCache;
     this.data = data;
     this.clock = clock;
     this.eraseAfterDays = eraseAfterDays;
@@ -144,6 +147,15 @@ public class PlatformHandler {
         "Tenant changed");
   }
 
+  /**
+   * A pharmacy's status changed: its cached access is forgotten on every instance, so a suspension
+   * or closure refuses its staff at their next request (PERF-9).
+   */
+  private <T> T forget(UUID tenantUid, T changed) {
+    accessCache.forgetTenant(tenantUid);
+    return changed;
+  }
+
   @PostMapping("/tenants/{tenantUid}/suspend")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> suspend(
@@ -156,7 +168,8 @@ public class PlatformHandler {
                 body.kind(),
                 "kind");
     return ApiResponse.ok(
-        tenants.suspend(tenantUid, kind, body == null ? null : body.reason()), "Tenant suspended");
+        forget(tenantUid, tenants.suspend(tenantUid, kind, body == null ? null : body.reason())),
+        "Tenant suspended");
   }
 
   @PostMapping("/tenants/{tenantUid}/reactivate")
@@ -165,7 +178,7 @@ public class PlatformHandler {
     TenantView tenant = tenants.reactivate(tenantUid);
     // Its subscription goes on too, or the lifecycle would never invoice it again.
     subscriptions.resumeAfterReactivation(tenantUid);
-    return ApiResponse.ok(tenant, "Tenant reactivated");
+    return ApiResponse.ok(forget(tenantUid, tenant), "Tenant reactivated");
   }
 
   /**
@@ -179,7 +192,7 @@ public class PlatformHandler {
     TenantView tenant =
         tenants.close(tenantUid, body == null ? null : body.reason(), eraseAfterDays);
     subscriptions.cancel(tenantUid);
-    return ApiResponse.ok(tenant, "Tenant closed");
+    return ApiResponse.ok(forget(tenantUid, tenant), "Tenant closed");
   }
 
   @PostMapping("/tenants/{tenantUid}/reopen")
@@ -187,7 +200,7 @@ public class PlatformHandler {
   public ApiResponse<TenantView> reopen(@PathVariable UUID tenantUid) {
     TenantView tenant = tenants.reopen(tenantUid);
     subscriptions.resumeAfterReactivation(tenantUid);
-    return ApiResponse.ok(tenant, "Tenant reopened");
+    return ApiResponse.ok(forget(tenantUid, tenant), "Tenant reopened");
   }
 
   /** A dispute, a regulator's or a court's order: the data may not be erased while it holds. */
@@ -219,6 +232,7 @@ public class PlatformHandler {
       @PathVariable UUID tenantUid, @RequestBody(required = false) EraseRequest body) {
     java.util.Map<String, Long> rows =
         data.erase(tenantUid, body == null ? null : body.confirmCode());
+    accessCache.forgetTenant(tenantUid);
     return ApiResponse.ok(
         new ErasedResponse(tenants.find(tenantUid).orElseThrow(), rows), "Tenant erased");
   }
@@ -242,8 +256,9 @@ public class PlatformHandler {
   @PostMapping("/root-admins/{userUid}/deactivate")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<UserView> deactivateRootAdmin(@PathVariable UUID userUid) {
-    return ApiResponse.ok(
-        users.setRootAdminActive(userUid, false), "Root administrator deactivated");
+    UserView deactivated = users.setRootAdminActive(userUid, false);
+    accessCache.forgetUser(userUid);
+    return ApiResponse.ok(deactivated, "Root administrator deactivated");
   }
 
   @PostMapping("/root-admins/{userUid}/reactivate")
@@ -258,6 +273,7 @@ public class PlatformHandler {
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<Void> removeRootAdmin(@PathVariable UUID userUid) {
     users.removeRootAdmin(userUid);
+    accessCache.forgetUser(userUid);
     return ApiResponse.ok("Root administrator removed");
   }
 

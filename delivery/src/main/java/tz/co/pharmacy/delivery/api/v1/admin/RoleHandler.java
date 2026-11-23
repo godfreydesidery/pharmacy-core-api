@@ -30,10 +30,21 @@ public class RoleHandler {
 
   private final UserAdministration users;
   private final RolePresets presets;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
-  public RoleHandler(UserAdministration users, RolePresets presets) {
+  public RoleHandler(
+      UserAdministration users,
+      RolePresets presets,
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
     this.users = users;
     this.presets = presets;
+    this.accessCache = accessCache;
+  }
+
+  /** A role's permissions changed: its members' cached access is forgotten everywhere (PERF-9). */
+  private <T> T forgetPharmacy(T changed) {
+    accessCache.forgetTenant(tz.co.pharmacy.platform.kernel.ExecutionContext.requireTenant());
+    return changed;
   }
 
   @GetMapping("/roles")
@@ -62,9 +73,10 @@ public class RoleHandler {
       throw Refusal.malformed("A role is required.");
     }
     return ApiResponse.ok(
-        users.changeRole(
-            roleUid,
-            new RoleCommand(body.code(), body.name(), body.description(), body.permissions())),
+        forgetPharmacy(
+            users.changeRole(
+                roleUid,
+                new RoleCommand(body.code(), body.name(), body.description(), body.permissions()))),
         "Role changed");
   }
 
@@ -82,7 +94,7 @@ public class RoleHandler {
   @PostMapping("/roles/recommendations/apply")
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
   public ApiResponse<RolePresets.Recommendations> applyRecommendations() {
-    return ApiResponse.ok(presets.apply(), "Recommended roles applied");
+    return ApiResponse.ok(forgetPharmacy(presets.apply()), "Recommended roles applied");
   }
 
   /** Keeps the pharmacy's own roles; the notice is not shown again. */
