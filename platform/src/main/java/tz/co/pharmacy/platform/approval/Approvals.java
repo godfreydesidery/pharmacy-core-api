@@ -96,8 +96,8 @@ public class Approvals {
       return;
     }
     BigDecimal value = amount == null ? Amounts.ZERO : Amounts.money(amount);
-    String token = ApprovalContext.token().orElse(null);
-    if (token == null) {
+    List<String> tokens = ApprovalContext.tokens();
+    if (tokens.isEmpty()) {
       throw Refusal.forbidden(
               "approval_required",
               "A manager must approve this ("
@@ -108,20 +108,48 @@ public class Approvals {
           .with("amount", value);
     }
     UUID requester = ExecutionContext.actor().uid();
-    List<Map<String, Object>> used =
-        jdbc.queryForList(
-            "update platform.approvals set used_at = ?, used_reference = ?"
-                + " where token_hash = ? and action = ? and amount >= ? and requested_by_uid = ?"
-                + " and used_at is null and expires_at > ?"
-                + " returning approved_by_uid, approved_by_name",
-            Timestamp.from(clock.instant()),
-            reference,
-            hash(token),
-            action,
-            value,
-            requester,
-            Timestamp.from(clock.instant()));
+    List<Map<String, Object>> used = List.of();
+    // A request may carry several approvals (one per action it needs); use the one for this.
+    for (String token : tokens) {
+      used =
+          jdbc.queryForList(
+              "update platform.approvals set used_at = ?, used_reference = ?"
+                  + " where token_hash = ? and action = ? and amount >= ? and requested_by_uid = ?"
+                  + " and used_at is null and expires_at > ?"
+                  + " returning approved_by_uid, approved_by_name",
+              Timestamp.from(clock.instant()),
+              reference,
+              hash(token),
+              action,
+              value,
+              requester,
+              Timestamp.from(clock.instant()));
+      if (!used.isEmpty()) {
+        break;
+      }
+    }
     if (used.isEmpty()) {
+      boolean forThisAction =
+          jdbc.queryForObject(
+                  "select count(*) from platform.approvals where token_hash in ("
+                      + String.join(",", java.util.Collections.nCopies(tokens.size(), "?"))
+                      + ") and action = ?",
+                  Integer.class,
+                  java.util.stream.Stream.concat(
+                          tokens.stream().map(Approvals::hash), java.util.stream.Stream.of(action))
+                      .toArray())
+              > 0;
+      if (!forThisAction) {
+        // The approvals sent are for other actions of this request: this one needs its own.
+        throw Refusal.forbidden(
+                "approval_required",
+                "A manager must also approve this ("
+                    + action.toLowerCase().replace('_', ' ')
+                    + (value.signum() > 0 ? ", " + value.toPlainString() : "")
+                    + ").")
+            .with("action", action)
+            .with("amount", value);
+      }
       throw Refusal.forbidden(
               "approval_invalid",
               "That approval does not match this action, has expired or was used; ask again.")

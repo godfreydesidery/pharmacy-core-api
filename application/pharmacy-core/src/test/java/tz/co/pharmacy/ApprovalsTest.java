@@ -133,6 +133,38 @@ class ApprovalsTest extends IntegrationTest {
         .isEqualTo("approval_invalid");
   }
 
+  @Test
+  @DisplayName("one request may carry several approvals; each action uses its own")
+  void severalApprovalsOnOneRequest() {
+    String body = "{\"value\":70000,\"paidBy\":\"CASH\"}";
+    // An approval of another action does not stand in for this one: it is asked for.
+    String other =
+        manager
+            .post(
+                "/api/v1/approvals",
+                "{\"action\":\"REFUND\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                    .formatted(adminEmail))
+            .expect(201)
+            .string("$.data.token");
+    Response asked = manager.post("/api/v1/vouchers", body, "X-Approval", other);
+    assertThat(asked.expect(403).string("$.reason")).isEqualTo("approval_required");
+    assertThat(asked.string("$.action")).isEqualTo("VOUCHER");
+
+    String voucher =
+        manager
+            .post(
+                "/api/v1/approvals",
+                "{\"action\":\"VOUCHER\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                    .formatted(adminEmail))
+            .expect(201)
+            .string("$.data.token");
+    // A list header (RFC 9110): the voucher uses its approval; the refund's stays unused.
+    manager.post("/api/v1/vouchers", body, "X-Approval", other + ", " + voucher).expect(201);
+    // The voucher's approval is spent; the refund's was not, and still does not cover a voucher.
+    Response spent = manager.post("/api/v1/vouchers", body, "X-Approval", voucher);
+    assertThat(spent.expect(403).string("$.reason")).isEqualTo("approval_invalid");
+  }
+
   private String managerSignIn() {
     return manager.get("/api/v1/auth/me").expect(200).string("$.data.user.email");
   }
