@@ -36,6 +36,7 @@ class ManagedLoginsImpl implements ManagedLogins {
   private final SessionRepository sessions;
   private final Passwords passwords;
   private final AuditLog audit;
+  private final Seats seats;
   private final Clock clock;
 
   ManagedLoginsImpl(
@@ -45,6 +46,7 @@ class ManagedLoginsImpl implements ManagedLogins {
       SessionRepository sessions,
       Passwords passwords,
       AuditLog audit,
+      Seats seats,
       Clock clock) {
     this.users = users;
     this.memberships = memberships;
@@ -52,6 +54,7 @@ class ManagedLoginsImpl implements ManagedLogins {
     this.sessions = sessions;
     this.passwords = passwords;
     this.audit = audit;
+    this.seats = seats;
     this.clock = clock;
   }
 
@@ -72,6 +75,7 @@ class ManagedLoginsImpl implements ManagedLogins {
       throw Refusal.conflict(
           "username_taken", "The username " + username + " is already used in this pharmacy.");
     }
+    seats.requireNewSeat(tenant);
     String temporary = TemporaryPasswords.next();
     User user = User.managed(tenant, signIn, name, passwords.hash(temporary, "password"));
     user.changeManagedContact(name, phone, contactEmail);
@@ -135,8 +139,7 @@ class ManagedLoginsImpl implements ManagedLogins {
   private Role role(UUID roleUid) {
     Checks.required(roleUid, "roleUid");
     return roles
-        .findByUid(roleUid)
-        .filter(role -> role.getTenantUid().equals(TenantContext.requireTenant()))
+        .findByUidAndTenantUid(roleUid, TenantContext.requireTenant())
         .orElseThrow(() -> Refusal.invalid("role_not_found", "No such role.", "roleUid"));
   }
 

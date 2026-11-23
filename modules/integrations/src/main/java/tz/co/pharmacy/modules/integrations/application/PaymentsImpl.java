@@ -65,6 +65,9 @@ class PaymentsImpl implements Payments {
     if (!ADAPTERS.contains(adapter)) {
       throw Refusal.invalid("invalid_adapter", "Unknown adapter " + adapter + ".", "adapter");
     }
+    if (!adapters.usable(adapter)) {
+      throw notAvailable(adapter, "adapter");
+    }
     PaymentMethodType type = types.findByCode(code).orElseGet(() -> new PaymentMethodType(code));
     type.change(
         Checks.text(c.name(), "name", 80),
@@ -82,7 +85,9 @@ class PaymentsImpl implements Payments {
     Map<String, TenantPaymentMethod> chosen = chosen();
     List<TenantMethodView> out = new ArrayList<>();
     for (PaymentMethodType type : types.findAllByOrderBySortOrderAscCodeAsc()) {
-      if (type.isEnabled()) {
+      // A method whose adapter this deployment lacks (the simulator outside sim/local) is not
+      // offered at all.
+      if (type.isEnabled() && adapters.usable(type.getAdapter())) {
         out.add(view(type, chosen.get(type.getCode()), chosen.isEmpty()));
       }
     }
@@ -103,6 +108,9 @@ class PaymentsImpl implements Payments {
                         "method_not_found",
                         "No such payment method on the platform.",
                         "methodCode"));
+    if (!adapters.usable(type.getAdapter())) {
+      throw notAvailable(type.getAdapter(), "methodCode");
+    }
     if (tenantMethods.findAllByOrderByIdAsc().isEmpty()) {
       // The first choice turns "everything accepted" into an explicit list: keep the rest on.
       for (PaymentMethodType other : types.findAllByOrderBySortOrderAscCodeAsc()) {
@@ -133,6 +141,10 @@ class PaymentsImpl implements Payments {
   @Transactional
   public IntentView requestPayment(RequestPaymentCommand c) {
     String code = Checks.text(c.methodCode(), "methodCode", 40).toUpperCase();
+    Optional<String> registryAdapter = types.findByCode(code).map(PaymentMethodType::getAdapter);
+    if (registryAdapter.isPresent() && !adapters.usable(registryAdapter.get())) {
+      throw notAvailable(registryAdapter.get(), "methodCode");
+    }
     TenantMethodView method =
         tillMethods().stream()
             .filter(m -> m.code().equals(code))
@@ -207,6 +219,23 @@ class PaymentsImpl implements Payments {
     Optional<PaymentIntent> intent = intentOf(reference);
     if (intent.isPresent()) {
       PaymentIntent request = intent.get();
+      // A request pays only a tender of its own method at its own branch (INT-15): an M-Pesa
+      // confirmation cannot settle a card tender, nor one branch's request another's sale.
+      UUID branch = ExecutionContext.branchUid().orElse(null);
+      if (!code.equals(request.getMethodCode())
+          || (request.getBranchUid() != null && !request.getBranchUid().equals(branch))) {
+        throw Refusal.invalid(
+            "payment_mismatch",
+            "This payment request was made for "
+                + request.getMethodCode()
+                + (request.getBranchUid() != null && !request.getBranchUid().equals(branch)
+                    ? " at another branch"
+                    : "")
+                + "; it cannot pay a "
+                + code
+                + " tender here.",
+            "payments");
+      }
       refresh(request);
       if (!"CONFIRMED".equals(request.getStatus())) {
         return new Verification(
@@ -226,6 +255,13 @@ class PaymentsImpl implements Payments {
           false, null, "Enter the " + method.get().name() + " reference or confirmation code.");
     }
     return new Verification(true, reference, null);
+  }
+
+  private static Refusal notAvailable(String adapter, String field) {
+    return Refusal.invalid(
+        "adapter_not_available",
+        "The " + adapter + " payment adapter is not available on this server.",
+        field);
   }
 
   private Optional<PaymentIntent> intentOf(String reference) {

@@ -450,6 +450,25 @@ final class TemplateCatalog {
             "amount", "TZS 120,000.00",
             "dueDate", "2026-12-01",
             "graceEnds", "2026-12-08"));
+    define(
+        TemplateKeys.SMS_CAP_REACHED,
+        new Default(
+            "This month's SMS are used",
+            "The {{planName}} plan includes {{cap}} SMS a month through the platform, and those for"
+                + " {{month}} are used. Further SMS this month are not sent (the delivery log shows"
+                + " them as failed: sms_cap_reached). Add your own SMS provider in the notification"
+                + " settings, or upgrade the plan.",
+            "{{month}}: the {{cap}} SMS of the {{planName}} plan are used. Further SMS are not sent;"
+                + " add your own SMS provider or upgrade."),
+        new Default(
+            "SMS za mwezi huu zimekwisha",
+            "Kifurushi cha {{planName}} kina SMS {{cap}} kwa mwezi kupitia jukwaa, na za {{month}}"
+                + " zimekwisha. SMS zaidi mwezi huu hazitumwi (kumbukumbu za utumaji zinaonyesha"
+                + " zimeshindwa: sms_cap_reached). Ongeza mtoa huduma wako wa SMS kwenye mipangilio"
+                + " ya arifa, au panda kifurushi.",
+            "{{month}}: SMS {{cap}} za kifurushi cha {{planName}} zimekwisha. SMS zaidi hazitumwi;"
+                + " ongeza mtoa huduma wako wa SMS au panda kifurushi."),
+        Map.of("planName", "Starter", "cap", 200, "month", "2026-11"));
   }
 
   private TemplateCatalog() {}

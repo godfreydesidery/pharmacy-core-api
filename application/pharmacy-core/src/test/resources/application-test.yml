@@ -1,9 +1,18 @@
 pharmacy:
   access:
     require-2fa-for-root: false
+    lockout:
+      # Every test signs in from 127.0.0.1 in one server: the deliberate wrong passwords of all
+      # classes add up, and the per-device limit (20 in 15 minutes) would lock the rest of the suite
+      # out. Each account's own lock (5 failures) still applies and is tested.
+      ip-max-failures: 1000
   notifications:
     log-bodies: true
     keep-account-messages: true
+    smtp:
+      # NotificationProvidersTest's broken and hung mail servers on loopback, allowed only here
+      # (they skip the host and port rules, never the TLS one).
+      allowed-hosts: 127.0.0.1
   bootstrap:
     root-email: root@test.local
     root-password: "Root#Test2026"
@@ -16,6 +25,11 @@ pharmacy:
   edge:
     # Every test signs in from 127.0.0.1; the production default (20 a minute) would throttle them.
     auth-requests-per-minute: 1000
+  exports:
+    # The export worker looks for new jobs this often (production: every 5 s).
+    poll-every-ms: 200
+    # Small pages, so every export in the tests is read over several transactions.
+    page-rows: 25
   integrations:
     webhooks:
       # WebhookRetryTest's receiver: a loopback address the SSRF test does not use, allowed only here.

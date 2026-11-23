@@ -71,6 +71,16 @@ public class WebhookHandler {
     return ApiResponse.ok(webhooks.change(webhookUid, body.toCommand()), "Webhook changed");
   }
 
+  /**
+   * A new signing secret, in the response only (the one time it is shown). The old secret keeps
+   * signing for 24 hours ({@code previousSecretUntil}).
+   */
+  @PostMapping("/{webhookUid}/rotate-secret")
+  @Access(scope = AccessScope.TENANT, permission = "integrations.manage")
+  public ApiResponse<WebhookView> rotateSecret(@PathVariable UUID webhookUid) {
+    return ApiResponse.ok(webhooks.rotateSecret(webhookUid), "Webhook secret rotated");
+  }
+
   @DeleteMapping("/{webhookUid}")
   @Access(scope = AccessScope.TENANT, permission = "integrations.manage")
   public ApiResponse<Void> delete(@PathVariable UUID webhookUid) {

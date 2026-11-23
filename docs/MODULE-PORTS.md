@@ -88,8 +88,9 @@ Note: `register` runs at platform scope (no tenant). The `TenantRegistered` meta
 Tables:
 - `access.users`: platform scope, **no RLS**. `email` unique in lower case, `name`, `password_hash` (Argon2id via spring-security-crypto `Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()`), `root_admin`, `active`, `last_sign_in_at`.
 - `access.sessions`: no RLS. `token_hash` (SHA-256 hex), `user_uid`, `expires_at`, `revoked_at`.
-- `access.roles` (RLS) plus `access.role_permissions(role_id, permission)`. The policy on the child is `exists (select 1 from access.roles r where r.id = role_id)`.
-- `access.memberships`, where RLS is `using (tenant_uid = platform.current_tenant_uid() or user_uid = platform.current_user_uid()) with check (tenant_uid = platform.current_tenant_uid())`. Plus `access.membership_branches(membership_id, branch_uid)` with an `exists` policy on `access.memberships`.
+- `access.roles` (RLS) plus `access.role_permissions(role_id, permission)`. Reading: the tenant's roles, the roles of the current user's own memberships elsewhere, and the role named on an invitation whose token the transaction names. Writing (insert, update) is the current tenant's only (access V18, ISO-7). The child's select policy is `exists (select 1 from access.roles r where r.id = role_id)`; its insert and delete policies also need `r.tenant_uid = platform.current_tenant_uid()`.
+- `access.memberships`. Reading is `tenant_uid = platform.current_tenant_uid() or user_uid = platform.current_user_uid()`; insert and update are the current tenant's only. `access.membership_branches(membership_id, branch_uid)` follows the same split, through `access.memberships`.
+- `access.session_pharmacies(session_uid, tenant_uid, entered_at)`: platform scope, no RLS, and **no privilege for the application role**. The application reaches it only through the SECURITY DEFINER functions `access.enter_pharmacy(session uuid, tenant uuid, at timestamptz)` (a live session only) and `access.entered_pharmacies(session_id bigint)` (ISO-11).
 
 Tokens are `"pcs_" + base64url(32 random bytes)` and last 12 h (`pharmacy.access.session-hours`, default 12).
 
@@ -111,7 +112,7 @@ record RoleCommand(String code, String name, String description, List<String> pe
 record MemberView(UUID membershipUid, UUID userUid, String name, String email, UUID roleUid, String roleCode, String roleName,
                   boolean allBranches, List<UUID> branchUids, boolean active, Instant lastSignInAt, Instant createdAt) {}
 record AddMemberCommand(String name, String email, String password, UUID roleUid, boolean allBranches, List<UUID> branchUids) {}
-record ChangeMemberCommand(UUID roleUid, boolean allBranches, List<UUID> branchUids, boolean active) {}
+record ChangeMemberCommand(UUID roleUid, boolean allBranches, List<UUID> branchUids, Boolean active /* null keeps it */, �) {}
 record NewUserCommand(String name, String email, String password) {}
 
 interface AuthenticationService {
@@ -136,12 +137,25 @@ interface UserAdministration {                // current tenant unless stated
   RoleView changeRole(UUID roleUid, RoleCommand command);   // a system role keeps its code and name
   /** Seeds the default system roles in the current tenant and makes the user (new or existing by email) its ADMIN. */
   MemberView seedTenant(NewUserCommand administrator);
+  /** Active members plus invitations still open: the seats the plan's users cap counts (INT-6). */
+  long seatsInUse();
+  /** Names as this pharmacy may show them: a former member as it kept them when they left (ISO-6). */
+  Map<String, String> displayNames(Collection<String> references);
+  Map<UUID, String> displayNamesByUid(Collection<UUID> userUids);
   // platform scope
   List<UserView> rootAdmins();
   UserView createRootAdmin(NewUserCommand command);
   boolean anyRootAdmin();
   long userCount();
 }
+// ports.outbound
+/** The plan's users cap (composition: tenancy Entitlements.requireRoomGiven). Access counts the seats
+    in the transaction that takes one, under a per-pharmacy transaction-scoped advisory lock, so
+    parallel requests cannot pass the cap: an invitation, a managed login, a member added or
+    reactivated (members + open invitations + 1), and an invitation accepted (members + 1; an
+    invitation a root administrator sent is never held back). 422 plan_limit_reached. */
+interface UsersCap { void requireRoom(UUID tenantUid, long inUse, long adding); }
+
 /** The one-time "Apply recommended roles" notice (owner, 23 Nov 2026). Current tenant. Decisions per
     Permissions.PRESETS_VERSION in access.role_preset_decisions. */
 interface RolePresets {
@@ -654,17 +668,77 @@ interface DashboardFacts { StockFigures stock(Set<UUID> branchUids, int expiryAl
 ```java
 enum DeliveryStatus { PENDING, DELIVERED, FAILED }
 record WebhookCommand(String name, String url, List<String> eventTypes, Boolean active) {}
-record WebhookView(UUID uid, String name, String url, List<String> eventTypes, boolean active, String secret /* only on create, else null */, Instant createdAt) {}
-record DeliveryView(UUID uid, String eventType, UUID eventId, DeliveryStatus status, Integer responseStatus, int attempts, String lastError, Instant createdAt, Instant deliveredAt) {}
+record WebhookView(UUID uid, String name, String url, List<String> eventTypes, boolean active,
+                   String secret /* only on create and rotate-secret, else null */,
+                   Instant previousSecretUntil /* the old secret signs until then, after a rotation */,
+                   Instant createdAt) {}
+record DeliveryView(UUID uid, String eventType, UUID eventId, DeliveryStatus status, Integer responseStatus, int attempts, String lastError, Instant createdAt, Instant deliveredAt, Instant nextAttemptAt) {}
 interface Webhooks {
+  int MAX_WEBHOOKS = 10;       // per pharmacy: 422 webhook_limit
   List<String> eventTypes();   // sale.completed, sale.returned, goods.received, stock.adjusted, stock.low, product.changed, tenant.registered
   List<WebhookView> list();
-  WebhookView create(WebhookCommand c);       // https (or http://localhost) url; 32-byte random secret
+  WebhookView create(WebhookCommand c);       // https url to a public host (422 webhook_url_not_allowed); secret whsec_<base64 32 bytes>, sealed at rest
   WebhookView change(UUID uid, WebhookCommand c);
+  WebhookView rotateSecret(UUID uid);         // new secret returned once; the old one also signs for 24 h
   void delete(UUID uid);
   Page<DeliveryView> deliveries(UUID webhookUid, PageQuery query);
-  /** Called by composition reactions: records a delivery per subscribed active webhook, then sends each as a
-      CloudEvent (HMAC-SHA256 X-Pharmacy-Signature), up to 3 attempts with backoff, recording the outcome. */
+  /** Called by composition reactions: records a delivery per subscribed active webhook, then sends them side
+      by side as CloudEvents signed per Standard Webhooks (webhook-id, webhook-timestamp,
+      webhook-signature: v1,<base64 HMAC-SHA256 of "id.timestamp.body">; plus the old X-Pharmacy-Signature
+      for one release), up to 3 attempts with backoff, recording the outcome. */
   void dispatch(UUID eventId, String eventType, Instant occurredAt, Object data);
+  /** Due failed deliveries, claimed FOR UPDATE SKIP LOCKED with a lease, one lane per webhook. */
+  int retryDue();
+}
+/** The SSRF rules of webhook targets for any host (SMTP servers reuse them). */
+interface PublicAddresses { Optional<String> problem(String host); }
+// Payments: SIMULATOR exists only under the sim, local (and test) profiles: elsewhere saving it in the
+// registry, enabling it or pushing through it is 422 adapter_not_available, and it is not offered.
+// verify(): a push request pays only a tender of its own method at its own branch: 422 payment_mismatch.
+
+// ports.outbound (adapters in composition)
+interface SecretSealing { String seal(String plain); String open(String sealed); }  // → notifications Sealing
+```
+
+## notifications (`tz.co.pharmacy.modules.notifications`): ports added for the outside-connection hardening
+
+```java
+// ports.inbound
+interface Sealing { String seal(String plain); String open(String sealed); }   // provider-secret sealing (AES-256-GCM, pharmacy.access.encryption-key), reused by integrations
+interface NotificationUsage { /* … */ long platformSmsThisMonth(UUID tenantUid, ZoneId zone); }  // SMS on the platform's account, the pharmacy's month
+record DeliveryView(/* … */ Instant sentAt, String reason) {}   // reason: sms_cap_reached when the platform refused the message
+record DeliveryDetail(/* … */ Instant sentAt, String reason) {}
+TemplateKeys.SMS_CAP_REACHED = "tenant.sms_cap_reached"          // in-app notice to the admins, once a month
+// ports.outbound (adapters in composition)
+interface PublicHosts { Optional<String> problem(String host); }                 // → integrations PublicAddresses (SMTP host rule)
+interface SmsAllowance { Allowance of(UUID tenantUid);                           // → tenancy Subscriptions + TenantService
+                         record Allowance(Integer perMonth, String planName, ZoneId zone) {} }
+```
+SMTP providers (INT-2): host public (the webhook targets' rules), port 25/465/587/2525/2587 (422 `smtp_host_not_allowed`,
+`smtp_port_not_allowed`), checked on save, on "Send test" and before every send; implicit TLS on 465, STARTTLS required
+elsewhere; a changed host or port drops the stored secrets. SMS on the platform's account (INT-5) stop at the plan's
+`sms_per_month`, counted from the delivery log in the pharmacy's calendar month: FAILED, reason `sms_cap_reached`.
+## files (`tz.co.pharmacy.modules.files`)
+
+```java
+interface Files { /* the current tenant's files: beginUpload, completeUpload, uploadDirect, downloadUrl,
+                     downloadLink, find, attachments, delete. Never sees an archive (below). */ }
+/** Archives the platform makes for the current tenant (the full data export), in the same store under
+    tenants/{tenantUid}/exports/{fileUid}/{name}; files.files rows with owner_type DATA_EXPORT. */
+interface Archives {
+  String OWNER_TYPE = "DATA_EXPORT";
+  FileView store(String name, String contentType, UUID ownerUid, Path content, long size);
+  DownloadLink link(UUID fileUid, Duration ttl);   // presigned GET; 404 file_not_found
+  void delete(UUID fileUid);                       // marks DELETED; bytes deleted or queued (FileDeletions)
+}
+/** Platform scope: deletes from the store, queueing what fails in files.pending_deletes. */
+interface FileDeletions {
+  boolean delete(String storageKey, String reason);   // true: gone now; false: queued for a retry
+  RetryOutcome retryDue(int limit);                    // FOR UPDATE SKIP LOCKED; backoff 1 h doubling, max 1 day
+  record RetryOutcome(long deleted, long failed) {}
 }
 ```
+
+Platform (not a module port, `tz.co.pharmacy.platform.persistence`): `exports.DataExportJobs` (the
+`platform.data_exports` jobs: start, find, claim, heartbeat, ready, retry, fail, expiring, expired)
+and `retention.RetentionTask` (a part of the nightly retention bound in composition).

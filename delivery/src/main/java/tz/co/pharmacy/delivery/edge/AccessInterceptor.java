@@ -136,6 +136,20 @@ public class AccessInterceptor implements HandlerInterceptor {
             "Confirm your password to make this change to your account.");
       }
     }
+    for (String required : access.allOf()) {
+      if (!frame.permits(required)) {
+        throw Refusal.forbidden(
+            "forbidden", "Your role does not include the permission " + required + ".");
+      }
+    }
+    if (access.anyOf().length > 0
+        && java.util.Arrays.stream(access.anyOf()).noneMatch(frame::permits)) {
+      throw Refusal.forbidden(
+          "forbidden",
+          "Your role does not include any of the permissions "
+              + String.join(", ", access.anyOf())
+              + ".");
+    }
     if (!access.permission().isEmpty() && !frame.permits(access.permission())) {
       throw Refusal.forbidden(
           "forbidden", "Your role does not include the permission " + access.permission() + ".");

@@ -16,12 +16,10 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
-import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationService;
 import tz.co.pharmacy.modules.access.ports.inbound.InvitationView;
 import tz.co.pharmacy.modules.access.ports.inbound.InviteCommand;
-import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 import tz.co.pharmacy.platform.kernel.Page;
 
 /** Inviting people to the tenant by email, with a role and branch access. */
@@ -46,7 +44,7 @@ public class InvitationHandler {
         "Invitations retrieved");
   }
 
-  @CountsAgainst(PlanLimit.USERS)
+  /** 422 plan_limit_reached when members and pending invitations fill the plan's users cap. */
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "users.manage")

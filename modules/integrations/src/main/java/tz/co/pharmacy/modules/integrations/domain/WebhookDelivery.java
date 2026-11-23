@@ -88,6 +88,21 @@ public class WebhookDelivery extends TenantEntity {
         delivered || rounds > BACKOFF.size() ? null : now.plus(BACKOFF.get(rounds - 1));
   }
 
+  /**
+   * Claimed by one sender until {@code leaseEnd}: no other instance picks it up meanwhile, and if
+   * the sender dies the delivery is due again once the lease ends.
+   */
+  public void claimUntil(Instant leaseEnd) {
+    this.nextAttemptAt = leaseEnd;
+  }
+
+  /** A claimed delivery that was not attempted goes back to when it was due. */
+  public void release(Instant dueAt) {
+    if (status == DeliveryStatus.FAILED) {
+      this.nextAttemptAt = dueAt;
+    }
+  }
+
   /** The webhook is gone or switched off: no more attempts. */
   public void giveUp(String reason) {
     this.nextAttemptAt = null;

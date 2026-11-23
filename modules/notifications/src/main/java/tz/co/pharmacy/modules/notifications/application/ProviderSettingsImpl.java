@@ -27,6 +27,7 @@ import tz.co.pharmacy.modules.notifications.providers.ProviderCatalog.Field;
 import tz.co.pharmacy.modules.notifications.providers.ProviderHealth;
 import tz.co.pharmacy.modules.notifications.providers.ProviderRouter;
 import tz.co.pharmacy.modules.notifications.providers.ProviderRouter.Route;
+import tz.co.pharmacy.modules.notifications.providers.SmtpRules;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.persistence.TenantContext;
@@ -49,14 +50,21 @@ class ProviderSettingsImpl implements ProviderSettings {
   private final ProviderHealth health;
   private final TransactionTemplate transactions;
   private final String defaultCountryCode;
+  private final SmtpRules smtpRules;
+  private final SmsCap smsCap;
 
+  @SuppressWarnings("java:S107")
   ProviderSettingsImpl(
       ProviderSettingRepository settings,
       MessageRepository messages,
       ProviderRouter router,
       ProviderHealth health,
+      SmtpRules smtpRules,
+      SmsCap smsCap,
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode) {
+    this.smtpRules = smtpRules;
+    this.smsCap = smsCap;
     this.settings = settings;
     this.messages = messages;
     this.router = router;
@@ -120,7 +128,7 @@ class ProviderSettingsImpl implements ProviderSettings {
                 to,
                 providerUid == null
                     ? router.routesPlatform(ch)
-                    : List.of(router.routeOf(platformRow(providerUid)))));
+                    : List.of(router.routeOf(testable(platformRow(providerUid))))));
   }
 
   // ------------------------------------------------------------------ tenant
@@ -173,11 +181,21 @@ class ProviderSettingsImpl implements ProviderSettings {
   @Override
   public TestResult testTenant(Channel channel, UUID providerUid, String to) {
     Channel ch = sending(channel);
-    TenantContext.requireTenant();
-    return test(
-        ch,
-        to,
-        providerUid == null ? router.routes(ch) : List.of(router.routeOf(tenantRow(providerUid))));
+    UUID tenant = TenantContext.requireTenant();
+    List<Route> routes =
+        providerUid == null
+            ? router.routes(ch)
+            : List.of(router.routeOf(testable(tenantRow(providerUid))));
+    if (ch == Channel.SMS && !ProviderRouter.SOURCE_OWN.equals(routes.getFirst().source())) {
+      // A test through the platform's account is an SMS on the platform's account (INT-5).
+      smsCap
+          .refusal(tenant)
+          .ifPresent(
+              refusal -> {
+                throw Refusal.invalid(SmsCap.REASON, refusal, "channel");
+              });
+    }
+    return test(ch, to, routes);
   }
 
   // ------------------------------------------------------------------ shared
@@ -305,10 +323,20 @@ class ProviderSettingsImpl implements ProviderSettings {
     if (plain.containsKey("port") && !plain.get("port").matches("\\d{1,5}")) {
       throw Refusal.invalid("invalid_port", "port must be a number.", "settings.port");
     }
+    boolean smtp = row.getChannel() == Channel.EMAIL && "smtp".equals(code);
+    if (smtp) {
+      smtpRules(plain);
+    }
     // Secrets: keep the stored ones of the same provider, then apply the ones given. Stored ones
-    // sealed under another key are dropped, so the required check asks for them again.
+    // sealed under another key are dropped, so the required check asks for them again. An SMTP
+    // provider pointed at another host or port drops them too (INT-2): a saved password is never
+    // sent to a server the admin who typed it did not choose; it is entered again.
     Map<String, String> secrets = new LinkedHashMap<>();
-    if (code.equals(row.getProvider()) && row.getSecrets() != null && router.secretsReadable(row)) {
+    boolean sameServer = !smtp || sameServer(row, plain);
+    if (code.equals(row.getProvider())
+        && sameServer
+        && row.getSecrets() != null
+        && router.secretsReadable(row)) {
       secrets.putAll(router.secrets(row));
     }
     Map<String, String> newSecrets = command.secrets() == null ? Map.of() : command.secrets();
@@ -334,6 +362,49 @@ class ProviderSettingsImpl implements ProviderSettings {
       }
     }
     row.change(name, code, ProviderRouter.write(plain), router.sealSecrets(secrets));
+  }
+
+  /** The SMTP host and port rules (INT-2): 422 smtp_host_not_allowed or smtp_port_not_allowed. */
+  private void smtpRules(Map<String, String> plain) {
+    String host = plain.get("host");
+    String port = plain.get("port");
+    if (host == null || port == null) {
+      return; // the required-field check names what is missing
+    }
+    plain.put("host", SmtpRules.normalHost(host));
+    smtpRules
+        .check(host, Integer.parseInt(port))
+        .ifPresent(
+            refused -> {
+              throw Refusal.invalid(refused.reason(), refused.problem(), refused.field());
+            });
+  }
+
+  /** Whether an SMTP row keeps its host and port. */
+  private static boolean sameServer(ProviderSetting row, Map<String, String> plain) {
+    Map<String, String> stored = ProviderRouter.plain(row);
+    return SmtpRules.normalHost(stored.get("host")).equals(SmtpRules.normalHost(plain.get("host")))
+        && String.valueOf(stored.get("port")).trim().equals(String.valueOf(plain.get("port")));
+  }
+
+  /** A single provider tested on its own follows the send rules first: 422 when they refuse. */
+  private ProviderSetting testable(ProviderSetting row) {
+    if (row.getChannel() != Channel.EMAIL || !"smtp".equals(row.getProvider())) {
+      return row;
+    }
+    Map<String, String> plain = ProviderRouter.plain(row);
+    String host = plain.get("host");
+    String port = plain.get("port");
+    if (host == null || port == null || !port.trim().matches("\\d{1,5}")) {
+      return row; // the send itself says what is missing
+    }
+    smtpRules
+        .check(host, Integer.parseInt(port.trim()))
+        .ifPresent(
+            refused -> {
+              throw Refusal.invalid(refused.reason(), refused.problem(), refused.field());
+            });
+    return row;
   }
 
   /**

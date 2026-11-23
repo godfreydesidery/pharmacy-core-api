@@ -44,6 +44,13 @@ public final class Permissions {
   public static final String INTEGRATIONS_MANAGE = "integrations.manage";
   public static final String APPROVALS_GRANT = "approvals.grant";
 
+  /**
+   * Bulk exports of people's data: customers with their phones and insurance numbers, patients and
+   * their prescriptions (the controlled-drugs register). Personal data under Tanzania's Personal
+   * Data Protection Act 2022 leaves the system only with this (adversarial review ISO-10).
+   */
+  public static final String DATA_EXPORT = "data.export";
+
   private static final List<PermissionView> CATALOGUE =
       List.of(
           new PermissionView(PLATFORM_MANAGE, "platform", "Manage tenants and root administrators"),
@@ -86,7 +93,8 @@ public final class Permissions {
           new PermissionView(
               APPROVALS_GRANT,
               "administration",
-              "Approve others' actions above the pharmacy's limit (refunds, write-offs, discounts)"));
+              "Approve others' actions above the pharmacy's limit (refunds, write-offs, discounts)"),
+          new PermissionView(DATA_EXPORT, "administration", "Export people's data in bulk"));
 
   /** Every permission code. */
   public static final Set<String> ALL =
@@ -123,6 +131,10 @@ public final class Permissions {
    * The version of the presets below. A pharmacy's admin decides once per version whether to apply
    * them to its built-in roles (the owner's decision of 23 Nov 2026: existing pharmacies keep their
    * roles until their admin chooses); a later change of the presets takes a new version.
+   *
+   * <p>{@link #DATA_EXPORT} did not take one: access V18 gives it to every existing pharmacy's
+   * built-in Administrator, Branch Manager and Accountant, exactly as these presets do, so the
+   * built-in roles differ from the presets no more than before and there is nothing new to offer.
    */
   public static final String PRESETS_VERSION = "2026-11-23";
 
@@ -130,7 +142,8 @@ public final class Permissions {
    * The permissions of a default role; empty for any other code. Selling is kept apart from
    * refunding, adjusting stock and editing the catalogue (Pharmacist), and closing the books from
    * running a branch (Branch Manager): segregation of duties, adversarial review FRD-6, FRD-10,
-   * FRD-17.
+   * FRD-17. Exporting people's data in bulk is for the Administrator, Branch Manager and Accountant
+   * only (ISO-10).
    */
   public static Set<String> preset(String roleCode) {
     return switch (roleCode) {
@@ -187,7 +200,8 @@ public final class Permissions {
               SALES_VIEW,
               PURCHASING_VIEW,
               PARTNERS_VIEW,
-              PARTNERS_CREDIT_LIMIT);
+              PARTNERS_CREDIT_LIMIT,
+              DATA_EXPORT);
       default -> Set.of();
     };
   }

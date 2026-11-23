@@ -20,6 +20,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import tz.co.pharmacy.platform.kernel.CellText;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -29,6 +30,10 @@ import tz.co.pharmacy.platform.kernel.Refusal;
  * workbook ({@code format=xlsx}, the default) or CSV, with column headings in English or Swahili
  * ({@code lang=sw}). The rows are read inside the request, where the pharmacy is known, and the
  * file is answered whole.
+ *
+ * <p>Text that a spreadsheet could take for a formula (beginning with {@code = + - @}, a tab or a
+ * carriage return) is written with a leading {@code '} in both formats ({@link CellText}, OWASP
+ * "CSV Injection"); numbers are written as numbers, so a negative amount is never turned into text.
  */
 public final class Spreadsheet {
 
@@ -136,14 +141,16 @@ public final class Spreadsheet {
         sheet.value(r, c, day);
         sheet.style(r, c).format("yyyy-mm-dd").set();
       }
-      default -> sheet.value(r, c, text(value, zone, swahili));
+      default -> sheet.value(r, c, CellText.neutralised(text(value, zone, swahili)));
     }
   }
 
   private static <T> byte[] csv(
       List<String> headings, List<Column<T>> columns, List<T> rows, ZoneId zone, boolean swahili) {
     StringBuilder text = new StringBuilder("﻿"); // a BOM, so Excel reads it as UTF-8
-    text.append(String.join(",", headings.stream().map(Spreadsheet::quoted).toList()));
+    text.append(
+        String.join(
+            ",", headings.stream().map(CellText::neutralised).map(Spreadsheet::quoted).toList()));
     for (T row : rows) {
       text.append("\r\n");
       List<String> cells = new ArrayList<>(columns.size());
@@ -151,9 +158,12 @@ public final class Spreadsheet {
         Object value = column.value().apply(row);
         cells.add(
             quoted(
-                value instanceof Instant at
-                    ? at.atZone(zone).toLocalDateTime().toString().replace('T', ' ')
-                    : text(value, zone, swahili)));
+                switch (value) {
+                  case Instant at -> at.atZone(zone).toLocalDateTime().toString().replace('T', ' ');
+                  case Number number -> text(number, zone, swahili);
+                  case null -> "";
+                  default -> CellText.neutralised(text(value, zone, swahili));
+                }));
       }
       text.append(String.join(",", cells));
     }

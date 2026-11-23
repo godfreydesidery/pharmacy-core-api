@@ -14,12 +14,15 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
  * Every minute, each active pharmacy's failed webhook deliveries that are due are sent again, so a
  * pharmacy's system that was down gets the events it missed once it is back (the chaos run found
- * they were lost for good before).
+ * they were lost for good before). One instance runs a round at a time ({@link SingleRunner}, a
+ * PostgreSQL advisory lock), and each delivery is claimed with {@code FOR UPDATE SKIP LOCKED} and a
+ * lease, so a delivery is never sent twice by two instances.
  */
 @Component
 class WebhookRetrySchedule {
@@ -29,14 +32,24 @@ class WebhookRetrySchedule {
 
   private final TenantService tenants;
   private final Webhooks webhooks;
+  private final SingleRunner runner;
 
-  WebhookRetrySchedule(TenantService tenants, Webhooks webhooks) {
+  WebhookRetrySchedule(TenantService tenants, Webhooks webhooks, SingleRunner runner) {
     this.tenants = tenants;
     this.webhooks = webhooks;
+    this.runner = runner;
   }
 
   @Scheduled(fixedDelayString = "${pharmacy.integrations.webhooks.retry-every-ms:60000}")
   void retry() {
+    try {
+      runner.runAlone(SERVICE, this::retryAll);
+    } catch (RuntimeException failure) {
+      log.warn("Webhook retries failed: {}", failure.getMessage());
+    }
+  }
+
+  private void retryAll() {
     int tried = 0;
     for (UUID tenant : activeTenants()) {
       try {

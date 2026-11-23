@@ -26,6 +26,26 @@ public interface MembershipRepository
 
   List<Membership> findAllByUserUid(UUID userUid);
 
+  /** This pharmacy's memberships of these people, active or not. */
+  List<Membership> findAllByTenantUidAndUserUidIn(
+      UUID tenantUid, java.util.Collection<UUID> userUids);
+
+  /** The pharmacy's active members: the seats its plan's users cap counts with its invitations. */
+  long countByTenantUidAndActiveTrue(UUID tenantUid);
+
+  /**
+   * Holds the pharmacy's users-cap lock until the transaction ends, so two invitations, logins,
+   * reactivations or acceptances at once cannot both take the last seat: the second waits, then
+   * counts what the first committed (INT-6). An advisory lock rather than a row lock, because what
+   * is counted (members and invitations) has no single row to lock.
+   */
+  @org.springframework.data.jpa.repository.Query(
+      value =
+          "select 1 from (select pg_advisory_xact_lock(hashtextextended('access.users-cap:'"
+              + " || cast(:tenantUid as text), 0))) held",
+      nativeQuery = true)
+  Integer lockSeats(@org.springframework.data.repository.query.Param("tenantUid") UUID tenantUid);
+
   /**
    * When the member last worked in this pharmacy. Written directly, not through the entity, so the
    * bookkeeping leaves no "membership updated" entry in the pharmacy's audit every few minutes.

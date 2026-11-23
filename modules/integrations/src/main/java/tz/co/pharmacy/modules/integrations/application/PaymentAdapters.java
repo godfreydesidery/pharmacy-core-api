@@ -1,9 +1,13 @@
 package tz.co.pharmacy.modules.integrations.application;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,9 +22,19 @@ import org.springframework.stereotype.Component;
  * sets it) the simulator answers like a provider would, chosen by the last two digits of the phone
  * so a run is repeatable: 01 the customer declines, 02 insufficient funds, 03 no answer (the
  * request stays pending until it expires); any other number confirms.
+ *
+ * <p>The SIMULATOR is registered only under the {@code sim} or {@code local} profile (and {@code
+ * test}, the test suite's, which the production safety check also treats as non-production;
+ * adversarial review INT-15). Elsewhere it does not exist: it cannot be put in the registry, chosen
+ * by a pharmacy, offered at the till or used to approve a tender ({@code adapter_not_available}).
  */
 @Component
 class PaymentAdapters {
+
+  static final String SIMULATOR = "SIMULATOR";
+
+  /** The profiles under which the simulator exists. */
+  static final Profiles SIMULATOR_PROFILES = Profiles.of("sim", "local", "test");
 
   /** What an adapter answers when asked to push or to report. */
   record Outcome(String status, String providerReference, String failureReason) {
@@ -51,9 +65,20 @@ class PaymentAdapters {
 
   private final Map<String, PaymentAdapter> adapters;
 
+  @Autowired
   PaymentAdapters(
       @Value("${pharmacy.integrations.payments.simulator-outcomes:confirm}")
-          String simulatorOutcomes) {
+          String simulatorOutcomes,
+      Environment environment) {
+    this(simulatorOutcomes, environment.acceptsProfiles(SIMULATOR_PROFILES));
+  }
+
+  /** With the simulator registered (the module's own tests). */
+  PaymentAdapters(String simulatorOutcomes) {
+    this(simulatorOutcomes, true);
+  }
+
+  PaymentAdapters(String simulatorOutcomes, boolean simulatorRegistered) {
     PaymentAdapter unavailable =
         new PaymentAdapter() {
           @Override
@@ -72,20 +97,27 @@ class PaymentAdapters {
             throw new IllegalStateException("not connected");
           }
         };
-    PaymentAdapter simulator = new Simulator("by-phone".equalsIgnoreCase(simulatorOutcomes));
-    this.adapters =
-        Map.of(
-            "SIMULATOR", simulator,
-            "MPESA", unavailable,
-            "MIXX", unavailable,
-            "AIRTEL", unavailable,
-            "SELCOM", unavailable,
-            "AZAMPAY", unavailable);
+    Map<String, PaymentAdapter> all = new HashMap<>();
+    if (simulatorRegistered) {
+      all.put(SIMULATOR, new Simulator("by-phone".equalsIgnoreCase(simulatorOutcomes)));
+    }
+    for (String code : new String[] {"MPESA", "MIXX", "AIRTEL", "SELCOM", "AZAMPAY"}) {
+      all.put(code, unavailable);
+    }
+    this.adapters = Map.copyOf(all);
   }
 
   /** The adapter for a registry code, or null for methods without push (NONE, MANUAL). */
   PaymentAdapter of(String adapterCode) {
     return adapters.get(adapterCode);
+  }
+
+  /**
+   * Whether a registry adapter code can be used in this deployment: every code but SIMULATOR, and
+   * SIMULATOR only where it is registered.
+   */
+  boolean usable(String adapterCode) {
+    return !SIMULATOR.equals(adapterCode) || adapters.containsKey(SIMULATOR);
   }
 
   /**
