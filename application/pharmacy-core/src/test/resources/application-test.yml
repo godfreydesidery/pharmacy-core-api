@@ -1,6 +1,11 @@
 pharmacy:
   access:
     require-2fa-for-root: false
+    lockout:
+      # Every test signs in from 127.0.0.1 in one server: the deliberate wrong passwords of all
+      # classes add up, and the per-device limit (20 in 15 minutes) would lock the rest of the suite
+      # out. Each account's own lock (5 failures) still applies and is tested.
+      ip-max-failures: 1000
   notifications:
     log-bodies: true
     keep-account-messages: true
