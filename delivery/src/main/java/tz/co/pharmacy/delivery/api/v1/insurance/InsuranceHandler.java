@@ -25,6 +25,7 @@ import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutLine;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.RequiresFeature;
 import tz.co.pharmacy.modules.insurance.ports.inbound.AdjudicationCommand;
@@ -290,6 +291,7 @@ public class InsuranceHandler {
 
   /** A payer's payment, spread over claims as given or oldest approved first. */
   @RequiresFeature(PlanFeature.INSURANCE)
+  @Idempotent
   @PostMapping("/insurance/remittances")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")

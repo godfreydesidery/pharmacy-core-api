@@ -1,10 +1,13 @@
 package tz.co.pharmacy.modules.finance.domain;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -50,6 +53,9 @@ public class SupplierPayment extends TenantEntity {
   private LocalDate paidOn;
   private UUID branchUid;
 
+  @OneToMany(mappedBy = "payment", cascade = CascadeType.ALL, orphanRemoval = true)
+  private List<SupplierPaymentAllocation> allocations = new ArrayList<>();
+
   public SupplierPayment(
       String number,
       UUID supplierUid,
@@ -87,5 +93,10 @@ public class SupplierPayment extends TenantEntity {
     return goodsReceiptUids == null
         ? List.of()
         : Arrays.stream(goodsReceiptUids.split(",")).map(UUID::fromString).toList();
+  }
+
+  /** Records that this payment settles {@code amount} of the receipt, in its currency. */
+  public void settle(UUID goodsReceiptUid, BigDecimal amount) {
+    allocations.add(new SupplierPaymentAllocation(this, goodsReceiptUid, currency, amount));
   }
 }

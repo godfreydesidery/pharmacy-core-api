@@ -46,7 +46,7 @@ class SupplierPaymentPostingTest {
         Postings.supplierPayment(
             new BigDecimal("2600000.00"),
             new BigDecimal("2650000.00"),
-            "BANK_TRANSFER",
+            PaidFrom.BANK_TRANSFER,
             "USD",
             new BigDecimal("1000.00"));
     assertThat(lines)
@@ -69,7 +69,7 @@ class SupplierPaymentPostingTest {
         Postings.supplierPayment(
             new BigDecimal("2600000.00"),
             new BigDecimal("2580000.00"),
-            "CASH",
+            PaidFrom.CASH,
             "USD",
             new BigDecimal("1000.00"));
     assertThat(lines)
@@ -88,7 +88,7 @@ class SupplierPaymentPostingTest {
   void baseCurrencyPayment() {
     List<Postings.Line> lines =
         Postings.supplierPayment(
-            new BigDecimal("500000.00"), new BigDecimal("500000.00"), "CASH", null, null);
+            new BigDecimal("500000.00"), new BigDecimal("500000.00"), PaidFrom.CASH, null, null);
     assertThat(lines).hasSize(2);
     assertThat(lines).noneMatch(line -> line.accountCode().equals("7000"));
   }

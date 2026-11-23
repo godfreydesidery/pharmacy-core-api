@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Destructions;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Destructions.DestructionCommand;
@@ -42,6 +43,7 @@ public class DestructionHandler {
     return ApiResponse.ok(destructions.get(uid), "Destruction retrieved");
   }
 
+  @Idempotent
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")

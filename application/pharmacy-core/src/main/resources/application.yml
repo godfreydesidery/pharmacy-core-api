@@ -54,6 +54,20 @@ server:
     min-response-size: 1KB
 
 pharmacy:
+  events:
+    # Event publications whose listener failed (a ledger posting, a read model, a webhook) are
+    # delivered again every 5 minutes once 5 minutes old, by one instance at a time.
+    resubmit-every: PT5M
+    resubmit-older-than: PT5M
+    # Health "ledger" turns DOWN when a ledger posting stays incomplete longer than this.
+    stale-after: PT30M
+  idempotency:
+    # How long an Idempotency-Key and its response are kept (IETF draft: at least 24 hours).
+    lifetime: PT24H
+  finance:
+    reconciliation:
+      # Documents younger than this are still being posted; the reconciliation leaves them out.
+      grace: PT15M
   database:
     owner-username: ${PHARMACY_DB_OWNER_USER:pharmacy_owner}
     owner-password: ${PHARMACY_DB_OWNER_PASSWORD:}
@@ -160,3 +174,10 @@ management:
     health:
       probes:
         enabled: true
+      # The probes check only that the API is up; "ledger" (stuck postings) is reported in
+      # /actuator/health for monitoring and never holds back a deploy or restarts the API.
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState

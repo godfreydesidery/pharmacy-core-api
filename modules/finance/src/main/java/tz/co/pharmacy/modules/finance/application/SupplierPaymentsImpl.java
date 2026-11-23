@@ -3,11 +3,15 @@ package tz.co.pharmacy.modules.finance.application;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.sql.DataSource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.finance.domain.SupplierPayment;
@@ -18,6 +22,7 @@ import tz.co.pharmacy.modules.finance.ports.inbound.SupplierPayments;
 import tz.co.pharmacy.modules.finance.ports.outbound.FinanceCurrencies;
 import tz.co.pharmacy.modules.finance.ports.outbound.PayablesDirectory;
 import tz.co.pharmacy.modules.finance.ports.outbound.PayablesDirectory.BookedReceipt;
+import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -27,6 +32,7 @@ import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
+import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
  * Supplier payments. A payment in a foreign currency costs its amount at today's (or the given)
@@ -44,6 +50,7 @@ class SupplierPaymentsImpl implements SupplierPayments {
   private final DocumentNumbers numbers;
   private final JournalWriter writer;
   private final TenantCalendar calendar;
+  private final JdbcTemplate jdbc;
 
   SupplierPaymentsImpl(
       SupplierPaymentRepository payments,
@@ -51,8 +58,10 @@ class SupplierPaymentsImpl implements SupplierPayments {
       FinanceCurrencies currencies,
       DocumentNumbers numbers,
       JournalWriter writer,
-      TenantCalendar calendar) {
+      TenantCalendar calendar,
+      DataSource dataSource) {
     this.calendar = calendar;
+    this.jdbc = new JdbcTemplate(dataSource);
     this.payments = payments;
     this.directory = directory;
     this.currencies = currencies;
@@ -74,7 +83,9 @@ class SupplierPaymentsImpl implements SupplierPayments {
         command.currency() == null || command.currency().isBlank()
             ? base
             : currencies.accepted(command.currency());
-    LocalDate paidOn = command.paidOn() == null ? calendar.today() : command.paidOn();
+    LocalDate paidOn = ExpenseServiceImpl.notFuture(command.paidOn(), calendar.today(), "paidOn");
+    PaidFrom paidFrom =
+        PaidFrom.parse(command.paymentMethod(), PaidFrom.BANK_TRANSFER, "paymentMethod");
     BigDecimal rate;
     if (currency.equals(base)) {
       rate = BigDecimal.ONE;
@@ -89,30 +100,29 @@ class SupplierPaymentsImpl implements SupplierPayments {
       rate = currencies.rateToBase(currency, paidOn);
     }
     List<BookedReceipt> receipts = settled(command.goodsReceiptUids(), supplierUid, currency);
+    Map<UUID, BigDecimal> allocation = allocate(receipts, amount, currency);
     BigDecimal settledBase = currencies.toBase(amount, rate);
     BigDecimal bookedBase =
         receipts.isEmpty() ? settledBase : currencies.toBase(amount, bookedRate(receipts));
-    String method =
-        command.paymentMethod() == null || command.paymentMethod().isBlank()
-            ? "BANK_TRANSFER"
-            : command.paymentMethod().trim().toUpperCase();
+    String method = paidFrom.name();
     String supplierName = directory.supplierName(supplierUid);
-    SupplierPayment payment =
-        payments.save(
-            new SupplierPayment(
-                numbers.format("SPAY", 6),
-                supplierUid,
-                supplierName,
-                amount,
-                currency,
-                rate,
-                settledBase,
-                bookedBase,
-                method,
-                Checks.optionalText(command.reference(), "reference", 120),
-                receipts.stream().map(BookedReceipt::uid).toList(),
-                paidOn,
-                ExecutionContext.branchUid().orElse(null)));
+    SupplierPayment recorded =
+        new SupplierPayment(
+            numbers.format("SPAY", 6),
+            supplierUid,
+            supplierName,
+            amount,
+            currency,
+            rate,
+            settledBase,
+            bookedBase,
+            method,
+            Checks.optionalText(command.reference(), "reference", 120),
+            receipts.stream().map(BookedReceipt::uid).toList(),
+            paidOn,
+            ExecutionContext.branchUid().orElse(null));
+    allocation.forEach(recorded::settle);
+    SupplierPayment payment = payments.save(recorded);
     boolean foreign = !currency.equals(base);
     writer.post(
         SUPPLIER_PAYMENT,
@@ -122,7 +132,7 @@ class SupplierPaymentsImpl implements SupplierPayments {
         payment.getBranchUid(),
         paidOn,
         Postings.supplierPayment(
-            bookedBase, settledBase, method, foreign ? currency : null, foreign ? amount : null));
+            bookedBase, settledBase, paidFrom, foreign ? currency : null, foreign ? amount : null));
     return view(payment);
   }
 
@@ -148,6 +158,62 @@ class SupplierPaymentsImpl implements SupplierPayments {
       return receipts.getFirst().exchangeRate();
     }
     return weighted.divide(totals, 10, RoundingMode.HALF_EVEN);
+  }
+
+  /**
+   * What the payment settles of each receipt, in the order named: each takes what is still open of
+   * it (its total less what earlier payments settled), up to what is left of the payment. A payment
+   * larger than what is open on the receipts it names is refused (422 overpayment); one naming no
+   * receipt is on account. The receipts are locked (a transaction-scoped advisory lock each, in uid
+   * order) so two payments at once cannot both settle the same open amount.
+   */
+  private Map<UUID, BigDecimal> allocate(
+      List<BookedReceipt> receipts, BigDecimal amount, String currency) {
+    Map<UUID, BigDecimal> allocation = new LinkedHashMap<>();
+    if (receipts.isEmpty()) {
+      return allocation;
+    }
+    UUID tenant = TenantContext.requireTenant();
+    receipts.stream()
+        .map(BookedReceipt::uid)
+        .sorted()
+        .forEach(
+            uid ->
+                jdbc.queryForObject(
+                    "select 1 from (select pg_advisory_xact_lock(hashtextextended(?, 0))) held",
+                    Integer.class,
+                    tenant + ":goods-receipt-payable:" + uid));
+    Map<UUID, BigDecimal> settledSoFar = new HashMap<>();
+    for (Object[] row : payments.settledOf(receipts.stream().map(BookedReceipt::uid).toList())) {
+      settledSoFar.put((UUID) row[0], (BigDecimal) row[1]);
+    }
+    BigDecimal left = Amounts.money(amount);
+    BigDecimal open = BigDecimal.ZERO;
+    for (BookedReceipt receipt : receipts) {
+      BigDecimal openOfReceipt =
+          Amounts.money(receipt.total())
+              .subtract(settledSoFar.getOrDefault(receipt.uid(), BigDecimal.ZERO))
+              .max(BigDecimal.ZERO);
+      open = open.add(openOfReceipt);
+      BigDecimal portion = left.min(openOfReceipt);
+      if (portion.signum() > 0) {
+        allocation.put(receipt.uid(), portion);
+        left = left.subtract(portion);
+      }
+    }
+    if (left.signum() > 0) {
+      throw Refusal.invalid(
+          "overpayment",
+          "Only "
+              + currency
+              + " "
+              + open.toPlainString()
+              + " is still open on "
+              + receipts.stream().map(BookedReceipt::number).collect(Collectors.joining(", "))
+              + "; pay at most that, or pay the rest on account without naming a receipt.",
+          "amount");
+    }
+    return allocation;
   }
 
   private List<BookedReceipt> settled(List<UUID> uids, UUID supplierUid, String currency) {
