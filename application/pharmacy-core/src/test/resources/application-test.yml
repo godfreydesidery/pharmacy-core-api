@@ -4,6 +4,10 @@ pharmacy:
   notifications:
     log-bodies: true
     keep-account-messages: true
+    smtp:
+      # NotificationProvidersTest's broken and hung mail servers on loopback, allowed only here
+      # (they skip the host and port rules, never the TLS one).
+      allowed-hosts: 127.0.0.1
   bootstrap:
     root-email: root@test.local
     root-password: "Root#Test2026"

@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
@@ -78,9 +77,13 @@ public class ProviderRouter {
   private final WhatsAppSender envWhatsApp;
   private final ProviderHealth health;
   private final LogOutput logOutput;
+  private final SmtpRules smtpRules;
   private final TransactionTemplate reads;
+
+  /** Mail senders built from a provider row, by uid and version: a cache of the row, not state. */
   private final Map<String, JavaMailSenderImpl> mailers = new ConcurrentHashMap<>();
 
+  @SuppressWarnings("java:S107")
   ProviderRouter(
       ProviderSettingRepository settings,
       SecretSeal seal,
@@ -90,7 +93,9 @@ public class ProviderRouter {
       WhatsAppSender envWhatsApp,
       ProviderHealth health,
       LogOutput logOutput,
+      SmtpRules smtpRules,
       PlatformTransactionManager transactionManager) {
+    this.smtpRules = smtpRules;
     this.settings = settings;
     this.seal = seal;
     this.http = http;
@@ -339,29 +344,34 @@ public class ProviderRouter {
   private ChannelSender smtp(
       ProviderSetting row, Map<String, String> plain, Map<String, String> secret) {
     String from = require(plain, "from", "smtp");
+    String host = SmtpRules.normalHost(require(plain, "host", "smtp"));
+    int port = parsePort(plain.get("port"));
     JavaMailSenderImpl mailer =
         mailers.computeIfAbsent(
             row.getUid() + ":" + row.getVersion(),
             key -> {
               JavaMailSenderImpl m = new JavaMailSenderImpl();
-              m.setHost(require(plain, "host", "smtp"));
-              m.setPort(parsePort(plain.get("port")));
+              m.setHost(host);
+              m.setPort(port);
               String user = plain.get("username");
-              if (user != null && !user.isBlank()) {
+              boolean authenticate = user != null && !user.isBlank();
+              if (authenticate) {
                 m.setUsername(user);
                 m.setPassword(secret.get("password"));
               }
-              Properties props = m.getJavaMailProperties();
-              props.put("mail.smtp.auth", String.valueOf(user != null && !user.isBlank()));
-              props.put(
-                  "mail.smtp.starttls.enable",
-                  String.valueOf(!"false".equalsIgnoreCase(plain.get("tls"))));
-              props.put("mail.smtp.connectiontimeout", "10000");
-              props.put("mail.smtp.timeout", "10000");
-              props.put("mail.smtp.writetimeout", "10000");
+              // Always encrypted (INT-2): implicit TLS on 465, STARTTLS required elsewhere. A
+              // "tls": "false" saved before is ignored.
+              m.getJavaMailProperties().putAll(SmtpRules.connection(port, authenticate));
               return m;
             });
     return (to, subject, html, text) -> {
+      // Checked before every send, a test too: the name may now resolve to a private address,
+      // and a provider saved before the rules existed must not reach one either.
+      Optional<SmtpRules.Refused> refused = smtpRules.check(host, port);
+      if (refused.isPresent()) {
+        throw new ProviderException(
+            refused.get().reason() + ": " + refused.get().problem() + " Change the provider.");
+      }
       try {
         MimeMessage message = mailer.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");

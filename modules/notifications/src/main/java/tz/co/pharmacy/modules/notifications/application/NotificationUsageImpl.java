@@ -1,7 +1,9 @@
 package tz.co.pharmacy.modules.notifications.application;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.Map;
@@ -26,9 +28,12 @@ class NotificationUsageImpl implements NotificationUsage {
 
   private final MessageRepository messages;
   private final TransactionTemplate reads;
+  private final Clock clock;
 
-  NotificationUsageImpl(MessageRepository messages, PlatformTransactionManager transactionManager) {
+  NotificationUsageImpl(
+      MessageRepository messages, PlatformTransactionManager transactionManager, Clock clock) {
     this.messages = messages;
+    this.clock = clock;
     this.reads = new TransactionTemplate(transactionManager);
     this.reads.setReadOnly(true);
     this.reads.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -37,6 +42,19 @@ class NotificationUsageImpl implements NotificationUsage {
   @Override
   public long sentThisMonth(UUID tenantUid, Channel channel) {
     return sentIn(tenantUid, channel, YearMonth.now(ZoneOffset.UTC));
+  }
+
+  @Override
+  public long platformSmsThisMonth(UUID tenantUid, ZoneId zone) {
+    UUID tenant = Checks.required(tenantUid, "tenantUid");
+    SmsCap.Window window = SmsCap.Window.of(clock.instant(), zone == null ? ZoneOffset.UTC : zone);
+    Long count =
+        TenantContext.callAs(
+            tenant,
+            () ->
+                reads.execute(
+                    status -> messages.countPlatformSmsSent(tenant, window.from(), window.to())));
+    return count == null ? 0 : count;
   }
 
   @Override

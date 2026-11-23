@@ -31,6 +31,11 @@ public final class TemplateKeys {
   public static final String SUBSCRIPTION_DUE = "tenant.subscription_due";
   public static final String SUBSCRIPTION_PAST_DUE = "tenant.subscription_past_due";
 
+  /**
+   * In-app, to the administrators, once a month: the plan's SMS on the platform's account are used.
+   */
+  public static final String SMS_CAP_REACHED = "tenant.sms_cap_reached";
+
   public static final List<String> ALL =
       List.of(
           STOCK_LOW,
@@ -57,7 +62,8 @@ public final class TemplateKeys {
           ACCESS_PHONE_VERIFIED,
           TENANT_WELCOME,
           SUBSCRIPTION_DUE,
-          SUBSCRIPTION_PAST_DUE);
+          SUBSCRIPTION_PAST_DUE,
+          SMS_CAP_REACHED);
 
   /** Preference categories; {@code access} messages are always sent. */
   public static final List<String> CATEGORIES =
@@ -72,7 +78,7 @@ public final class TemplateKeys {
       case SALE_RECEIPT -> "sales";
       case DAILY_SUMMARY -> "reports";
       case CUSTOMER_OVERDUE -> "customers";
-      case TENANT_WELCOME, SUBSCRIPTION_DUE, SUBSCRIPTION_PAST_DUE -> "tenant";
+      case TENANT_WELCOME, SUBSCRIPTION_DUE, SUBSCRIPTION_PAST_DUE, SMS_CAP_REACHED -> "tenant";
       default -> "access";
     };
   }

@@ -14,7 +14,10 @@ public interface Payments {
   /** The platform registry, every method. */
   List<MethodTypeView> methodTypes();
 
-  /** Adds or changes a registry entry (root administrator). */
+  /**
+   * Adds or changes a registry entry (root administrator). The SIMULATOR adapter exists only under
+   * the sim, local and test profiles: elsewhere 422 {@code adapter_not_available}.
+   */
   MethodTypeView saveMethodType(MethodTypeCommand command);
 
   /** The registry's enabled methods with this pharmacy's choices and details. */
@@ -37,8 +40,9 @@ public interface Payments {
 
   /**
    * Approves a tender at checkout: a push method needs its confirmed, unused request (the
-   * reference) for the same amount, which it then marks used; a method that requires a reference
-   * needs one; others pass. Returns the reference to record.
+   * reference) for the same amount, method and branch (422 {@code payment_mismatch} when the
+   * request was made for another method or branch), which it then marks used; a method that
+   * requires a reference needs one; others pass. Returns the reference to record.
    */
   Verification verify(String methodCode, BigDecimal amount, String reference, String saleNumber);
 
