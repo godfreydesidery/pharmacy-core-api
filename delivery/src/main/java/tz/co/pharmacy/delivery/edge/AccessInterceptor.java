@@ -29,9 +29,21 @@ public class AccessInterceptor implements HandlerInterceptor {
 
   private final TenantPolicies policies;
 
+  private final java.time.Duration stepUp;
+
   public AccessInterceptor(Entitlements entitlements, TenantPolicies policies) {
+    this(entitlements, policies, 10);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public AccessInterceptor(
+      Entitlements entitlements,
+      TenantPolicies policies,
+      @org.springframework.beans.factory.annotation.Value("${pharmacy.access.step-up-minutes:10}")
+          long stepUpMinutes) {
     this.entitlements = entitlements;
     this.policies = policies;
+    this.stepUp = java.time.Duration.ofMinutes(stepUpMinutes);
   }
 
   @Override
@@ -88,6 +100,21 @@ public class AccessInterceptor implements HandlerInterceptor {
         if (!frame.rootAdmin()) {
           throw Refusal.forbidden("forbidden", "Only a root administrator may use this route.");
         }
+        if (frame.tenantUid() != null) {
+          // A platform route acts for the platform, never inside a pharmacy the request happens
+          // to name: what it writes (a reset message, audit) must not land in that pharmacy
+          // (adversarial review ISO-4). The edge filter clears both contexts when it ends.
+          ExecutionContext.enter(
+              new Frame(
+                  frame.actor(),
+                  frame.correlationId(),
+                  null,
+                  null,
+                  frame.permissions(),
+                  frame.allowedBranches(),
+                  frame.rootAdmin()));
+          tz.co.pharmacy.platform.persistence.TenantContext.enter(null, frame.actor().uid());
+        }
       }
       case TENANT, TENANT_OPTIONAL_BRANCH -> requireTenant(frame);
       case BRANCH -> {
@@ -97,6 +124,17 @@ public class AccessInterceptor implements HandlerInterceptor {
         }
       }
       default -> {}
+    }
+    if (access.stepUp()) {
+      Object principal = request.getAttribute(EdgeFilter.PRINCIPAL);
+      boolean recent =
+          principal instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal signedIn
+              && signedIn.verifiedSince(tz.co.pharmacy.platform.kernel.Clocks.now().minus(stepUp));
+      if (!recent) {
+        throw Refusal.forbidden(
+            "reauthentication_required",
+            "Confirm your password to make this change to your account.");
+      }
     }
     if (!access.permission().isEmpty() && !frame.permits(access.permission())) {
       throw Refusal.forbidden(

@@ -17,6 +17,14 @@ public interface TwoFactorService {
    */
   List<String> enable(UUID userUid, String code);
 
+  /**
+   * The same, on session {@code sessionUid}: the code just proved the second factor, so that
+   * session counts as two-factor from now on (a pharmacy that requires it lets it in).
+   */
+  default List<String> enable(UUID userUid, String code, UUID sessionUid) {
+    return enable(userUid, code);
+  }
+
   /** Turns two-factor off with a current code or a recovery code; 422 invalid_code. */
   void disable(UUID userUid, String code);
 

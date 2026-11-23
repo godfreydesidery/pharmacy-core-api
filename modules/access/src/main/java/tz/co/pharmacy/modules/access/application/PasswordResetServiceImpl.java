@@ -42,9 +42,15 @@ class PasswordResetServiceImpl implements PasswordResetService {
 
   private final Clock clock;
 
+  /** Reset links one account may be sent in an hour; more are dropped silently. */
+  static final int PER_HOUR = 3;
+
+  private final tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys;
+
   PasswordResetServiceImpl(
       UserRepository users,
       PasswordResetRepository resets,
+      tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys,
       SessionRepository sessions,
       Passwords passwords,
       AuditLog audit,
@@ -55,6 +61,7 @@ class PasswordResetServiceImpl implements PasswordResetService {
     this.clock = clock;
     this.users = users;
     this.resets = resets;
+    this.passkeys = passkeys;
     this.sessions = sessions;
     this.passwords = passwords;
     this.audit = audit;
@@ -90,6 +97,21 @@ class PasswordResetServiceImpl implements PasswordResetService {
         () -> {
           writes.executeWithoutResult(
               status -> {
+                Instant now = clock.instant();
+                if (resets.countByUserUidAndCreatedAtAfter(
+                        user.getUid(), now.minus(Duration.ofHours(1)))
+                    >= PER_HOUR) {
+                  // Same answer as always (no enumeration); the mailbox is not flooded.
+                  audit.record(
+                      "PASSWORD_RESET_THROTTLED",
+                      "User",
+                      user.getUid(),
+                      null,
+                      Map.of("ip", String.valueOf(ip)));
+                  return;
+                }
+                // Only the newest link works.
+                resets.closeOpen(user.getUid(), now);
                 String token = "prt_" + Tokens.newToken().substring(4);
                 resets.save(
                     new PasswordReset(
@@ -123,7 +145,7 @@ class PasswordResetServiceImpl implements PasswordResetService {
             .orElseThrow(PasswordResetServiceImpl::invalidToken);
     User user =
         users.findByUid(reset.getUserUid()).orElseThrow(PasswordResetServiceImpl::invalidToken);
-    String hash = passwords.hash(newPassword, "newPassword");
+    String hash = passwords.hash(newPassword, "newPassword", user.getEmail());
     ExecutionContext.callAs(
         SessionIssuer.userFrame(user),
         () -> {
@@ -141,13 +163,17 @@ class PasswordResetServiceImpl implements PasswordResetService {
                         .orElseThrow(PasswordResetServiceImpl::invalidToken);
                 target.changePassword(hash);
                 target.unlock();
+                resets.closeOpen(user.getUid(), now);
                 int revoked = sessions.revokeAll(user.getUid(), now, null);
+                // Whoever took the account may have added a passkey; a reset removes them all
+                // (adversarial review AUTH-1). The person adds theirs again.
+                long passkeysRemoved = passkeys.deleteByUserUid(user.getUid());
                 audit.record(
                     "PASSWORD_RESET",
                     "User",
                     user.getUid(),
                     null,
-                    Map.of("sessionsRevoked", revoked));
+                    Map.of("sessionsRevoked", revoked, "passkeysRemoved", passkeysRemoved));
                 String phone = target.hasVerifiedPhone() ? target.getPhone() : null;
                 notices.ifAvailable(
                     notice ->

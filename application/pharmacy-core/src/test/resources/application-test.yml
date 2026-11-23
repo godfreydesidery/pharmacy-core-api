@@ -3,6 +3,7 @@ pharmacy:
     require-2fa-for-root: false
   notifications:
     log-bodies: true
+    keep-account-messages: true
   bootstrap:
     root-email: root@test.local
     root-password: "Root#Test2026"

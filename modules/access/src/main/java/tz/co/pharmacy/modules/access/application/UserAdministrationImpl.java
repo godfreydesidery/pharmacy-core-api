@@ -180,7 +180,16 @@ class UserAdministrationImpl implements UserAdministration {
       throw Refusal.invalid(
           "cannot_deactivate_self", "You cannot deactivate your own membership.", "active");
     }
+    boolean roleChanges = !membership.getRole().getUid().equals(role.getUid());
+    if (roleChanges) {
+      // Giving someone a role is granting its permissions: only ones the caller holds (AUTH-15).
+      requireGrantable(role.getPermissions());
+    }
     boolean wasActive = membership.isActive();
+    boolean keepsPeople = command.active() && managesPeople(role);
+    if (wasActive && managesPeople(membership.getRole()) && !keepsPeople) {
+      requireAnotherPeopleManager(membership);
+    }
     membership.change(role, command.allBranches(), branches, command.active());
     User user = users.findByUid(membership.getUserUid()).orElse(null);
     String phone = phone(command.phone());
@@ -209,7 +218,13 @@ class UserAdministrationImpl implements UserAdministration {
   @Override
   @Transactional(readOnly = true)
   public List<RoleView> roles() {
-    return roles.findAllByOrderByNameAsc().stream().map(AccessViews::role).toList();
+    // Row-level security also lets a person see their own roles in other pharmacies (to sign in
+    // there); this pharmacy's list shows only its own (adversarial review ISO-7).
+    UUID tenant = TenantContext.requireTenant();
+    return roles.findAllByOrderByNameAsc().stream()
+        .filter(role -> tenant.equals(role.getTenantUid()))
+        .map(AccessViews::role)
+        .toList();
   }
 
   @Override
@@ -223,9 +238,14 @@ class UserAdministrationImpl implements UserAdministration {
           "code must be letters, digits or underscores, such as NIGHT_SHIFT.",
           "code");
     }
-    if (roles.existsByCode(code)) {
+    if (roles.findAllByOrderByNameAsc().stream()
+        .anyMatch(
+            other ->
+                code.equals(other.getCode())
+                    && TenantContext.requireTenant().equals(other.getTenantUid()))) {
       throw Refusal.conflict("duplicate_code", "A role with code " + code + " exists.");
     }
+    requireGrantable(permissions(command.permissions()));
     Role role =
         roles.save(
             new Role(
@@ -251,6 +271,29 @@ class UserAdministrationImpl implements UserAdministration {
     String name = role.isSystem() ? role.getName() : Checks.text(command.name(), "name", 80);
     List<String> before = List.copyOf(role.getPermissions());
     Set<String> after = permissions(command.permissions());
+    if (role.isSystem() && "ADMIN".equals(role.getCode()) && !Set.copyOf(before).equals(after)) {
+      // The owner's role always holds everything: editing it could lock every admin out (FRD-9).
+      throw Refusal.invalid(
+          "admin_role_fixed",
+          "The Administrator role always has every permission; make a new role instead.",
+          "permissions");
+    }
+    Set<String> added = new java.util.LinkedHashSet<>(after);
+    before.forEach(added::remove);
+    requireGrantable(added);
+    if (managesPeople(role) && !after.contains(Permissions.USERS_MANAGE)) {
+      // Taking "manage users" away from the only role that has it would leave nobody to add or
+      // remove staff.
+      boolean someoneElse =
+          memberships.findAll().stream()
+              .filter(other -> other.getTenantUid().equals(TenantContext.requireTenant()))
+              .filter(Membership::isActive)
+              .filter(other -> !other.getRole().getUid().equals(role.getUid()))
+              .anyMatch(other -> managesPeople(other.getRole()));
+      if (!someoneElse) {
+        throw lastPeopleManager();
+      }
+    }
     if (!Set.copyOf(before).equals(after)) {
       audit.record(
           "ROLE_PERMISSIONS_CHANGED",
@@ -266,6 +309,48 @@ class UserAdministrationImpl implements UserAdministration {
     return AccessViews.role(role);
   }
 
+  /**
+   * A permission may be granted (in a role, or by giving someone a role) only by someone who holds
+   * it, so "manage users" is not a way to every other permission (OWASP ASVS V8.2, least
+   * privilege). A root administrator holds them all.
+   */
+  private static void requireGrantable(java.util.Collection<String> permissions) {
+    if (ExecutionContext.rootAdmin()) {
+      return;
+    }
+    for (String permission : permissions) {
+      if (!ExecutionContext.permits(permission)) {
+        throw Refusal.forbidden(
+            "permission_not_held",
+            "You cannot grant " + permission + ": your own role does not include it.");
+      }
+    }
+  }
+
+  private static boolean managesPeople(Role role) {
+    return role != null && role.getPermissions().contains(Permissions.USERS_MANAGE);
+  }
+
+  /** Someone other than {@code leaving} keeps an active membership that may manage people. */
+  private void requireAnotherPeopleManager(Membership leaving) {
+    boolean someoneElse =
+        memberships.findAll().stream()
+            .filter(other -> other.getTenantUid().equals(leaving.getTenantUid()))
+            .filter(Membership::isActive)
+            .filter(other -> !other.getUid().equals(leaving.getUid()))
+            .anyMatch(other -> managesPeople(other.getRole()));
+    if (!someoneElse) {
+      throw lastPeopleManager();
+    }
+  }
+
+  private static Refusal lastPeopleManager() {
+    return Refusal.conflict(
+        "last_admin",
+        "This would leave nobody who can manage the pharmacy's people: give the role to someone"
+            + " else first.");
+  }
+
   @Override
   @Transactional
   public tz.co.pharmacy.modules.access.ports.inbound.SeededTenant seedTenant(
@@ -275,7 +360,11 @@ class UserAdministrationImpl implements UserAdministration {
     Permissions.defaultRoles()
         .forEach(
             (code, name) -> {
-              if (!roles.existsByCode(code)) {
+              if (!roles.findAllByOrderByNameAsc().stream()
+                  .anyMatch(
+                      other ->
+                          code.equals(other.getCode())
+                              && TenantContext.requireTenant().equals(other.getTenantUid()))) {
                 roles.save(new Role(code, name, null, true, Permissions.preset(code)));
               }
             });

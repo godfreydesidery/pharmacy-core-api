@@ -53,6 +53,9 @@ class Dispatcher {
   @SuppressWarnings("java:S107")
   private final Clock clock;
 
+  /** Keep the text of sent account messages (local and test runs read links from them). */
+  private final boolean keepAccountMessages;
+
   Dispatcher(
       MessageRepository messages,
       InboxRepository inbox,
@@ -63,7 +66,11 @@ class Dispatcher {
       ApplicationEventPublisher events,
       @Qualifier("notificationSenders") ExecutorService senders,
       PlatformTransactionManager transactionManager,
+      @org.springframework.beans.factory.annotation.Value(
+              "${pharmacy.notifications.keep-account-messages:false}")
+          boolean keepAccountMessages,
       Clock clock) {
+    this.keepAccountMessages = keepAccountMessages;
     this.clock = clock;
     this.messages = messages;
     this.inbox = inbox;
@@ -166,6 +173,9 @@ class Dispatcher {
                     row -> {
                       if (outcome == null) {
                         row.sent(used);
+                        if (row.carriesSecrets() && !keepAccountMessages) {
+                          row.forgetText();
+                        }
                       } else {
                         row.failed(
                             used,

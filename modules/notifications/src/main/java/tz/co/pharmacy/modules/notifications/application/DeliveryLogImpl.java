@@ -78,6 +78,13 @@ class DeliveryLogImpl implements DeliveryLog {
       throw Refusal.invalid(
           "cannot_resend", "In-app messages stay in the inbox; nothing to resend.", "messageUid");
     }
+    if (original.carriesSecrets()) {
+      // Its text is not kept, and its link or code may have been used: the person asks again.
+      throw Refusal.invalid(
+          "cannot_resend",
+          "Account messages are not resent; ask for a new link or code instead.",
+          "messageUid");
+    }
     Instant now = clock.instant();
     Message copy =
         messages.save(

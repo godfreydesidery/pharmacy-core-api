@@ -23,6 +23,10 @@ public final class TemplateKeys {
   public static final String ACCESS_RECOVERY_STARTED = "access.recovery_started";
   public static final String ACCESS_RECOVERY_LINK = "access.recovery_link";
   public static final String ACCESS_LOGIN_LINKED = "access.login_linked";
+  public static final String ACCESS_PASSKEY_ADDED = "access.passkey_added";
+  public static final String ACCESS_TWO_FACTOR_ON = "access.two_factor_on";
+  public static final String ACCESS_TWO_FACTOR_OFF = "access.two_factor_off";
+  public static final String ACCESS_PHONE_VERIFIED = "access.phone_verified";
   public static final String TENANT_WELCOME = "tenant.welcome";
   public static final String SUBSCRIPTION_DUE = "tenant.subscription_due";
   public static final String SUBSCRIPTION_PAST_DUE = "tenant.subscription_past_due";
@@ -47,6 +51,10 @@ public final class TemplateKeys {
           ACCESS_RECOVERY_STARTED,
           ACCESS_RECOVERY_LINK,
           ACCESS_LOGIN_LINKED,
+          ACCESS_PASSKEY_ADDED,
+          ACCESS_TWO_FACTOR_ON,
+          ACCESS_TWO_FACTOR_OFF,
+          ACCESS_PHONE_VERIFIED,
           TENANT_WELCOME,
           SUBSCRIPTION_DUE,
           SUBSCRIPTION_PAST_DUE);

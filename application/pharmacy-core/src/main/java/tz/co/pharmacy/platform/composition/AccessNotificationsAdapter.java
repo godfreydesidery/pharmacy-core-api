@@ -160,6 +160,40 @@ class AccessNotificationsAdapter implements AccessNotices {
   }
 
   @Override
+  public void securityChanged(
+      UUID userUid,
+      String name,
+      String email,
+      String phone,
+      AccessNotices.SecurityChange change,
+      Instant at) {
+    String key =
+        switch (change) {
+          case PASSKEY_ADDED -> TemplateKeys.ACCESS_PASSKEY_ADDED;
+          case TWO_FACTOR_ON -> TemplateKeys.ACCESS_TWO_FACTOR_ON;
+          case TWO_FACTOR_OFF -> TemplateKeys.ACCESS_TWO_FACTOR_OFF;
+          case PHONE_VERIFIED -> TemplateKeys.ACCESS_PHONE_VERIFIED;
+        };
+    String masked =
+        phone == null || phone.length() < 6
+            ? ""
+            : phone.substring(0, 4) + " *** " + phone.substring(phone.length() - 3);
+    notifier.send(
+        new NotificationRequest(
+            key,
+            // A newly verified phone is not yet trusted to hear about itself: email only.
+            new Recipient(
+                userUid,
+                name,
+                email,
+                change == AccessNotices.SecurityChange.PHONE_VERIFIED ? null : phone,
+                null),
+            Set.of(Channel.EMAIL, Channel.SMS),
+            params("time", WHEN.format(at), "phone", masked),
+            null));
+  }
+
+  @Override
   public void phoneRemoved(UUID userUid, String name, String email, String phone) {
     notifier.send(
         new NotificationRequest(

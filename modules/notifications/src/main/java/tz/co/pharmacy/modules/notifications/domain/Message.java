@@ -101,6 +101,21 @@ public class Message extends ScopedEntity {
     this.nextAttemptAt = null;
   }
 
+  /**
+   * An account message (reset or invitation link, sign-in or verification code) has been sent: its
+   * text is not kept, so the outbox, a backup or a data export never holds a live secret (OWASP: do
+   * not store what you do not need; adversarial review AUTH-8, ISO-3).
+   */
+  public void forgetText() {
+    this.body = "(Sent. Account messages are not kept: they carry links and codes.)";
+    this.htmlBody = null;
+  }
+
+  /** An account message: links and codes that let someone into an account. */
+  public boolean carriesSecrets() {
+    return "access".equals(category);
+  }
+
   public void sent(String providerName) {
     this.attempts++;
     this.status = MessageStatus.SENT;

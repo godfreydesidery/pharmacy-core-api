@@ -61,6 +61,14 @@ class AccountSecurityImpl implements AccountSecurity {
   private final PhoneCodeRepository codes;
   private final SessionRepository sessions;
   private final RecoveryCodeRepository recoveryCodes;
+  private final tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys;
+  private final tz.co.pharmacy.modules.access.persistence.PasswordResetRepository resets;
+
+  /**
+   * A phone verified longer ago than this must be verified again before it can reset a password.
+   */
+  static final Duration PHONE_RESET_FRESHNESS = Duration.ofDays(180);
+
   private final Passwords passwords;
   private final TwoFactorServiceImpl twoFactor;
   private final AuthenticationServiceImpl authentication;
@@ -79,6 +87,8 @@ class AccountSecurityImpl implements AccountSecurity {
       PhoneCodeRepository codes,
       SessionRepository sessions,
       RecoveryCodeRepository recoveryCodes,
+      tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys,
+      tz.co.pharmacy.modules.access.persistence.PasswordResetRepository resets,
       Passwords passwords,
       TwoFactorServiceImpl twoFactor,
       AuthenticationServiceImpl authentication,
@@ -95,6 +105,8 @@ class AccountSecurityImpl implements AccountSecurity {
     this.codes = codes;
     this.sessions = sessions;
     this.recoveryCodes = recoveryCodes;
+    this.passkeys = passkeys;
+    this.resets = resets;
     this.passwords = passwords;
     this.twoFactor = twoFactor;
     this.authentication = authentication;
@@ -201,6 +213,8 @@ class AccountSecurityImpl implements AccountSecurity {
                 Map<String, Object> details = new LinkedHashMap<>();
                 details.put("from", mask(oldEmail));
                 details.put("to", mask(row.getNewEmail()));
+                // Old reset links went to the old address: they stop working.
+                resets.closeOpen(target.getUid(), now);
                 if (row.isRecovery()) {
                   target.changePassword(hash);
                   target.unlock();
@@ -209,9 +223,12 @@ class AccountSecurityImpl implements AccountSecurity {
                     recoveryCodes.deleteAllOf(target.getUid());
                   }
                   details.put("sessionsRevoked", sessions.revokeAll(target.getUid(), now, null));
+                  details.put("passkeysRemoved", passkeys.deleteByUserUid(target.getUid()));
                   details.put("twoFactorReset", row.isResetTwoFactor());
                   audit.record("RECOVERY_COMPLETED", "User", target.getUid(), null, details);
                 } else {
+                  // Every session signs in again with the new address (OWASP ASVS V3.3).
+                  details.put("sessionsRevoked", sessions.revokeAll(target.getUid(), now, null));
                   audit.record("EMAIL_CHANGED", "User", target.getUid(), null, details);
                 }
                 String phone = target.hasVerifiedPhone() ? target.getPhone() : null;
@@ -319,6 +336,15 @@ class AccountSecurityImpl implements AccountSecurity {
             });
     user.verifyPhone(number, now);
     audit.record("PHONE_VERIFIED", "User", user.getUid(), null, Map.of("phone", mask(number)));
+    notices.ifAvailable(
+        notice ->
+            notice.securityChanged(
+                user.getUid(),
+                user.getName(),
+                user.mailbox(),
+                number,
+                AccessNotices.SecurityChange.PHONE_VERIFIED,
+                now));
   }
 
   @Override
@@ -351,7 +377,9 @@ class AccountSecurityImpl implements AccountSecurity {
             .filter(user -> !user.isManaged())
             // A root administrator holds every pharmacy: a SIM swap must not be enough to take
             // the account, so root resets go by email (with its second factor) only.
-            .filter(user -> !user.isRootAdmin());
+            .filter(user -> !user.isRootAdmin())
+            // A number verified long ago may have been recycled to someone else (AUTH-4).
+            .filter(user -> recentlyVerifiedPhone(user, clock.instant()));
     if (found.isEmpty()) {
       return;
     }
@@ -387,8 +415,10 @@ class AccountSecurityImpl implements AccountSecurity {
             .filter(User::isActive)
             .filter(found -> !found.isManaged())
             .filter(found -> !found.isRootAdmin())
+            .filter(found -> recentlyVerifiedPhone(found, now))
             .orElseThrow(AccountSecurityImpl::invalidCode);
-    String hash = passwords.hash(newPassword, "newPassword");
+    // The rule is checked now; the costly hash only once the code is right (AUTH-6).
+    Passwords.acceptable(newPassword, "newPassword", user.getEmail());
     boolean[] ok = {false};
     ExecutionContext.callAs(
         SessionIssuer.userFrame(user),
@@ -405,15 +435,23 @@ class AccountSecurityImpl implements AccountSecurity {
                   return;
                 }
                 User target = users.findByUid(user.getUid()).orElseThrow();
-                target.changePassword(hash);
+                target.changePassword(passwords.hash(newPassword, "newPassword", user.getEmail()));
                 target.unlock();
+                resets.closeOpen(target.getUid(), now);
                 int revoked = sessions.revokeAll(target.getUid(), now, null);
+                long passkeysRemoved = passkeys.deleteByUserUid(target.getUid());
                 audit.record(
                     "PASSWORD_RESET",
                     "User",
                     target.getUid(),
                     null,
-                    Map.of("by", "phone", "sessionsRevoked", revoked));
+                    Map.of(
+                        "by",
+                        "phone",
+                        "sessionsRevoked",
+                        revoked,
+                        "passkeysRemoved",
+                        passkeysRemoved));
                 notices.ifAvailable(
                     notice ->
                         notice.passwordChanged(
@@ -667,6 +705,61 @@ class AccountSecurityImpl implements AccountSecurity {
   }
 
   /** The password again, and a second-factor code when two-factor is on. */
+  private static boolean recentlyVerifiedPhone(User user, Instant now) {
+    return user.getPhoneVerifiedAt() != null
+        && user.getPhoneVerifiedAt().isAfter(now.minus(PHONE_RESET_FRESHNESS));
+  }
+
+  @Override
+  public void confirmIdentity(
+      UUID userUid, String token, String password, String code, ClientInfo client) {
+    ClientInfo from = client == null ? ClientInfo.UNKNOWN : client;
+    Instant now = clock.instant();
+    User user =
+        users
+            .findByUid(userUid)
+            .filter(User::isActive)
+            .orElseThrow(() -> Refusal.unauthenticated("unauthenticated", "Sign in again."));
+    guard.checkAccount(user, user.getEmail(), now);
+    boolean passwordRight = passwords.matches(password, user.getPasswordHash());
+    boolean codeRight =
+        passwordRight && (!user.isTwoFactorEnabled() || twoFactor.confirmSecondFactor(user, code));
+    if (!passwordRight || !codeRight) {
+      // A wrong password here counts like one at sign-in, so a stolen session cannot be used to
+      // guess the password or the code without end (AUTH-5).
+      boolean locked =
+          authentication.recordFailure(
+              user, user.getEmail(), from, now, passwordRight ? "two_factor" : "password");
+      if (locked) {
+        throw guard.locked(guard.lockFor());
+      }
+      throw passwordRight ? invalidCode() : invalidPassword();
+    }
+    ExecutionContext.callAs(
+        SessionIssuer.userFrame(user),
+        () -> {
+          writes.executeWithoutResult(
+              status -> {
+                sessions
+                    .findByTokenHash(Tokens.hash(token == null ? "" : token.trim()))
+                    .filter(session -> session.getUserUid().equals(userUid) && session.liveAt(now))
+                    .orElseThrow(() -> Refusal.unauthenticated("unauthenticated", "Sign in again."))
+                    .reverified(now, user.isTwoFactorEnabled());
+                audit.record(
+                    "IDENTITY_CONFIRMED",
+                    "User",
+                    userUid,
+                    null,
+                    Map.of(
+                        "ip",
+                        String.valueOf(from.ip()),
+                        "secondFactor",
+                        user.isTwoFactorEnabled()));
+              });
+          return null;
+        });
+  }
+
   private void reauthenticate(User user, String password, String code) {
     if (!passwords.matches(password, user.getPasswordHash())) {
       throw invalidPassword();

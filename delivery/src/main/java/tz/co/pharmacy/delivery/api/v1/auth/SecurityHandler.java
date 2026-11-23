@@ -65,28 +65,35 @@ public class SecurityHandler {
 
   /** A new authenticator secret: show {@code otpauthUri} as a QR code, then confirm a code. */
   @PostMapping("/2fa/setup")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<TwoFactorSetup> setUp() {
     return ApiResponse.ok(twoFactor.begin(self()), "Scan the code with your authenticator app");
   }
 
   /** Turns two-factor on and returns the 10 recovery codes, shown once. */
   @PostMapping("/2fa/enable")
-  @Access(scope = AccessScope.AUTHENTICATED)
-  public ApiResponse<RecoveryCodesResponse> enable(@RequestBody CodeRequest body) {
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
+  public ApiResponse<RecoveryCodesResponse> enable(
+      @RequestBody CodeRequest body, jakarta.servlet.http.HttpServletRequest request) {
+    UUID session =
+        request.getAttribute(tz.co.pharmacy.delivery.edge.EdgeFilter.PRINCIPAL)
+                instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal
+            ? principal.sessionUid()
+            : null;
     return ApiResponse.ok(
-        new RecoveryCodesResponse(twoFactor.enable(self(), code(body))), "Two-factor is on");
+        new RecoveryCodesResponse(twoFactor.enable(self(), code(body), session)),
+        "Two-factor is on");
   }
 
   @PostMapping("/2fa/disable")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<Void> disable(@RequestBody CodeRequest body) {
     twoFactor.disable(self(), code(body));
     return ApiResponse.ok("Two-factor is off");
   }
 
   @PostMapping("/2fa/recovery-codes")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<RecoveryCodesResponse> recoveryCodes(@RequestBody CodeRequest body) {
     return ApiResponse.ok(
         new RecoveryCodesResponse(twoFactor.regenerateRecoveryCodes(self(), code(body))),
@@ -104,14 +111,14 @@ public class SecurityHandler {
    * PublicKeyCredential.parseCreationOptionsFromJSON}, then post the credential's {@code toJSON()}.
    */
   @PostMapping("/passkeys/register/options")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<PasskeyOptionsResponse> registrationOptions() {
     return ApiResponse.ok(options(passkeys.startRegistration(self())), "Passkey options");
   }
 
   @PostMapping("/passkeys/register")
   @ResponseStatus(HttpStatus.CREATED)
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<PasskeyView> register(@RequestBody PasskeyRequest body) {
     PasskeyRequest request = required(body);
     return ApiResponse.created(
@@ -121,7 +128,7 @@ public class SecurityHandler {
   }
 
   @DeleteMapping("/passkeys/{passkeyUid}")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<Void> removePasskey(@PathVariable UUID passkeyUid) {
     passkeys.remove(self(), passkeyUid);
     return ApiResponse.ok("Passkey removed");

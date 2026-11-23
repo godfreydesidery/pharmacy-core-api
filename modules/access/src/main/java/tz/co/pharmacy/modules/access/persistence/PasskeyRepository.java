@@ -19,4 +19,7 @@ public interface PasskeyRepository extends JpaRepository<Passkey, Long> {
   int countByUserUid(UUID userUid);
 
   boolean existsByUserUid(UUID userUid);
+
+  /** Removes every passkey of the user, as a password reset or a recovery does. */
+  long deleteByUserUid(UUID userUid);
 }

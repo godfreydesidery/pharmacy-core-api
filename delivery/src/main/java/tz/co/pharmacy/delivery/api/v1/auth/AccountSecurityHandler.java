@@ -37,6 +37,35 @@ public class AccountSecurityHandler {
     this.security = security;
   }
 
+  /**
+   * The person confirms their password again (and their authenticator or recovery code when
+   * two-factor is on), so this session may make sensitive account changes for a few minutes.
+   */
+  @PostMapping("/confirm-identity")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<Void> confirmIdentity(
+      @RequestBody ConfirmIdentityRequest body,
+      @org.springframework.web.bind.annotation.RequestHeader(
+              name = "Authorization",
+              required = false)
+          String authorization,
+      HttpServletRequest request) {
+    String token =
+        authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)
+            ? authorization.substring(7).trim()
+            : null;
+    security.confirmIdentity(
+        self(),
+        token,
+        body == null ? null : body.password(),
+        body == null ? null : body.code(),
+        EdgeFilter.client(request));
+    return ApiResponse.ok("Identity confirmed");
+  }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public record ConfirmIdentityRequest(String password, String code) {}
+
   /** Always 202: the same answer whether or not the new address already has an account. */
   @PostMapping("/email-change")
   @ResponseStatus(HttpStatus.ACCEPTED)
@@ -68,7 +97,7 @@ public class AccountSecurityHandler {
 
   @PostMapping("/phone")
   @ResponseStatus(HttpStatus.ACCEPTED)
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<Void> sendPhoneCode(
       @RequestBody PhoneRequest body, HttpServletRequest request) {
     security.sendPhoneCode(self(), body == null ? null : body.phone(), EdgeFilter.client(request));
@@ -76,7 +105,7 @@ public class AccountSecurityHandler {
   }
 
   @PostMapping("/phone/verify")
-  @Access(scope = AccessScope.AUTHENTICATED)
+  @Access(scope = AccessScope.AUTHENTICATED, stepUp = true)
   public ApiResponse<Void> verifyPhone(@RequestBody CodeOnly body) {
     security.verifyPhone(self(), body == null ? null : body.code());
     return ApiResponse.ok("Phone verified");

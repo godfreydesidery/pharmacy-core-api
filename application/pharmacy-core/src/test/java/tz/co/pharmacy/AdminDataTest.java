@@ -163,7 +163,28 @@ class AdminDataTest extends IntegrationTest {
                     .read("$.data.items.length()", Integer.class)
                 > 0);
     Response list = admin.get("/api/v1/notification-deliveries?channel=EMAIL").expect(200);
-    String uid = list.string("$.data.items[0].uid");
+    java.util.List<java.util.Map<String, Object>> emails = list.json().read("$.data.items");
+    // Account messages (links and codes) are never resent: take another kind.
+    String uid =
+        emails.stream()
+            .filter(e -> !String.valueOf(e.get("templateKey")).startsWith("access."))
+            .map(e -> String.valueOf(e.get("uid")))
+            .findFirst()
+            .orElseThrow();
+    String account =
+        emails.stream()
+            .filter(e -> String.valueOf(e.get("templateKey")).startsWith("access."))
+            .map(e -> String.valueOf(e.get("uid")))
+            .findFirst()
+            .orElse(null);
+    if (account != null) {
+      assertThat(
+              admin
+                  .post("/api/v1/notification-deliveries/" + account + "/resend", null)
+                  .expect(422)
+                  .string("$.reason"))
+          .isEqualTo("cannot_resend");
+    }
     Response detail = admin.get("/api/v1/notification-deliveries/" + uid).expect(200);
     assertThat(detail.string("$.data.body")).isNotBlank();
     assertThat(detail.string("$.data.channel")).isEqualTo("EMAIL");

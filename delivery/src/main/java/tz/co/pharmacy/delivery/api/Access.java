@@ -18,4 +18,13 @@ public @interface Access {
   AccessScope scope();
 
   String permission() default "";
+
+  /**
+   * A sensitive change to the caller's own account (passkeys, two-factor, phone): the session must
+   * have proved its password within the last few minutes ({@code pharmacy.access.step-up-minutes},
+   * 10 by default), else 403 {@code reauthentication_required}; the app then asks for the password
+   * and calls {@code POST /auth/confirm-identity} (OWASP ASVS V6/V7 re-authentication, "sudo
+   * mode").
+   */
+  boolean stepUp() default false;
 }

@@ -28,8 +28,13 @@ public class NotificationHandler {
 
   private final InAppInbox inbox;
   private final NotificationStreams streams;
+  private final tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService authentication;
 
-  public NotificationHandler(InAppInbox inbox, NotificationStreams streams) {
+  public NotificationHandler(
+      InAppInbox inbox,
+      NotificationStreams streams,
+      tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService authentication) {
+    this.authentication = authentication;
     this.inbox = inbox;
     this.streams = streams;
   }
@@ -66,17 +71,38 @@ public class NotificationHandler {
     return ApiResponse.ok(new UnreadCount(0), "All notifications read");
   }
 
+  /** A 60-second ticket to open the stream with ({@code GET /stream?ticket=...&tenant=...}). */
+  @PostMapping("/stream-ticket")
+  @Access(scope = AccessScope.AUTHENTICATED)
+  public ApiResponse<StreamTicket> streamTicket(jakarta.servlet.http.HttpServletRequest request) {
+    UUID session =
+        request.getAttribute(tz.co.pharmacy.delivery.edge.EdgeFilter.PRINCIPAL)
+                instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal
+            ? principal.sessionUid()
+            : null;
+    return ApiResponse.ok(new StreamTicket(authentication.streamTicket(session)), "Stream ticket");
+  }
+
+  public record StreamTicket(String ticket) {}
+
   /**
    * Server-Sent Events: {@code ready} with the unread count on connect, then {@code notification}
    * with the new count and message whenever one arrives. EventSource cannot send headers, so this
-   * path also takes {@code ?token=} and {@code ?tenant=}.
+   * path takes {@code ?ticket=} (from {@code POST /stream-ticket}) and {@code ?tenant=}. The stream
+   * closes once its session ends (sign-out, revocation, idle limit).
    */
   @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
   @Access(scope = AccessScope.AUTHENTICATED)
-  public SseEmitter stream() {
+  public SseEmitter stream(jakarta.servlet.http.HttpServletRequest request) {
+    UUID session =
+        request.getAttribute(tz.co.pharmacy.delivery.edge.EdgeFilter.PRINCIPAL)
+                instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal
+            ? principal.sessionUid()
+            : null;
     return streams.open(
         ExecutionContext.tenantUid().orElse(null),
         ExecutionContext.actor().uid(),
+        session,
         inbox.unreadCount());
   }
 }
