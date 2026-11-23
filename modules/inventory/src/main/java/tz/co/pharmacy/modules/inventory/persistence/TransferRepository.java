@@ -25,4 +25,14 @@ public interface TransferRepository
           + " where l.productUid = :productUid"
           + " and t.status = tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT")
   long quantityInTransit(UUID productUid);
+
+  /**
+   * Units of the batch dispatched and not yet received: still the tenant's stock, held at the
+   * batch's cost, so they count when a receipt averages the batch's cost.
+   */
+  @Query(
+      "select coalesce(sum(l.quantity), 0) from Transfer t join t.lines l"
+          + " where l.batchUid = :batchUid"
+          + " and t.status = tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT")
+  long quantityInTransitOfBatch(UUID batchUid);
 }

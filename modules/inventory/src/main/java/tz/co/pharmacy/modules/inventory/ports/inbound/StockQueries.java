@@ -39,4 +39,12 @@ public interface StockQueries {
 
   /** Transfers of the current branch: OUTGOING, INCOMING or, with null, both; newest first. */
   Page<TransferView> transfers(String direction, PageQuery query);
+
+  /**
+   * The value at cost of what a return put back on the shelf (its SALE_RETURN movements under
+   * {@code reference}), each unit at the cost its batch had when restocked: compared with the cost
+   * the return was booked at, it gives the difference the books post (MON-9). Null when nothing was
+   * restocked under it, or the movements are from before their cost was recorded.
+   */
+  java.math.BigDecimal restockedValue(String reference);
 }

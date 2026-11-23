@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import lombok.AccessLevel;
@@ -39,6 +40,12 @@ public class Movement extends TenantEntity {
 
   private String note;
 
+  /**
+   * The batch's unit cost once the movement was made, so the value of what moved stays known after
+   * the batch's cost has moved on (null on movements recorded before it was kept).
+   */
+  private BigDecimal unitCost;
+
   @Convert(converter = SerialNumbers.class)
   private List<String> serialNumbers = List.of();
 
@@ -63,6 +70,7 @@ public class Movement extends TenantEntity {
     this.reference = reference;
     this.reasonCode = reasonCode;
     this.note = note;
+    this.unitCost = batch.getUnitCost();
   }
 
   /** As the other constructor, recording the serial numbers of the units moved. */

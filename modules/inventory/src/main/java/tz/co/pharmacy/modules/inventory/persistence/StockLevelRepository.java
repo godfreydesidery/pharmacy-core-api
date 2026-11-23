@@ -43,6 +43,10 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
           + " and s.quantity > 0 order by s.productUid, b.batchNumber")
   List<StockLevel> allOnHand(UUID branchUid);
 
+  /** Every batch's level at the branch, empty ones included: rows of [batchUid, quantity]. */
+  @Query("select b.uid, s.quantity from StockLevel s join s.batch b where s.branchUid = :branchUid")
+  List<Object[]> quantitiesByBatch(UUID branchUid);
+
   /** The batch's quantity at every branch of the tenant. */
   @Query("select coalesce(sum(s.quantity), 0) from StockLevel s where s.batch = :batch")
   long quantityOfBatch(Batch batch);

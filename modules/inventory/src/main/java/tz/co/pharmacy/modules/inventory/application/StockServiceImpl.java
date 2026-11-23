@@ -456,6 +456,14 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     if (transfer.getStatus() != TransferStatus.IN_TRANSIT) {
       throw Refusal.conflict("already_received", "The transfer has been received already.");
     }
+    // The units leave transit and reach a shelf together; a receipt averaging the same batch waits,
+    // so it never counts them twice or not at all. Products in a fixed order, as two transfers may
+    // share some.
+    transfer.getLines().stream()
+        .map(TransferLine::getProductUid)
+        .distinct()
+        .sorted()
+        .forEach(products::lockSnapshot);
     for (TransferLine line : transfer.getLines()) {
       Batch batch = batch(line.getBatchUid());
       if (!line.getSerialNumbers().isEmpty()) {
@@ -491,7 +499,10 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     UUID branch = ExecutionContext.requireBranch();
     UUID productUid = Checks.required(command.productUid(), "productUid");
     int quantity = Checks.positive(command.quantity(), "quantity");
-    BigDecimal unitCost = Checks.notNegative(command.unitCost(), "unitCost");
+    Checks.notNegative(command.unitCost(), "unitCost");
+    // The cost as given, to its last decimal (a foreign price at the receipt's rate has four): the
+    // batch keeps cents, and the difference is posted (MON-9).
+    BigDecimal unitCost = command.unitCost();
     MovementType type = command.type() == null ? MovementType.RECEIPT : command.type();
     if (type != MovementType.RECEIPT && type != MovementType.OPENING) {
       throw Refusal.invalid("invalid_type", "Stock comes in as OPENING or RECEIPT.", "type");
@@ -537,13 +548,12 @@ class StockServiceImpl implements StockService, ProductSnapshots {
           "Batch " + batchNumber + " is recorded with expiry " + batch.getExpiryDate() + ".",
           "expiryDate");
     }
-    // More of a batch already held, at another cost: the batch takes the weighted average, so the
-    // stock is valued at what was paid for it, as the books record the receipt.
-    BigDecimal previousCost = batch.getUnitCost();
-    BigDecimal rounding =
-        existing.isPresent()
-            ? batch.receive(levels.quantityOfBatch(batch), quantity, unitCost)
-            : Amounts.ZERO;
+    // More of a batch already held, at another cost: the batch takes the weighted average over
+    // every unit of it the pharmacy holds, those in transit included, so the stock is valued at
+    // what was paid for it, as the books record the receipt. A cost to more than cents (a foreign
+    // price at the receipt's rate) is kept to the cent and the difference posted (MON-9).
+    BigDecimal previousCost = existing.isPresent() ? batch.getUnitCost() : null;
+    BigDecimal rounding = batch.receive(existing.isPresent() ? held(batch) : 0, quantity, unitCost);
     serials.forEach(serial -> units.save(new SerialUnit(batch, serial, branch)));
     int before = (int) levels.quantityAt(branch, productUid);
     levelFor(branch, batch).change(quantity);
@@ -561,7 +571,9 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                 null,
                 serials));
     // Opening stock reaches the books through the opening balances; a receipt posts on its own.
-    if (type == MovementType.RECEIPT && previousCost.compareTo(batch.getUnitCost()) != 0) {
+    if (type == MovementType.RECEIPT
+        && (rounding.signum() != 0
+            || (previousCost != null && previousCost.compareTo(batch.getUnitCost()) != 0))) {
       events.publish(
           "stock.cost_averaged",
           meta ->
@@ -571,8 +583,8 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                   product.getName(),
                   batch.getUid(),
                   batch.getBatchNumber(),
-                  previousCost,
-                  Amounts.money(unitCost),
+                  previousCost == null ? batch.getUnitCost() : previousCost,
+                  unitCost,
                   batch.getUnitCost(),
                   movement.getUid(),
                   rounding));
@@ -797,6 +809,11 @@ class StockServiceImpl implements StockService, ProductSnapshots {
           "stock.low",
           meta -> new StockLow(meta, product.getProductUid(), product.getName(), after, level));
     }
+  }
+
+  /** Every unit of the batch the pharmacy holds: on the shelves of each branch and in transit. */
+  long held(Batch batch) {
+    return levels.quantityOfBatch(batch) + transfers.quantityInTransitOfBatch(batch.getUid());
   }
 
   private StockLevel levelFor(UUID branch, Batch batch) {
