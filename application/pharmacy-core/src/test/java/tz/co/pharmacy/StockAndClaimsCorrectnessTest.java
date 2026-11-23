@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,10 +29,6 @@ import tz.co.pharmacy.support.IntegrationTest;
 class StockAndClaimsCorrectnessTest extends IntegrationTest {
 
   /** A write-off given back needs Dr 1110 / Cr 6095, which finance does not post yet. */
-  private static final String NEEDS_FINANCE =
-      "Needs ReceivablePostings.claimRejection to post a negative amount as its reversal"
-          + " (Dr 1110 / Cr 6095), in modules/finance, outside this stream";
-
   @Autowired DataSource dataSource;
 
   private Api admin;
@@ -197,7 +192,6 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
   }
 
   @Test
-  @Disabled(NEEDS_FINANCE)
   @DisplayName("MON-4: decided at 6,000 then 8,000, written off: 1110 nets to 0, 6095 holds 2,000")
   void readjudicationWrittenOff() {
     Insured insured = insured();
@@ -234,7 +228,7 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
     hq.post(
             "/api/v1/sales/" + sale.string("$.data.uid") + "/returns",
             """
-            {"reason":"Not needed","refundMethod":"CASH","lines":[{"saleLineUid":"%s","quantity":1}]}
+            {"reason":"Not needed","lines":[{"saleLineUid":"%s","quantity":1}]}
             """
                 .formatted(sale.string("$.data.lines[0].uid")))
         .expect(201);
@@ -247,7 +241,6 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
   }
 
   @Test
-  @Disabled(NEEDS_FINANCE)
   @DisplayName("MON-5: a return on a written-off claim gives the write-off back, not 1110")
   void returnOnWrittenOff() {
     Insured insured = insured();
@@ -257,7 +250,7 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
     hq.post(
             "/api/v1/sales/" + sale.string("$.data.uid") + "/returns",
             """
-            {"reason":"Not needed","refundMethod":"CASH","lines":[{"saleLineUid":"%s","quantity":1}]}
+            {"reason":"Not needed","lines":[{"saleLineUid":"%s","quantity":1}]}
             """
                 .formatted(sale.string("$.data.lines[0].uid")))
         .expect(201);

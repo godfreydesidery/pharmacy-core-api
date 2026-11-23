@@ -127,6 +127,23 @@ class ReceivablePostingsImpl implements ReceivablePostings {
   @Transactional
   public void claimRejection(
       UUID claimUid, String reference, LocalDate date, BigDecimal amount, boolean toPatient) {
+    if (amount != null && amount.signum() < 0) {
+      // Less of the claim is rejected than was booked (a re-adjudication that approves more, or
+      // goods returned on a written-off claim): the rejection is reversed, Dr 1110 / Cr 6095 (or
+      // Cr 1100 when it had been charged to the patient). Adversarial review MON-4, MON-5.
+      writer.post(
+          CLAIM_REJECTION,
+          claimUid,
+          reference,
+          "Claim rejection reversed " + reference,
+          null,
+          date,
+          pair(
+              Postings.INSURANCE_RECEIVABLE,
+              toPatient ? Postings.RECEIVABLE : INSURANCE_REJECTIONS,
+              amount.negate()));
+      return;
+    }
     writer.post(
         CLAIM_REJECTION,
         claimUid,
