@@ -30,6 +30,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.PaymentCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
 import tz.co.pharmacy.modules.sales.ports.inbound.PrescriptionDetails;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordReturnCommand;
+import tz.co.pharmacy.modules.sales.ports.inbound.ReturnDisposition;
 import tz.co.pharmacy.modules.sales.ports.inbound.ReturnLineCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleFilter;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleReturnView;
@@ -176,7 +177,13 @@ public class SalesHandler {
                         new ReturnLineCommand(
                             line.saleLineUid(),
                             line.quantity() == null ? 0 : line.quantity(),
-                            line.serialNumbers()))
+                            line.serialNumbers(),
+                            line.disposition() == null || line.disposition().isBlank()
+                                ? null
+                                : Checks.oneOf(
+                                    ReturnDisposition.class,
+                                    line.disposition(),
+                                    "lines[].disposition")))
                 .toList();
     return ApiResponse.created(
         checkout.returnSale(
@@ -189,6 +196,35 @@ public class SalesHandler {
                 lines,
                 body.refundCurrency())),
         "Sale return recorded");
+  }
+
+  /**
+   * Releases what a return line holds in quarantine: {@code outcome} SHELF (back to sellable stock;
+   * an OTC medicine only) or DAMAGED (written off at cost).
+   */
+  @Idempotent
+  @PostMapping("/sales/returns/{returnUid}/lines/{lineUid}/release")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.refund")
+  public ApiResponse<SaleReturnView> release(
+      @PathVariable UUID returnUid,
+      @PathVariable UUID lineUid,
+      @RequestBody(required = false) ReleaseRequest body) {
+    String outcome = body == null ? null : body.outcome();
+    return ApiResponse.ok(
+        checkout.releaseReturnLine(
+            returnUid,
+            lineUid,
+            outcome == null || outcome.isBlank()
+                ? null
+                : Checks.oneOf(ReturnDisposition.class, outcome, "outcome")),
+        "Released from quarantine");
+  }
+
+  /** The branch's returns with units still held in quarantine, newest first. */
+  @GetMapping("/sale-returns/held")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.view")
+  public ApiResponse<List<SaleReturnView>> heldReturns() {
+    return ApiResponse.ok(saleService.heldReturns(), "Held returns retrieved");
   }
 
   @GetMapping("/sale-returns")
@@ -230,6 +266,14 @@ public class SalesHandler {
   public record ReturnRequest(
       String reason, String refundMethod, List<ReturnLineRequest> lines, String refundCurrency) {}
 
-  /** {@code serialNumbers}: the units returned of a serial-tracked line; else the first sold. */
-  public record ReturnLineRequest(UUID saleLineUid, Integer quantity, List<String> serialNumbers) {}
+  /**
+   * {@code serialNumbers}: the units returned of a serial-tracked line; else the first sold. {@code
+   * disposition}: SHELF, DAMAGED or QUARANTINE; omitted, SHELF for an OTC medicine and QUARANTINE
+   * for a prescription or controlled one (which may not go to SHELF).
+   */
+  public record ReturnLineRequest(
+      UUID saleLineUid, Integer quantity, List<String> serialNumbers, String disposition) {}
+
+  /** {@code outcome}: SHELF or DAMAGED. */
+  public record ReleaseRequest(String outcome) {}
 }

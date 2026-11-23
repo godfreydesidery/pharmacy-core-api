@@ -187,6 +187,8 @@ class ProductTrackingTest extends IntegrationTest {
     // The wheelchair comes back: WCH-2 is in stock again.
     String saleUid = sale.string("$.data.uid");
     String wheelchairLine = sale.string("$.data.lines[0].uid");
+    // A 450,000 refund is above the default approval limit (ControlsSalesTest covers the approval).
+    admin.put("/api/v1/settings", "{\"approvalLimit\":1000000}").expect(200);
     hq.post(
             "/api/v1/sales/" + saleUid + "/returns",
             """

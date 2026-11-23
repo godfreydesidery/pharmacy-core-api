@@ -16,8 +16,21 @@ public interface Checkout {
    */
   SaleView checkout(CheckoutCommand command);
 
-  /** Records the return and puts the units back on the batches they were sold from. */
+  /**
+   * Records the return and moves each line's units by its disposition: SHELF back on the batch they
+   * were sold from; DAMAGED written off at cost (restored, then a DAMAGE adjustment); QUARANTINE
+   * held aside, out of stock, until released.
+   */
   SaleReturnView returnSale(RecordReturnCommand command);
+
+  /**
+   * Releases the units a return line holds in quarantine: SHELF restocks them (an OTC medicine
+   * only), DAMAGED writes them off at cost. See {@code SaleService.releaseReturnLine}.
+   */
+  SaleReturnView releaseReturnLine(
+      UUID returnUid,
+      UUID lineUid,
+      tz.co.pharmacy.modules.sales.ports.inbound.ReturnDisposition outcome);
 
   /** Active products, with their quantity on hand at the current branch. */
   Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query);

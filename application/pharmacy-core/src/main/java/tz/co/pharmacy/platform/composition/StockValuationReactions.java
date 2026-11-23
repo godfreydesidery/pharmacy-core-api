@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
 import tz.co.pharmacy.modules.finance.ports.inbound.Ledger;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockQueries;
+import tz.co.pharmacy.modules.sales.events.SaleReturnReleased;
 import tz.co.pharmacy.modules.sales.events.SaleReturned;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.platform.bus.EventScopes;
@@ -54,7 +55,7 @@ public class StockValuationReactions {
           if (restocked == null) {
             return;
           }
-          BigDecimal booked = Amounts.money(LedgerReactions.cost(event.lines()));
+          BigDecimal booked = Amounts.money(LedgerReactions.restockedCost(event));
           BigDecimal difference = Amounts.money(restocked.subtract(booked));
           if (difference.signum() == 0) {
             return;
@@ -63,6 +64,43 @@ public class StockValuationReactions {
             ledger.postStockAdjustment(
                 event.returnUid(),
                 "Return " + event.number() + " restocked at the batch's current cost",
+                event.branchUid(),
+                localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                difference);
+          } catch (DataIntegrityViolationException alreadyPosted) {
+            LOG.info(
+                "Journal entry already posted: {}",
+                alreadyPosted.getMostSpecificCause().getMessage());
+          }
+        });
+  }
+
+  /**
+   * Units released from quarantine come back at their batch's cost of today, which may differ from
+   * the cost they were sold at (booked back by {@code LedgerReactions}): the difference is a stock
+   * adjustment, once per return line.
+   */
+  @Async
+  @TransactionalEventListener
+  public void on(SaleReturnReleased event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () -> {
+          BigDecimal restocked = stock.restockedValue(event.reference());
+          if (restocked == null) {
+            return;
+          }
+          BigDecimal difference = Amounts.money(restocked.subtract(event.cost()));
+          if (difference.signum() == 0) {
+            return;
+          }
+          try {
+            ledger.postStockAdjustment(
+                UUID.nameUUIDFromBytes(
+                    ("release-valuation/" + event.lineUid())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                "Return " + event.reference() + " released at the batch's current cost",
                 event.branchUid(),
                 localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
                 difference);

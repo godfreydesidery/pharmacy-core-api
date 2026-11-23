@@ -49,6 +49,8 @@ class PricingServiceImpl implements PricingService {
   private final PriceHistory history;
   private final tz.co.pharmacy.modules.catalogue.persistence.PriceChangeRepository changes;
   private final CatalogueServiceImpl catalogue;
+  private final tz.co.pharmacy.modules.catalogue.ports.outbound.PricingSettings settings;
+  private final tz.co.pharmacy.platform.approval.Approvals approvals;
 
   @Override
   @Transactional(readOnly = true)
@@ -262,15 +264,15 @@ class PricingServiceImpl implements PricingService {
             : promotions
                 .findByUid(uid)
                 .orElseThrow(() -> Refusal.notFound("promotion_not_found", "No such promotion."));
+    boolean active = c.active() == null || c.active();
+    BigDecimal max = settings.maxDiscountPercent();
+    if (active && max != null && percent.compareTo(max) > 0) {
+      // FRD-8: a promotion deeper than the till's maximum discount is a manager's decision.
+      approvals.require(
+          tz.co.pharmacy.platform.approval.ApprovalActions.DEEP_PROMOTION, percent, name);
+    }
     promotion.change(
-        name,
-        percent,
-        c.productUid(),
-        c.categoryUid(),
-        c.branchUid(),
-        from,
-        to,
-        c.active() == null || c.active());
+        name, percent, c.productUid(), c.categoryUid(), c.branchUid(), from, to, active);
     Promotion saved = promotions.save(promotion);
     return view(
         saved,
@@ -284,11 +286,20 @@ class PricingServiceImpl implements PricingService {
 
   @Override
   @Transactional
-  public void deletePromotion(UUID uid) {
-    promotions.delete(
+  public PromotionView switchOffPromotion(UUID uid) {
+    Promotion promotion =
         promotions
             .findByUid(uid)
-            .orElseThrow(() -> Refusal.notFound("promotion_not_found", "No such promotion.")));
+            .orElseThrow(() -> Refusal.notFound("promotion_not_found", "No such promotion."));
+    promotion.switchOff();
+    return view(
+        promotion,
+        names(
+            promotion.getProductUid() == null
+                ? java.util.stream.Stream.empty()
+                : java.util.stream.Stream.of(promotion.getProductUid())),
+        categories.findAllByOrderByNameAsc().stream()
+            .collect(Collectors.toMap(Category::getUid, Category::getName, (a, b) -> a)));
   }
 
   @Override
@@ -372,6 +383,7 @@ class PricingServiceImpl implements PricingService {
         }
       }
       Promotion best = null;
+      UUID promotionUid = null;
       BigDecimal bestPrice = price;
       // A plan's price stands as it is: promotions only lower Normal Sale prices (no stacking).
       for (Promotion p : list.isPresent() ? List.<Promotion>of() : running) {
@@ -388,6 +400,7 @@ class PricingServiceImpl implements PricingService {
         price = bestPrice;
         source = "PROMOTION";
         label = best.getName();
+        promotionUid = best.getUid();
       }
       BigDecimal cost = product.getCostPrice();
       out.add(
@@ -399,7 +412,8 @@ class PricingServiceImpl implements PricingService {
               source,
               label,
               cost != null && price.compareTo(cost) < 0,
-              unpriced));
+              unpriced,
+              promotionUid));
     }
     return out;
   }

@@ -60,7 +60,9 @@ class ApprovalsTest extends IntegrationTest {
     Response settings = admin.get("/api/v1/settings").expect(200);
     assertThat(settings.read("$.data.approvalLimit", Double.class)).isEqualTo(50_000.0);
     assertThat(settings.read("$.data.returnWindowDays", Integer.class)).isEqualTo(7);
-    assertThat(settings.read("$.data.requireOpenShift", Boolean.class)).isTrue();
+    // On for new pharmacies in production; the test profile turns the default off
+    // (pharmacy.tenancy.require-open-shift-by-default) so tests sell at once.
+    assertThat(settings.read("$.data.requireOpenShift", Boolean.class)).isFalse();
     admin.put("/api/v1/settings", "{\"approvalLimit\":20000,\"returnWindowDays\":14}").expect(200);
     Response changed = admin.get("/api/v1/settings").expect(200);
     assertThat(changed.read("$.data.approvalLimit", Double.class)).isEqualTo(20_000.0);

@@ -10,7 +10,10 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
-/** Binds sales' reads of tenancy: the invoice prefix, the discount cap and the branches. */
+/**
+ * Binds sales' reads of tenancy: the invoice prefix, the discount cap, the branches, the return
+ * window and whether selling needs an open shift.
+ */
 @Component
 @RequiredArgsConstructor
 class SalesSettingsAdapter implements SalesSettings {
@@ -37,6 +40,16 @@ class SalesSettingsAdapter implements SalesSettings {
   @Override
   public String branchName(UUID branchUid) {
     return branch(branchUid).name();
+  }
+
+  @Override
+  public int returnWindowDays() {
+    return settingsService.current().returnWindowDays();
+  }
+
+  @Override
+  public boolean requireOpenShift() {
+    return settingsService.current().requireOpenShift();
   }
 
   private BranchView branch(UUID branchUid) {

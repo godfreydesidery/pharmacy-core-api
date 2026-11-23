@@ -13,4 +13,10 @@ public interface SalesSettings {
   String branchCode(UUID branchUid);
 
   String branchName(UUID branchUid);
+
+  /** Days after a sale its goods may come back without a manager's approval. */
+  int returnWindowDays();
+
+  /** A cashier must have an open till shift to sell, refund or issue a voucher. */
+  boolean requireOpenShift();
 }

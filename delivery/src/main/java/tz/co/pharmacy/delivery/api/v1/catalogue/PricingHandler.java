@@ -117,11 +117,14 @@ public class PricingHandler {
     return ApiResponse.ok(pricing.savePromotion(uid, body), "Promotion saved");
   }
 
+  /**
+   * Switches the promotion off. A promotion is never deleted (FRD-8): the sales it priced keep
+   * naming it, and the list still shows it, inactive.
+   */
   @DeleteMapping("/promotions/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
-  public ApiResponse<Void> deletePromotion(@PathVariable UUID uid) {
-    pricing.deletePromotion(uid);
-    return ApiResponse.ok(null, "Promotion deleted");
+  public ApiResponse<PromotionView> deletePromotion(@PathVariable UUID uid) {
+    return ApiResponse.ok(pricing.switchOffPromotion(uid), "Promotion switched off");
   }
 
   public record QuoteLine(UUID productUid, Integer quantity) {}

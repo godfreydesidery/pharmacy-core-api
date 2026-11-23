@@ -68,6 +68,14 @@ public class SaleLine extends TenantEntity {
   /** The last day of the warranty of what the line sold, or null without one. */
   private LocalDate warrantyEndsOn;
 
+  /** The medicine's dispensing class when sold; null on lines sold before it was kept. */
+  private String schedule;
+
+  /** The promotion that priced the line, and its name then; null without one. */
+  private UUID promotionUid;
+
+  private String promotionName;
+
   @ElementCollection(fetch = FetchType.EAGER)
   @CollectionTable(
       name = "sale_line_serials",
@@ -110,6 +118,13 @@ public class SaleLine extends TenantEntity {
       serialNumbers.forEach(serial -> serials.add(new SoldSerial(serial)));
     }
     this.warrantyEndsOn = warrantyEndsOn;
+  }
+
+  /** Keeps the medicine's class at the moment of sale and the promotion that priced the line. */
+  public void classified(String schedule, UUID promotionUid, String promotionName) {
+    this.schedule = schedule;
+    this.promotionUid = promotionUid;
+    this.promotionName = promotionName;
   }
 
   public List<String> serialNumbers() {

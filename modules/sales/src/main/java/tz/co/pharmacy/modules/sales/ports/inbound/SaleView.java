@@ -28,4 +28,6 @@ public record SaleView(
     Instant createdAt,
     /* The pricing plan it was priced under (null: Normal Sale), as it was named then. */
     UUID priceListUid,
-    String priceListName) {}
+    String priceListName,
+    /* CUSTOMER: the customer's own plan (not Normal Sale); CHOSEN: switched at the till. */
+    String pricePlanSource) {}

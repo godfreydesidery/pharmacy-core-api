@@ -27,9 +27,18 @@ public interface PricingService {
 
   List<PromotionView> promotions();
 
+  /**
+   * Creates ({@code uid} null) or changes a promotion. Saving one that is on and deeper than the
+   * pharmacy's maximum discount needs a manager's approval each time (403 approval_required,
+   * DEEP_PROMOTION, amount the percentOff); switching one off never does.
+   */
   PromotionView savePromotion(UUID uid, PromotionCommand command);
 
-  void deletePromotion(UUID uid);
+  /**
+   * Switches the promotion off; it is never deleted, so sales priced by it keep naming it (FRD-8).
+   * 404 promotion_not_found.
+   */
+  PromotionView switchOffPromotion(UUID uid);
 
   /**
    * Each line's unit price for the customer (type and uid, either may be null) at the branch on the
@@ -314,8 +323,9 @@ public interface PricingService {
   record PriceRequest(UUID productUid, int quantity) {}
 
   /**
-   * {@code source}: RETAIL, BRANCH, LIST or PROMOTION; {@code label} names the list or promotion.
-   * {@code belowCost} warns when the price is under the product's cost.
+   * {@code source}: RETAIL, BRANCH, LIST or PROMOTION; {@code label} names the list or promotion,
+   * and {@code promotionUid} the promotion (source PROMOTION). {@code belowCost} warns when the
+   * price is under the product's cost.
    */
   record PricedLine(
       UUID productUid,
@@ -326,5 +336,6 @@ public interface PricingService {
       String label,
       boolean belowCost,
       /* The chosen plan has no price and no rule for it: the sale is refused. */
-      boolean unpriced) {}
+      boolean unpriced,
+      UUID promotionUid) {}
 }

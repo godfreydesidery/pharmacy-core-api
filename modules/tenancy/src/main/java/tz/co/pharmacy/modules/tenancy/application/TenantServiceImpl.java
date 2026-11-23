@@ -47,6 +47,12 @@ class TenantServiceImpl implements TenantService {
 
   private final java.time.Clock clock;
 
+  /**
+   * Whether a new pharmacy starts with "require an open shift to sell" on: on in production (the
+   * owner's decision of 23 Nov 2026); the test profile turns it off so tests sell at once.
+   */
+  private final boolean requireOpenShiftByDefault;
+
   TenantServiceImpl(
       TenantRepository tenants,
       BranchRepository branches,
@@ -56,8 +62,12 @@ class TenantServiceImpl implements TenantService {
       DataSource dataSource,
       TenantActivity activity,
       SubscriptionsImpl subscriptions,
-      java.time.Clock clock) {
+      java.time.Clock clock,
+      @org.springframework.beans.factory.annotation.Value(
+              "${pharmacy.tenancy.require-open-shift-by-default:true}")
+          boolean requireOpenShiftByDefault) {
     this.clock = clock;
+    this.requireOpenShiftByDefault = requireOpenShiftByDefault;
     this.tenants = tenants;
     this.branches = branches;
     this.settings = settings;
@@ -93,7 +103,9 @@ class TenantServiceImpl implements TenantService {
         tenant.getUid(),
         () -> {
           branches.save(new Branch(branchCode, branchName, address, phone, licence, true));
-          settings.save(TenantSettings.defaults());
+          TenantSettings defaults = TenantSettings.defaults();
+          defaults.changeControls(null, null, requireOpenShiftByDefault);
+          settings.save(defaults);
           events.publish(
               "tenant.registered",
               metadata -> new TenantRegistered(metadata, tenant.getUid(), code, name));

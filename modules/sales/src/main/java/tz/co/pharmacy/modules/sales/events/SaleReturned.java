@@ -11,6 +11,8 @@ import tz.co.pharmacy.platform.kernel.EventMetadata;
  * base currency as booked; a foreign refund adds its currency, amount and the realised exchange
  * difference (base paid out − refundTotal). {@code refunds} splits {@code refundTotal} by the way
  * the sale was paid (null in events from before the split: {@code refundMethod} took it all).
+ * {@code heldCost} is the cost of the units held in quarantine, not back in stock (null: none): the
+ * books move it back to inventory only when they are released ({@code sale.return_released}).
  */
 public record SaleReturned(
     EventMetadata metadata,
@@ -24,7 +26,8 @@ public record SaleReturned(
     String refundCurrency,
     BigDecimal refundForeignAmount,
     BigDecimal fxDifference,
-    List<Refund> refunds)
+    List<Refund> refunds,
+    BigDecimal heldCost)
     implements DomainEvent {
 
   /** A share of the refund: INSURANCE off the claim, CREDIT/ACCOUNT_CREDIT to the account. */

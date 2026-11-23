@@ -25,6 +25,7 @@ import tz.co.pharmacy.modules.inventory.events.StockAdjusted;
 import tz.co.pharmacy.modules.purchasing.events.GoodsReceived;
 import tz.co.pharmacy.modules.purchasing.events.SupplierReturned;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
+import tz.co.pharmacy.modules.sales.events.SaleReturnReleased;
 import tz.co.pharmacy.modules.sales.events.SaleReturned;
 import tz.co.pharmacy.modules.sales.events.VoucherIssued;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
@@ -131,7 +132,7 @@ public class LedgerReactions {
               date,
               net,
               tax,
-              cost(event.lines()),
+              restockedCost(event),
               shares.isEmpty() ? event.refundMethod() : shares.keySet().iterator().next(),
               event.refundCurrency(),
               event.refundForeignAmount(),
@@ -163,7 +164,7 @@ public class LedgerReactions {
               date,
               share.getValue().subtract(shareTax),
               shareTax,
-              own ? cost(event.lines()) : BigDecimal.ZERO,
+              own ? restockedCost(event) : BigDecimal.ZERO,
               share.getKey(),
               own ? event.refundCurrency() : null,
               own ? event.refundForeignAmount() : null,
@@ -299,6 +300,44 @@ public class LedgerReactions {
             .find(event.metadata().tenantUid())
             .map(tenant -> !tenant.currency().equals(event.currency()))
             .orElse(false);
+  }
+
+  /**
+   * The cost a return books back to inventory: its lines' cost less what it holds in quarantine,
+   * which is out of stock until released ({@code sale.return_released} books it then).
+   */
+  static BigDecimal restockedCost(SaleReturned event) {
+    BigDecimal held = event.heldCost() == null ? BigDecimal.ZERO : event.heldCost();
+    return cost(event.lines()).subtract(held);
+  }
+
+  /**
+   * Units a return held in quarantine were released (back on the shelf, or restocked and written
+   * off): their cost comes back from cost of goods sold to inventory, Dr 1200 / Cr 5000, once per
+   * return line; a write-off then posts its own stock loss.
+   */
+  @Async
+  @TransactionalEventListener
+  public void on(SaleReturnReleased event) {
+    if (event.cost() == null || event.cost().signum() == 0) {
+      return;
+    }
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postReturn(
+                        new ReturnPosting(
+                            event.lineUid(),
+                            event.number(),
+                            event.branchUid(),
+                            localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                            BigDecimal.ZERO,
+                            BigDecimal.ZERO,
+                            event.cost(),
+                            "CASH"))));
   }
 
   static BigDecimal cost(List<SaleCompleted.Line> lines) {
