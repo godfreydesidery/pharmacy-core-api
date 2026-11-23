@@ -16,6 +16,19 @@ select r.id, 'finance.period_lock' from access.roles r
                 where p.role_id = r.id and p.permission = 'finance.manage')
 on conflict do nothing;
 
+-- "Set and change customers' credit limits" (partners.credit_limit) is its own permission: the
+-- person who sells on credit should not also decide how much credit there is (FRD-17). Until now
+-- partners.manage set limits, so every role that holds partners.manage or finance.manage today -
+-- built-in or the pharmacy's own - keeps the ability. New pharmacies get it from the presets
+-- (Administrator, Branch Manager, Accountant); an existing pharmacy's admin can take it off the
+-- Pharmacist by applying the recommended roles.
+insert into access.role_permissions (role_id, permission)
+select r.id, 'partners.credit_limit' from access.roles r
+ where (r.system and r.code = 'ADMIN')
+    or exists (select 1 from access.role_permissions p
+                where p.role_id = r.id and p.permission in ('partners.manage', 'finance.manage'))
+on conflict do nothing;
+
 alter table access.role_permissions force row level security;
 alter table access.roles force row level security;
 

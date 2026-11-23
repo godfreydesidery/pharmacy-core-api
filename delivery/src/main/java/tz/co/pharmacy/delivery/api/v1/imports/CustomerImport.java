@@ -164,14 +164,14 @@ class CustomerImport implements Importer<CustomerImport.Plan> {
         row.pick("creditLimit", was, CustomerView::creditLimit, r -> r.number("creditLimit"));
     if (CreditLimits.changes(was == null ? null : was.creditLimit(), creditLimit)
         && !CreditLimits.mayChange()) {
-      // A credit limit is a finance decision (FRD-17), in an import as on the customer form.
+      // A credit limit needs its own permission (FRD-17), in an import as on the customer form.
       row.problem(
           "creditLimit",
           CreditLimits.REASON,
-          "needs the finance permission (finance.manage) to be set or changed; leave it as it"
-              + " is.",
-          "kinahitaji ruhusa ya fedha (finance.manage) kuwekwa au kubadilishwa; kiache kama"
-              + " kilivyo.");
+          "needs the permission to set credit limits (partners.credit_limit) to be set or"
+              + " changed; leave it as it is.",
+          "kinahitaji ruhusa ya kuweka vikomo vya mkopo (partners.credit_limit) kuwekwa au"
+              + " kubadilishwa; kiache kama kilivyo.");
     }
     PaymentTerms terms =
         row.pick(

@@ -60,7 +60,7 @@ public class PartnerHandler {
     if (body == null) {
       throw Refusal.malformed("A customer is required.");
     }
-    // A credit limit is a finance decision (FRD-17): 403 credit_limit_needs_finance.
+    // A credit limit needs its own permission (FRD-17): 403 credit_limit_not_allowed.
     CreditLimits.require(BigDecimal.ZERO, body.creditLimit());
     return ApiResponse.created(
         customers.create(body.toCommand(body.creditLimit())), "Customer created");
@@ -77,9 +77,10 @@ public class PartnerHandler {
   }
 
   /**
-   * An omitted {@code creditLimit} keeps the customer's limit. Changing it needs finance.manage
-   * (403 credit_limit_needs_finance). One transaction: the customer's version makes a change that
-   * crossed another one refuse (409 stale_version) rather than act on a stale limit.
+   * An omitted {@code creditLimit} keeps the customer's limit. Changing it needs
+   * partners.credit_limit (403 credit_limit_not_allowed). One transaction: the customer's version
+   * makes a change that crossed another one refuse (409 stale_version) rather than act on a stale
+   * limit.
    */
   @PutMapping("/customers/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
@@ -97,6 +98,41 @@ public class PartnerHandler {
     CreditLimits.require(current.creditLimit(), limit);
     return ApiResponse.ok(customers.change(uid, body.toCommand(limit)), "Customer changed");
   }
+
+  /**
+   * Sets only the customer's credit limit, for someone who decides credit without managing
+   * customers (the Accountant preset). Everything else about the customer stays as it is.
+   */
+  @PutMapping("/customers/{uid}/credit-limit")
+  @Access(scope = AccessScope.TENANT, permission = CreditLimits.PERMISSION)
+  @Transactional
+  public ApiResponse<CustomerView> changeCreditLimit(
+      @PathVariable UUID uid, @RequestBody CreditLimitRequest body) {
+    if (body == null || body.creditLimit() == null) {
+      throw Refusal.invalid("invalid_credit_limit", "creditLimit is required.", "creditLimit");
+    }
+    CustomerView c =
+        customers
+            .find(uid)
+            .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    return ApiResponse.ok(
+        customers.change(
+            uid,
+            new CustomerCommand(
+                c.name(),
+                c.phone(),
+                c.email(),
+                c.type(),
+                c.insuranceProvider(),
+                c.insuranceNumber(),
+                body.creditLimit(),
+                c.address(),
+                c.active(),
+                c.paymentTerms())),
+        "Credit limit changed");
+  }
+
+  public record CreditLimitRequest(BigDecimal creditLimit) {}
 
   // suppliers
 

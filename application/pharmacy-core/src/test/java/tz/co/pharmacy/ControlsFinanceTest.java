@@ -61,13 +61,15 @@ class ControlsFinanceTest extends IntegrationTest {
   @DisplayName("a new pharmacy gets the split presets and no notice")
   void newPharmacyPresets() {
     assertThat(permissions("PHARMACIST"))
-        .doesNotContain("sales.refund", "inventory.adjust", "catalogue.manage")
+        .doesNotContain(
+            "sales.refund", "inventory.adjust", "catalogue.manage", "partners.credit_limit")
         .contains("sales.sell", "partners.manage");
     assertThat(permissions("BRANCH_MANAGER"))
         .doesNotContain("finance.period_lock", "users.manage")
-        .contains("finance.manage", "approvals.grant");
-    assertThat(permissions("ADMIN")).contains("finance.period_lock", "approvals.grant");
-    assertThat(permissions("ACCOUNTANT")).contains("finance.period_lock");
+        .contains("finance.manage", "approvals.grant", "partners.credit_limit");
+    assertThat(permissions("ADMIN"))
+        .contains("finance.period_lock", "approvals.grant", "partners.credit_limit");
+    assertThat(permissions("ACCOUNTANT")).contains("finance.period_lock", "partners.credit_limit");
     assertThat(admin.get("/api/v1/permissions").expect(200).body()).contains("finance.period_lock");
 
     Response notice = admin.get("/api/v1/roles/recommendations").expect(200);
@@ -94,7 +96,8 @@ class ControlsFinanceTest extends IntegrationTest {
         .containsExactly("finance.period_lock");
     assertThat(notice.json().read("$.data.roles[0].add", List.class)).isEmpty();
     assertThat(notice.json().read("$.data.roles[1].remove", List.class))
-        .containsExactly("sales.refund", "inventory.adjust", "catalogue.manage");
+        .containsExactly(
+            "sales.refund", "inventory.adjust", "catalogue.manage", "partners.credit_limit");
     assertThat(notice.string("$.data.roles[1].roleUid")).isEqualTo(roleUid("PHARMACIST"));
     assertThat(notice.string("$.data.roles[1].name")).isEqualTo("Pharmacist");
 
@@ -234,8 +237,8 @@ class ControlsFinanceTest extends IntegrationTest {
   // ------------------------------------------------------------------ credit
 
   @Test
-  @DisplayName("customers: partners.manage edits them, only finance sets their credit limit")
-  void creditLimitIsFinance() {
+  @DisplayName("customers: partners.manage edits them, only partners.credit_limit sets the limit")
+  void creditLimitHasItsOwnPermission() {
     Staff.Login login = Staff.login(admin, anonymous, "Pharmacist", "PHARMACIST", "Pharma#2026x");
     Api pharmacist =
         anonymous.as(anonymous.signIn(login.signIn(), "Pharma#2026x")).in(tenant, null);
@@ -247,9 +250,9 @@ class ControlsFinanceTest extends IntegrationTest {
             .string("$.data.uid");
     Response refused =
         pharmacist.post("/api/v1/customers", "{\"name\":\"Clinic\",\"creditLimit\":50000}");
-    assertThat(refused.expect(403).string("$.reason")).isEqualTo("credit_limit_needs_finance");
+    assertThat(refused.expect(403).string("$.reason")).isEqualTo("credit_limit_not_allowed");
 
-    // Finance sets the limit; the pharmacist may still edit the rest, the limit stays.
+    // The admin sets the limit; the pharmacist may still edit the rest, the limit stays.
     admin
         .put("/api/v1/customers/" + walkIn, "{\"name\":\"Asha\",\"creditLimit\":100000}")
         .expect(200);
@@ -271,11 +274,31 @@ class ControlsFinanceTest extends IntegrationTest {
                       "{\"name\":\"Asha Juma\",\"creditLimit\":%s}".formatted(limit))
                   .expect(403)
                   .string("$.reason"))
-          .isEqualTo("credit_limit_needs_finance");
+          .isEqualTo("credit_limit_not_allowed");
     }
-    // An omitted limit is kept for finance too.
+    // An omitted limit is kept for those who may change it too.
     Response kept = admin.put("/api/v1/customers/" + walkIn, "{\"name\":\"Asha J.\"}").expect(200);
     assertThat(kept.read("$.data.creditLimit", Double.class)).isEqualTo(100_000.0);
+
+    // The accountant decides credit without managing customers: the limit only, nothing else.
+    Staff.Login books = Staff.login(admin, anonymous, "Accountant", "ACCOUNTANT", "Account#2026x");
+    Api accountant =
+        anonymous.as(anonymous.signIn(books.signIn(), "Account#2026x")).in(tenant, null);
+    accountant
+        .put("/api/v1/customers/" + walkIn, "{\"name\":\"Other\",\"creditLimit\":1}")
+        .expect(403);
+    Response limited =
+        accountant
+            .put("/api/v1/customers/" + walkIn + "/credit-limit", "{\"creditLimit\":75000}")
+            .expect(200);
+    assertThat(limited.read("$.data.creditLimit", Double.class)).isEqualTo(75_000.0);
+    assertThat(limited.string("$.data.name")).isEqualTo("Asha J.");
+    assertThat(
+            pharmacist
+                .put("/api/v1/customers/" + walkIn + "/credit-limit", "{\"creditLimit\":1}")
+                .expect(403)
+                .string("$.reason"))
+        .isEqualTo("forbidden");
   }
 
   @Test
@@ -382,7 +405,8 @@ class ControlsFinanceTest extends IntegrationTest {
   /** Gives the built-in roles their permissions as an older pharmacy had them. */
   private void simulateOldPresets() {
     List<String> pharmacist = permissions("PHARMACIST");
-    pharmacist.addAll(List.of("sales.refund", "inventory.adjust", "catalogue.manage"));
+    pharmacist.addAll(
+        List.of("sales.refund", "inventory.adjust", "catalogue.manage", "partners.credit_limit"));
     changeRole("PHARMACIST", pharmacist);
     List<String> manager = permissions("BRANCH_MANAGER");
     manager.add("finance.period_lock");

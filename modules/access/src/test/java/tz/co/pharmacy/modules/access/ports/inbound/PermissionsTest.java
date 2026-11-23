@@ -48,4 +48,17 @@ class PermissionsTest {
     assertThat(Permissions.preset("ADMIN")).contains(Permissions.FINANCE_PERIOD_LOCK);
     assertThat(Permissions.preset("ACCOUNTANT")).contains(Permissions.FINANCE_PERIOD_LOCK);
   }
+
+  @Test
+  void creditLimitsAreSetByManagersAndFinanceNotByThePharmacist() {
+    assertThat(Permissions.TENANT_ALL).contains(Permissions.PARTNERS_CREDIT_LIMIT);
+    for (String role : java.util.List.of("ADMIN", "BRANCH_MANAGER", "ACCOUNTANT")) {
+      assertThat(Permissions.preset(role)).as(role).contains(Permissions.PARTNERS_CREDIT_LIMIT);
+    }
+    for (String role : java.util.List.of("PHARMACIST", "CASHIER", "STORE_KEEPER")) {
+      assertThat(Permissions.preset(role))
+          .as(role)
+          .doesNotContain(Permissions.PARTNERS_CREDIT_LIMIT);
+    }
+  }
 }

@@ -32,6 +32,7 @@ public final class Permissions {
   public static final String CATALOGUE_MANAGE = "catalogue.manage";
   public static final String PARTNERS_VIEW = "partners.view";
   public static final String PARTNERS_MANAGE = "partners.manage";
+  public static final String PARTNERS_CREDIT_LIMIT = "partners.credit_limit";
   public static final String FINANCE_VIEW = "finance.view";
   public static final String FINANCE_MANAGE = "finance.manage";
   public static final String FINANCE_WRITE_OFF = "finance.write_off";
@@ -70,6 +71,8 @@ public final class Permissions {
               CATALOGUE_MANAGE, "catalogue", "Manage products, categories and manufacturers"),
           new PermissionView(PARTNERS_VIEW, "partners", "View customers and suppliers"),
           new PermissionView(PARTNERS_MANAGE, "partners", "Manage customers and suppliers"),
+          new PermissionView(
+              PARTNERS_CREDIT_LIMIT, "partners", "Set and change customers' credit limits"),
           new PermissionView(FINANCE_VIEW, "finance", "View expenses, accounts and the journal"),
           new PermissionView(FINANCE_MANAGE, "finance", "Record expenses"),
           new PermissionView(
@@ -183,7 +186,8 @@ public final class Permissions {
               REPORTS_VIEW,
               SALES_VIEW,
               PURCHASING_VIEW,
-              PARTNERS_VIEW);
+              PARTNERS_VIEW,
+              PARTNERS_CREDIT_LIMIT);
       default -> Set.of();
     };
   }
