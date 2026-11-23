@@ -15,7 +15,9 @@ public interface PeriodLocks {
 
   /**
    * Locks the books through {@code lockedThrough}, or unlocks them with null. 422 invalid_lock_date
-   * unless the date is before today, so the current day stays open.
+   * unless the date is before today, so the current day stays open. Moving the lock to an earlier
+   * date or removing it needs a second person's approval (PERIOD_UNLOCK, always): 403
+   * approval_required without one. Moving it forward needs none.
    */
   PeriodLockView lockThrough(LocalDate lockedThrough);
 

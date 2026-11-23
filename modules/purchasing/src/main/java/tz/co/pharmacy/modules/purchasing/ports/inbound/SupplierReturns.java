@@ -16,7 +16,9 @@ public interface SupplierReturns {
 
   /**
    * Records the return (RTS-&lt;branchCode&gt;-000001) of the given, already valued lines; 422
-   * supplier_not_found, goods_receipt_not_found, receipt_supplier_mismatch.
+   * supplier_not_found, goods_receipt_not_found, receipt_supplier_mismatch; 403
+   * supplier_return_needs_receipt when no goods receipt is named and the caller lacks
+   * purchasing.manage.
    */
   SupplierReturnView record(RecordSupplierReturnCommand command);
 

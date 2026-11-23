@@ -34,6 +34,18 @@ class PermissionsTest {
             Permissions.SETTINGS_MANAGE,
             Permissions.INTEGRATIONS_MANAGE,
             Permissions.BRANCHES_MANAGE)
-        .contains(Permissions.SALES_SELL, Permissions.FINANCE_MANAGE);
+        .contains(Permissions.SALES_SELL, Permissions.FINANCE_MANAGE, Permissions.APPROVALS_GRANT);
+  }
+
+  @Test
+  void sellingIsKeptApartFromRefundsStockAndCatalogueAndTheBooksFromTheBranch() {
+    assertThat(Permissions.preset("PHARMACIST"))
+        .doesNotContain(
+            Permissions.SALES_REFUND, Permissions.INVENTORY_ADJUST, Permissions.CATALOGUE_MANAGE)
+        .contains(Permissions.SALES_SELL, Permissions.PARTNERS_MANAGE);
+    assertThat(Permissions.preset("BRANCH_MANAGER"))
+        .doesNotContain(Permissions.FINANCE_PERIOD_LOCK);
+    assertThat(Permissions.preset("ADMIN")).contains(Permissions.FINANCE_PERIOD_LOCK);
+    assertThat(Permissions.preset("ACCOUNTANT")).contains(Permissions.FINANCE_PERIOD_LOCK);
   }
 }

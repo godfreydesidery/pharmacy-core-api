@@ -29,6 +29,9 @@ import tz.co.pharmacy.platform.persistence.Specs;
 @RequiredArgsConstructor
 class SupplierReturnsImpl implements SupplierReturns {
 
+  /** Who may record a return not linked to a goods receipt. */
+  static final String MANAGE = "purchasing.manage";
+
   private final SupplierReturnRepository returns;
   private final GoodsReceiptRepository receipts;
   private final PurchasingDirectory directory;
@@ -57,6 +60,13 @@ class SupplierReturnsImpl implements SupplierReturns {
             "The goods receipt is from another supplier.",
             "goodsReceiptUid");
       }
+    } else if (!ExecutionContext.permits(MANAGE)) {
+      // Stock sent back with no receipt to check it against is a way out for any stock: only a
+      // purchasing manager records one (adversarial review FRD-16).
+      throw Refusal.forbidden(
+          "supplier_return_needs_receipt",
+          "Choose the goods receipt the stock came on; a return without one needs the"
+              + " permission to manage purchasing (purchasing.manage).");
     }
     List<Line> lines = Checks.notEmpty(command.lines(), "lines");
     SupplierReturn supplierReturn =

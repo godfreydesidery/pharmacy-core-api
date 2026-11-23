@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
+import tz.co.pharmacy.delivery.api.v1.partners.CreditLimits;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerCommand;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerType;
@@ -161,6 +162,17 @@ class CustomerImport implements Importer<CustomerImport.Plan> {
     String address = row.pick("address", was, CustomerView::address, r -> r.text("address"));
     var creditLimit =
         row.pick("creditLimit", was, CustomerView::creditLimit, r -> r.number("creditLimit"));
+    if (CreditLimits.changes(was == null ? null : was.creditLimit(), creditLimit)
+        && !CreditLimits.mayChange()) {
+      // A credit limit is a finance decision (FRD-17), in an import as on the customer form.
+      row.problem(
+          "creditLimit",
+          CreditLimits.REASON,
+          "needs the finance permission (finance.manage) to be set or changed; leave it as it"
+              + " is.",
+          "kinahitaji ruhusa ya fedha (finance.manage) kuwekwa au kubadilishwa; kiache kama"
+              + " kilivyo.");
+    }
     PaymentTerms terms =
         row.pick(
             "paymentTerms",

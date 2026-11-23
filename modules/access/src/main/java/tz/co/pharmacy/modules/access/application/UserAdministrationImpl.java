@@ -314,7 +314,7 @@ class UserAdministrationImpl implements UserAdministration {
    * it, so "manage users" is not a way to every other permission (OWASP ASVS V8.2, least
    * privilege). A root administrator holds them all.
    */
-  private static void requireGrantable(java.util.Collection<String> permissions) {
+  static void requireGrantable(java.util.Collection<String> permissions) {
     if (ExecutionContext.rootAdmin()) {
       return;
     }
@@ -327,7 +327,7 @@ class UserAdministrationImpl implements UserAdministration {
     }
   }
 
-  private static boolean managesPeople(Role role) {
+  static boolean managesPeople(Role role) {
     return role != null && role.getPermissions().contains(Permissions.USERS_MANAGE);
   }
 
@@ -344,7 +344,7 @@ class UserAdministrationImpl implements UserAdministration {
     }
   }
 
-  private static Refusal lastPeopleManager() {
+  static Refusal lastPeopleManager() {
     return Refusal.conflict(
         "last_admin",
         "This would leave nobody who can manage the pharmacy's people: give the role to someone"
