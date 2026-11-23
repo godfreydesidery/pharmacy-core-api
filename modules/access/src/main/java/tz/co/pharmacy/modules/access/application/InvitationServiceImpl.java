@@ -63,6 +63,7 @@ class InvitationServiceImpl implements InvitationService {
   private final TenantSwitch tenantSwitch;
   private final AuditLog audit;
   private final ObjectProvider<AccessNotices> notices;
+  private final Seats seats;
   private final JdbcTemplate jdbc;
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
@@ -80,6 +81,7 @@ class InvitationServiceImpl implements InvitationService {
       TenantSwitch tenantSwitch,
       AuditLog audit,
       ObjectProvider<AccessNotices> notices,
+      Seats seats,
       DataSource dataSource,
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl,
@@ -94,6 +96,7 @@ class InvitationServiceImpl implements InvitationService {
     this.tenantSwitch = tenantSwitch;
     this.audit = audit;
     this.notices = notices;
+    this.seats = seats;
     this.jdbc = new JdbcTemplate(dataSource);
     this.writes = new TransactionTemplate(transactionManager);
     this.reads = new TransactionTemplate(transactionManager);
@@ -122,6 +125,10 @@ class InvitationServiceImpl implements InvitationService {
     invitations
         .findAllByTenantUidAndEmailAndAcceptedAtIsNullAndRevokedAtIsNull(tenant, email)
         .forEach(previous -> previous.revoke(now));
+    // A pending invitation holds a seat of the plan's users cap; one sent again replaces the
+    // earlier, which no longer counts.
+    invitations.flush();
+    seats.requireNewSeat(tenant);
     String token = "piv_" + Tokens.newToken().substring(4);
     String inviter = ExecutionContext.actor().name();
     Invitation invitation =
@@ -293,6 +300,7 @@ class InvitationServiceImpl implements InvitationService {
     tenantSwitch.within(
         invitation.getTenantUid(),
         () -> {
+          seats.requireAdmission(invitation);
           Optional<Membership> current =
               memberships.findByUserUidAndTenantUid(user.getUid(), invitation.getTenantUid());
           if (current.isPresent()) {
@@ -322,8 +330,7 @@ class InvitationServiceImpl implements InvitationService {
   private Role role(UUID roleUid) {
     Checks.required(roleUid, "roleUid");
     return roles
-        .findByUid(roleUid)
-        .filter(role -> role.getTenantUid().equals(TenantContext.requireTenant()))
+        .findByUidAndTenantUid(roleUid, TenantContext.requireTenant())
         .orElseThrow(() -> Refusal.invalid("role_not_found", "No such role.", "roleUid"));
   }
 

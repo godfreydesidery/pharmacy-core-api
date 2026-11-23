@@ -49,9 +49,14 @@ public class ReceivablesHandler {
         "Accounts retrieved");
   }
 
-  /** One account; the POS reads it (with sales.sell) to show the credit available. */
+  /**
+   * One account; the POS reads it (with sales.sell) to show the credit available, the accounts page
+   * with finance.view. It needed no permission before (ISO-10).
+   */
   @GetMapping("/accounts/{customerUid}")
-  @Access(scope = AccessScope.TENANT)
+  @Access(
+      scope = AccessScope.TENANT,
+      anyOf = {"sales.sell", "finance.view"})
   public ApiResponse<AccountView> account(@PathVariable UUID customerUid) {
     return ApiResponse.ok(credit.account(customerUid), "Account retrieved");
   }

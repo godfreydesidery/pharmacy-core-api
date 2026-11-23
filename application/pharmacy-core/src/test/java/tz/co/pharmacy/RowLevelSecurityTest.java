@@ -28,7 +28,8 @@ class RowLevelSecurityTest extends IntegrationTest {
    */
   /**
    * Platform-scope tables that name a tenant without belonging to it: subscriptions, and the
-   * pharmacies each session entered (sessions are the person's, read only by the access module).
+   * pharmacies each session entered (sessions are the person's; the application role has no
+   * privilege on that table and reaches it only through access's definer functions, ISO-11).
    */
   private static final String PLATFORM_TABLES =
       "('tenancy', 'subscriptions'), ('tenancy', 'subscription_invoices'),"

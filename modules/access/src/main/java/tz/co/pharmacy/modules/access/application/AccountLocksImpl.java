@@ -39,8 +39,14 @@ class AccountLocksImpl implements AccountLocks {
   @Transactional(readOnly = true)
   public List<LockedMember> locked() {
     UUID tenant = TenantContext.requireTenant();
+    // Only the people who work here now: a former employer learns nothing of the account a person
+    // keeps (adversarial review ISO-6).
     Map<UUID, Membership> byUser =
-        memberships.findAll(Specs.<Membership>equal("tenantUid", tenant)).stream()
+        memberships
+            .findAll(
+                Specs.<Membership>equal("tenantUid", tenant)
+                    .and(Specs.<Membership>equal("active", true)))
+            .stream()
             .collect(Collectors.toMap(Membership::getUserUid, Function.identity(), (a, b) -> a));
     Instant now = clock.instant();
     return users.findAllByUidIn(byUser.keySet()).stream()
@@ -63,6 +69,13 @@ class AccountLocksImpl implements AccountLocks {
         users
             .findByUid(membership.getUserUid())
             .orElseThrow(() -> Refusal.notFound("membership_not_found", "No such member."));
+    if (!user.isManagedBy(membership.getTenantUid()) && !membership.isActive()) {
+      // Someone who left: their own account is no business of this pharmacy's, locked or not.
+      throw Refusal.invalid(
+          "not_managed",
+          "This person signs in with their own account and no longer works here.",
+          "membershipUid");
+    }
     if (!user.isManagedBy(membership.getTenantUid())) {
       // A person's own account is theirs: a lock that may have come from guessing at another
       // pharmacy ends by itself, or when they reset their password; no pharmacy lifts it.

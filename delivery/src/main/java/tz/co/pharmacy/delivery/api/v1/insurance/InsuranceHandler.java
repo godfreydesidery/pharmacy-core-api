@@ -130,10 +130,11 @@ public class InsuranceHandler {
 
   /**
    * The customer's membership valid today, for the POS; {@code data} is null when there is none.
-   * Most customers are not insured, so "none" is an ordinary answer, not a 404.
+   * Most customers are not insured, so "none" is an ordinary answer, not a 404. Needs
+   * partners.view, as the list of members does (it needed no permission before, ISO-10).
    */
   @GetMapping("/insurance/members/current")
-  @Access(scope = AccessScope.TENANT)
+  @Access(scope = AccessScope.TENANT, permission = "partners.view")
   public ApiResponse<MemberView> currentMember(@RequestParam UUID customerUid) {
     return insurance
         .memberOf(customerUid, null)

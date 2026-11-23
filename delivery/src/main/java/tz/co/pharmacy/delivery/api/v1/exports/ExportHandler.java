@@ -229,8 +229,14 @@ public class ExportHandler {
         Spreadsheet.all(page -> sales.list(filter, page)));
   }
 
+  /**
+   * Customers with their phones, emails and insurance numbers: people's data in bulk, so it needs
+   * {@code data.export} besides the list's {@code partners.view} (ISO-10, Tanzania's PDPA).
+   */
   @GetMapping("/customers/export")
-  @Access(scope = AccessScope.TENANT, permission = "partners.view")
+  @Access(
+      scope = AccessScope.TENANT,
+      allOf = {"partners.view", "data.export"})
   public ResponseEntity<byte[]> customers(
       @RequestParam(required = false) String q,
       @RequestParam(required = false) String type,

@@ -35,4 +35,11 @@ public interface TransferRepository
           + " where l.batchUid = :batchUid"
           + " and t.status = tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT")
   long quantityInTransitOfBatch(UUID batchUid);
+
+  /** The branches units of the batch are travelling between: from and to, of every transfer. */
+  @Query(
+      "select t.fromBranchUid, t.toBranchUid from Transfer t join t.lines l"
+          + " where l.batchUid = :batchUid"
+          + " and t.status = tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus.IN_TRANSIT")
+  java.util.List<Object[]> branchesInTransitOfBatch(UUID batchUid);
 }

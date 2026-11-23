@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
-import tz.co.pharmacy.delivery.api.CountsAgainst;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.access.ports.inbound.AddMemberCommand;
 import tz.co.pharmacy.modules.access.ports.inbound.ChangeMemberCommand;
@@ -27,7 +26,6 @@ import tz.co.pharmacy.modules.access.ports.inbound.MemberView;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.access.ports.inbound.StaffDetails;
 import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
-import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -67,9 +65,9 @@ public class UserHandler {
   /**
    * 202 with {@code invited: true}: adding a person by email always sends an invitation, whether or
    * not the email has an account, and they join when they accept. A password in the body is
-   * ignored. For someone with no email, create a managed login.
+   * ignored. For someone with no email, create a managed login. 422 plan_limit_reached when the
+   * plan's users cap is reached: active members and pending invitations both count (INT-6).
    */
-  @CountsAgainst(PlanLimit.USERS)
   @PostMapping
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
   public ResponseEntity<ApiResponse<InvitedResponse>> add(@RequestBody AddMemberRequest body) {
@@ -99,9 +97,9 @@ public class UserHandler {
   /**
    * A managed login: signs in as {@code username@CODE} with the temporary password in the answer,
    * shown this once, and must choose its own at first sign-in. 403 direct_creation_disabled when
-   * the root administrator has not allowed this pharmacy to create logins; 409 username_taken.
+   * the root administrator has not allowed this pharmacy to create logins; 409 username_taken; 422
+   * plan_limit_reached at the plan's users cap.
    */
-  @CountsAgainst(PlanLimit.USERS)
   @PostMapping("/managed")
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
   public ResponseEntity<ApiResponse<ManagedLogins.Created>> createManaged(
@@ -146,6 +144,10 @@ public class UserHandler {
         .orElseThrow(() -> Refusal.notFound("tenant_not_found", "No such tenant."));
   }
 
+  /**
+   * A missing {@code active} keeps the member as they are; {@code true} reactivates a former member
+   * and takes a seat (422 plan_limit_reached at the plan's users cap).
+   */
   @PutMapping("/{membershipUid}")
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
   public ApiResponse<MemberView> change(
@@ -160,7 +162,8 @@ public class UserHandler {
                 body.roleUid(),
                 Boolean.TRUE.equals(body.allBranches()),
                 body.branchUids(),
-                body.active() == null || body.active(),
+                // Missing keeps the member as they are; only true reactivates (INT-6).
+                body.active(),
                 body.phone(),
                 body.name(),
                 body.contactEmail(),

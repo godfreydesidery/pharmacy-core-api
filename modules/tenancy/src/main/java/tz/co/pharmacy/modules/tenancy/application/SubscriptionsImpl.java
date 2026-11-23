@@ -310,7 +310,23 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
     if (cap == null) {
       return;
     }
-    long used = usage.used(tenantUid, limit);
+    refuseOverCap(plan, cap, limit, usage.used(tenantUid, limit), adding);
+  }
+
+  @Override
+  public void requireRoomGiven(UUID tenantUid, PlanLimit limit, long used, long adding) {
+    if (adding <= 0) {
+      return;
+    }
+    Plan plan = planOf(tenantUid);
+    Integer cap = plan.cap(limit);
+    if (cap == null) {
+      return;
+    }
+    refuseOverCap(plan, cap, limit, used, adding);
+  }
+
+  private static void refuseOverCap(Plan plan, int cap, PlanLimit limit, long used, long adding) {
     if (used + adding > cap) {
       throw Refusal.invalid(
           "plan_limit_reached",

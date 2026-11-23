@@ -114,7 +114,9 @@ public class StatementsHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
     List<CashierSummary> rows = salesReports.cashiers(from, to, calendar.zone());
     // One row per person, named as their account is now (refunds carry no name of their own);
-    // rows from before accounts were recorded are named by their email.
+    // rows from before accounts were recorded are named by their email. Someone who has left the
+    // pharmacy is named as it kept them when they left, else as the sale recorded them, never by
+    // what they changed since (adversarial review ISO-6).
     Map<java.util.UUID, String> byUid =
         people.displayNamesByUid(rows.stream().map(CashierSummary::cashierUid).toList());
     Map<String, String> byEmail =

@@ -50,6 +50,22 @@ class PermissionsTest {
   }
 
   @Test
+  void peoplesDataLeavesOnlyWithThoseWhoRunThePharmacy() {
+    assertThat(Permissions.TENANT_ALL).contains(Permissions.DATA_EXPORT);
+    assertThat(Permissions.catalogue())
+        .anyMatch(
+            view ->
+                view.code().equals("data.export")
+                    && view.description().equals("Export people's data in bulk"));
+    for (String role : java.util.List.of("ADMIN", "BRANCH_MANAGER", "ACCOUNTANT")) {
+      assertThat(Permissions.preset(role)).as(role).contains(Permissions.DATA_EXPORT);
+    }
+    for (String role : java.util.List.of("PHARMACIST", "CASHIER", "STORE_KEEPER")) {
+      assertThat(Permissions.preset(role)).as(role).doesNotContain(Permissions.DATA_EXPORT);
+    }
+  }
+
+  @Test
   void creditLimitsAreSetByManagersAndFinanceNotByThePharmacist() {
     assertThat(Permissions.TENANT_ALL).contains(Permissions.PARTNERS_CREDIT_LIMIT);
     for (String role : java.util.List.of("ADMIN", "BRANCH_MANAGER", "ACCOUNTANT")) {

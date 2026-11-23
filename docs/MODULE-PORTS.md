@@ -88,8 +88,9 @@ Note: `register` runs at platform scope (no tenant). The `TenantRegistered` meta
 Tables:
 - `access.users`: platform scope, **no RLS**. `email` unique in lower case, `name`, `password_hash` (Argon2id via spring-security-crypto `Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8()`), `root_admin`, `active`, `last_sign_in_at`.
 - `access.sessions`: no RLS. `token_hash` (SHA-256 hex), `user_uid`, `expires_at`, `revoked_at`.
-- `access.roles` (RLS) plus `access.role_permissions(role_id, permission)`. The policy on the child is `exists (select 1 from access.roles r where r.id = role_id)`.
-- `access.memberships`, where RLS is `using (tenant_uid = platform.current_tenant_uid() or user_uid = platform.current_user_uid()) with check (tenant_uid = platform.current_tenant_uid())`. Plus `access.membership_branches(membership_id, branch_uid)` with an `exists` policy on `access.memberships`.
+- `access.roles` (RLS) plus `access.role_permissions(role_id, permission)`. Reading: the tenant's roles, the roles of the current user's own memberships elsewhere, and the role named on an invitation whose token the transaction names. Writing (insert, update) is the current tenant's only (access V18, ISO-7). The child's select policy is `exists (select 1 from access.roles r where r.id = role_id)`; its insert and delete policies also need `r.tenant_uid = platform.current_tenant_uid()`.
+- `access.memberships`. Reading is `tenant_uid = platform.current_tenant_uid() or user_uid = platform.current_user_uid()`; insert and update are the current tenant's only. `access.membership_branches(membership_id, branch_uid)` follows the same split, through `access.memberships`.
+- `access.session_pharmacies(session_uid, tenant_uid, entered_at)`: platform scope, no RLS, and **no privilege for the application role**. The application reaches it only through the SECURITY DEFINER functions `access.enter_pharmacy(session uuid, tenant uuid, at timestamptz)` (a live session only) and `access.entered_pharmacies(session_id bigint)` (ISO-11).
 
 Tokens are `"pcs_" + base64url(32 random bytes)` and last 12 h (`pharmacy.access.session-hours`, default 12).
 
@@ -111,7 +112,7 @@ record RoleCommand(String code, String name, String description, List<String> pe
 record MemberView(UUID membershipUid, UUID userUid, String name, String email, UUID roleUid, String roleCode, String roleName,
                   boolean allBranches, List<UUID> branchUids, boolean active, Instant lastSignInAt, Instant createdAt) {}
 record AddMemberCommand(String name, String email, String password, UUID roleUid, boolean allBranches, List<UUID> branchUids) {}
-record ChangeMemberCommand(UUID roleUid, boolean allBranches, List<UUID> branchUids, boolean active) {}
+record ChangeMemberCommand(UUID roleUid, boolean allBranches, List<UUID> branchUids, Boolean active /* null keeps it */, …) {}
 record NewUserCommand(String name, String email, String password) {}
 
 interface AuthenticationService {
@@ -136,12 +137,25 @@ interface UserAdministration {                // current tenant unless stated
   RoleView changeRole(UUID roleUid, RoleCommand command);   // a system role keeps its code and name
   /** Seeds the default system roles in the current tenant and makes the user (new or existing by email) its ADMIN. */
   MemberView seedTenant(NewUserCommand administrator);
+  /** Active members plus invitations still open: the seats the plan's users cap counts (INT-6). */
+  long seatsInUse();
+  /** Names as this pharmacy may show them: a former member as it kept them when they left (ISO-6). */
+  Map<String, String> displayNames(Collection<String> references);
+  Map<UUID, String> displayNamesByUid(Collection<UUID> userUids);
   // platform scope
   List<UserView> rootAdmins();
   UserView createRootAdmin(NewUserCommand command);
   boolean anyRootAdmin();
   long userCount();
 }
+// ports.outbound
+/** The plan's users cap (composition: tenancy Entitlements.requireRoomGiven). Access counts the seats
+    in the transaction that takes one, under a per-pharmacy transaction-scoped advisory lock, so
+    parallel requests cannot pass the cap: an invitation, a managed login, a member added or
+    reactivated (members + open invitations + 1), and an invitation accepted (members + 1; an
+    invitation a root administrator sent is never held back). 422 plan_limit_reached. */
+interface UsersCap { void requireRoom(UUID tenantUid, long inUse, long adding); }
+
 /** The one-time "Apply recommended roles" notice (owner, 23 Nov 2026). Current tenant. Decisions per
     Permissions.PRESETS_VERSION in access.role_preset_decisions. */
 interface RolePresets {

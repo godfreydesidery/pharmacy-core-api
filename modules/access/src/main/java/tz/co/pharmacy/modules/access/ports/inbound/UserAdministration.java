@@ -10,12 +10,23 @@ public interface UserAdministration {
 
   /**
    * Display names of people by their actor reference (the sign-in email recorded as created_by):
-   * name, else the email; references with no user are left out.
+   * name, else the email; references with no user are left out. In a pharmacy's scope a former
+   * member is named as the pharmacy kept them when they left (their name, else their email then),
+   * never by what they changed afterwards, and left out when nothing was kept (ISO-6).
    */
   java.util.Map<String, String> displayNames(java.util.Collection<String> references);
 
-  /** Display names of people by account uid: name, else the email; unknown uids are left out. */
+  /**
+   * Display names of people by account uid: name, else the email; unknown uids are left out. A
+   * former member of the current pharmacy as in {@link #displayNames}.
+   */
   java.util.Map<UUID, String> displayNamesByUid(java.util.Collection<UUID> userUids);
+
+  /**
+   * The seats of the plan's users cap the current pharmacy uses: active members and invitations
+   * still open.
+   */
+  long seatsInUse();
 
   /** Newest first; {@code q} matches name or email. */
   Page<MemberView> members(String q, PageQuery query);
