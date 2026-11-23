@@ -44,6 +44,9 @@ public class Sale extends TenantEntity {
   /** What the sale would have cost at Normal Sale prices (null before pricing plans). */
   private BigDecimal normalTotal;
 
+  /** CUSTOMER (the customer's own plan, not Normal Sale) or CHOSEN (switched); null otherwise. */
+  private String pricePlanSource;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
   private SaleStatus status;
@@ -111,6 +114,11 @@ public class Sale extends TenantEntity {
     this.priceListUid = planUid;
     this.priceListName = planName;
     this.normalTotal = normalTotal;
+  }
+
+  /** Where the plan came from: CUSTOMER or CHOSEN; null for Normal Sale by default. */
+  public void planFrom(String source) {
+    this.pricePlanSource = source;
   }
 
   public void addLine(SaleLine line) {

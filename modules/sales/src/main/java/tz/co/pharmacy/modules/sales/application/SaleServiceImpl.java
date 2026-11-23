@@ -22,6 +22,7 @@ import tz.co.pharmacy.modules.sales.domain.SaleReturnLine;
 import tz.co.pharmacy.modules.sales.domain.SaleReturnRefund;
 import tz.co.pharmacy.modules.sales.domain.SaleTotals;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
+import tz.co.pharmacy.modules.sales.events.SaleReturnReleased;
 import tz.co.pharmacy.modules.sales.events.SaleReturned;
 import tz.co.pharmacy.modules.sales.persistence.SaleRepository;
 import tz.co.pharmacy.modules.sales.persistence.SaleReturnRepository;
@@ -31,6 +32,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.PaymentView;
 import tz.co.pharmacy.modules.sales.ports.inbound.PrescriptionDetails;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordReturnCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.RecordSaleCommand;
+import tz.co.pharmacy.modules.sales.ports.inbound.ReturnDisposition;
 import tz.co.pharmacy.modules.sales.ports.inbound.ReturnLineCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleFilter;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleLineCommand;
@@ -44,7 +46,10 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleView;
 import tz.co.pharmacy.modules.sales.ports.outbound.FiscalReceipts;
 import tz.co.pharmacy.modules.sales.ports.outbound.PaymentAuthorizations;
 import tz.co.pharmacy.modules.sales.ports.outbound.PaymentAuthorizations.PaymentAuthorization;
+import tz.co.pharmacy.modules.sales.ports.outbound.SalesProducts;
 import tz.co.pharmacy.modules.sales.ports.outbound.SalesSettings;
+import tz.co.pharmacy.platform.approval.ApprovalActions;
+import tz.co.pharmacy.platform.approval.Approvals;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
@@ -76,6 +81,14 @@ class SaleServiceImpl implements SaleService {
   private final tz.co.pharmacy.modules.sales.ports.outbound.SalesCurrencies currencies;
   private final VouchersImpl vouchers;
   private final TenantCalendar calendar;
+  private final ShiftsImpl shifts;
+  private final Approvals approvals;
+  private final SalesProducts products;
+
+  /** The dispensing classes that never go back on the shelf once sold. */
+  private static final Set<String> RESTRICTED = Set.of("PRESCRIPTION", "CONTROLLED");
+
+  private static final Set<String> SCHEDULES = Set.of("OTC", "PRESCRIPTION", "CONTROLLED");
 
   @Override
   @Transactional
@@ -134,6 +147,7 @@ class SaleServiceImpl implements SaleService {
     String number = Checks.text(command.number(), "number", 40);
     List<SaleLineCommand> lineCommands = Checks.notEmpty(command.lines(), "lines");
     BigDecimal discountPercent = Checks.percent(command.discountPercent(), "discountPercent");
+    shifts.requireOpenShift();
     if (discountPercent.signum() > 0) {
       if (!ExecutionContext.permits(DISCOUNT_PERMISSION)) {
         throw Refusal.invalid(
@@ -141,10 +155,9 @@ class SaleServiceImpl implements SaleService {
       }
       BigDecimal max = settings.maxDiscountPercent();
       if (max != null && discountPercent.compareTo(max) > 0) {
-        throw Refusal.invalid(
-            "discount_not_allowed",
-            "The discount may be at most " + max.stripTrailingZeros().toPlainString() + "%.",
-            "discountPercent");
+        // FRD-8: deeper than the pharmacy's maximum, a manager approves it; the approval's amount
+        // is the discount percent it covers (up to).
+        approvals.require(ApprovalActions.DEEP_DISCOUNT, discountPercent, number);
       }
     }
     PrescriptionDetails prescription = command.prescription();
@@ -171,6 +184,8 @@ class SaleServiceImpl implements SaleService {
             Checks.optionalText(command.idempotencyKey(), "idempotencyKey", 100),
             ExecutionContext.actor().name());
     sale.pricedUnder(command.priceListUid(), command.priceListName(), command.normalTotal());
+    String planSource = command.pricePlanSource();
+    sale.planFrom("CUSTOMER".equals(planSource) || "CHOSEN".equals(planSource) ? planSource : null);
     if (prescription != null && prescription.prescriberName() != null) {
       sale.prescribe(
           Checks.optionalText(prescription.prescriberName(), "prescription.prescriberName", 200),
@@ -206,6 +221,10 @@ class SaleServiceImpl implements SaleService {
               unitCost,
               taxRate,
               lineAmounts);
+      saleLine.classified(
+          line.schedule() != null && SCHEDULES.contains(line.schedule()) ? line.schedule() : null,
+          line.promotionUid(),
+          Checks.optionalText(line.promotionName(), field + ".promotionName", 200));
       saleLine.sold(
           line.serialNumbers(),
           line.warrantyMonths() == null || line.warrantyMonths() <= 0
@@ -395,7 +414,9 @@ class SaleServiceImpl implements SaleService {
     String reason = Checks.text(command.reason(), "reason", 500);
     PaymentMethod requested = command.refundMethod();
     List<ReturnLineCommand> lineCommands = Checks.notEmpty(command.lines(), "lines");
+    shifts.requireOpenShift();
     List<SaleReturn> earlier = returns.findBySaleUidOrderByIdAsc(sale.getUid());
+    java.util.Map<UUID, String> classesNow = classesNow(sale);
 
     SaleReturn saleReturn =
         new SaleReturn(
@@ -456,6 +477,8 @@ class SaleServiceImpl implements SaleService {
               tax,
               Amounts.times(line.getUnitCost(), units));
       returnLine.withSerials(returnedSerials);
+      returnLine.dispose(
+          disposition(line, lineCommand.disposition(), field + ".disposition", classesNow));
       saleReturn.addLine(returnLine);
     }
     List<RefundSplit.Share> shares = splitRefund(sale, earlier, saleReturn.getRefundTotal());
@@ -469,6 +492,7 @@ class SaleServiceImpl implements SaleService {
         headline(requested, shares));
     refundInForeignCurrency(sale, saleReturn, command.refundCurrency(), shares);
     requireAllowedRefundMethod(sale, requested);
+    requireApproval(sale, saleReturn.getRefundTotal());
     for (RefundSplit.Share share : shares) {
       if (share.tender().method() == PaymentMethod.VOUCHER && share.tender().reference() != null) {
         vouchers.creditBack(share.tender().reference(), share.amount());
@@ -506,8 +530,173 @@ class SaleServiceImpl implements SaleService {
                     .map(
                         refund ->
                             new SaleReturned.Refund(refund.getMethod().name(), refund.getAmount()))
-                    .toList()));
+                    .toList(),
+                heldCost(saved)));
     return returnView(saved);
+  }
+
+  /** The cost of the units the return holds in quarantine, out of stock until released. */
+  private static BigDecimal heldCost(SaleReturn saleReturn) {
+    return saleReturn.getLines().stream()
+        .filter(line -> line.getHeldQuantity() > 0)
+        .map(SaleReturnLine::getCost)
+        .reduce(Amounts.ZERO, BigDecimal::add);
+  }
+
+  /**
+   * The owner's return rules (FRD-4): after the pharmacy's return window (days after the sale, on
+   * its own calendar) a manager approves the return (LATE_RETURN, for its refund, so one approval
+   * covers both); within it, a refund above the approval limit (REFUND).
+   */
+  private void requireApproval(Sale sale, BigDecimal refund) {
+    LocalDate soldOn = LocalDate.ofInstant(sale.getCreatedAt(), calendar.zone());
+    long days = java.time.temporal.ChronoUnit.DAYS.between(soldOn, calendar.today());
+    if (days > settings.returnWindowDays()) {
+      approvals.require(ApprovalActions.LATE_RETURN, refund, sale.getNumber());
+    } else {
+      approvals.require(ApprovalActions.REFUND, refund, sale.getNumber());
+    }
+  }
+
+  /** The class now of products whose lines were sold before the class was kept on them. */
+  private java.util.Map<UUID, String> classesNow(Sale sale) {
+    List<UUID> unknown =
+        sale.getLines().stream()
+            .filter(line -> line.getSchedule() == null)
+            .map(SaleLine::getProductUid)
+            .distinct()
+            .toList();
+    return unknown.isEmpty() ? java.util.Map.of() : products.schedules(unknown);
+  }
+
+  /**
+   * Where returned units go: as asked, else SHELF for an OTC medicine and QUARANTINE for a
+   * prescription or controlled one, which never goes back on the shelf (422 restock_not_allowed).
+   * The class is the one the medicine had when sold.
+   */
+  private static ReturnDisposition disposition(
+      SaleLine line,
+      ReturnDisposition asked,
+      String field,
+      java.util.Map<UUID, String> classesNow) {
+    if (restricted(line, classesNow) && asked == ReturnDisposition.SHELF) {
+      throw notOnShelf(line, classesNow, field);
+    }
+    if (asked != null) {
+      return asked;
+    }
+    return restricted(line, classesNow) ? ReturnDisposition.QUARANTINE : ReturnDisposition.SHELF;
+  }
+
+  private static String scheduleOf(SaleLine line, java.util.Map<UUID, String> classesNow) {
+    return line.getSchedule() != null ? line.getSchedule() : classesNow.get(line.getProductUid());
+  }
+
+  private static boolean restricted(SaleLine line, java.util.Map<UUID, String> classesNow) {
+    String schedule = scheduleOf(line, classesNow);
+    return schedule != null && RESTRICTED.contains(schedule);
+  }
+
+  private static Refusal notOnShelf(
+      SaleLine line, java.util.Map<UUID, String> classesNow, String field) {
+    return Refusal.invalid(
+        "restock_not_allowed",
+        line.getProductName()
+            + " is a "
+            + ("CONTROLLED".equals(scheduleOf(line, classesNow)) ? "controlled" : "prescription")
+            + " medicine: once sold it never goes back on the shelf. Quarantine it or write it"
+            + " off as damaged.",
+        field);
+  }
+
+  @Override
+  @Transactional
+  public ReleasedLine releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome) {
+    UUID branch = ExecutionContext.requireBranch();
+    ReturnDisposition to = Checks.required(outcome, "outcome");
+    if (to == ReturnDisposition.QUARANTINE) {
+      throw Refusal.invalid(
+          "invalid_outcome", "Held units are released to SHELF or DAMAGED.", "outcome");
+    }
+    SaleReturn saleReturn =
+        returns
+            .lockByUid(returnUid)
+            .orElseThrow(() -> Refusal.notFound("return_not_found", "No such return."));
+    if (!saleReturn.getBranchUid().equals(branch)) {
+      throw Refusal.invalid(
+          "sale_other_branch", "A return is released at the branch that took it back.");
+    }
+    List<SaleReturnLine> lines = saleReturn.getLines();
+    int index = -1;
+    for (int i = 0; i < lines.size(); i++) {
+      if (lines.get(i).getUid().equals(lineUid)) {
+        index = i;
+      }
+    }
+    if (index < 0) {
+      throw Refusal.notFound("return_line_not_found", "The line is not on this return.");
+    }
+    SaleReturnLine line = lines.get(index);
+    if (line.getHeldQuantity() <= 0) {
+      throw Refusal.invalid("nothing_held", "Nothing on this line is held in quarantine.");
+    }
+    if (to == ReturnDisposition.SHELF) {
+      Sale sale =
+          sales
+              .findByUid(saleReturn.getSaleUid())
+              .orElseThrow(() -> Refusal.notFound("sale_not_found", "No such sale."));
+      SaleLine sold =
+          sale.getLines().stream()
+              .filter(candidate -> candidate.getUid().equals(line.getSaleLineUid()))
+              .findFirst()
+              .orElseThrow(() -> Refusal.notFound("sale_line_not_found", "No such sale line."));
+      java.util.Map<UUID, String> classesNow = classesNow(sale);
+      if (restricted(sold, classesNow)) {
+        throw notOnShelf(sold, classesNow, "outcome");
+      }
+    }
+    int units = line.getHeldQuantity();
+    String reference = saleReturn.getNumber() + "/Q" + (index + 1);
+    line.release(
+        to,
+        tz.co.pharmacy.platform.kernel.Clocks.now(),
+        ExecutionContext.actor().name(),
+        ExecutionContext.actor().uid());
+    events.publish(
+        "sale.return_released",
+        metadata ->
+            new SaleReturnReleased(
+                metadata,
+                saleReturn.getUid(),
+                line.getUid(),
+                saleReturn.getNumber(),
+                saleReturn.getBranchUid(),
+                line.getProductUid(),
+                line.getProductName(),
+                units,
+                line.getCost(),
+                to.name(),
+                reference));
+    return new ReleasedLine(
+        returnView(saleReturn),
+        line.getProductUid(),
+        line.getBatchUid(),
+        units,
+        line.getSerialNumbers(),
+        reference,
+        to);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<SaleReturnView> heldReturns() {
+    return returns
+        .findHeld(
+            ExecutionContext.requireBranch(),
+            org.springframework.data.domain.PageRequest.of(0, 200))
+        .stream()
+        .map(SaleServiceImpl::returnView)
+        .toList();
   }
 
   /** What the earlier returns of the line refunded: their refunds, or their tax. */
@@ -719,7 +908,10 @@ class SaleServiceImpl implements SaleService {
                         line.getLineTotal(),
                         line.serialNumbers(),
                         line.getWarrantyEndsOn(),
-                        line.returnedSerialNumbers()))
+                        line.returnedSerialNumbers(),
+                        line.getSchedule(),
+                        line.getPromotionUid(),
+                        line.getPromotionName()))
             .toList(),
         sale.getPayments().stream()
             .map(
@@ -738,7 +930,8 @@ class SaleServiceImpl implements SaleService {
         sale.getCashierName(),
         sale.getCreatedAt(),
         sale.getPriceListUid(),
-        sale.getPriceListName());
+        sale.getPriceListName(),
+        sale.getPricePlanSource());
   }
 
   static SaleSummaryView summary(Sale sale) {
@@ -780,7 +973,13 @@ class SaleServiceImpl implements SaleService {
                         line.getBatchNumber(),
                         line.getQuantity(),
                         line.getRefund(),
-                        line.getSerialNumbers()))
+                        line.getSerialNumbers(),
+                        line.getUid(),
+                        line.getDisposition(),
+                        line.getHeldQuantity(),
+                        line.getReleasedOutcome(),
+                        line.getReleasedAt(),
+                        line.getReleasedBy()))
             .toList(),
         saleReturn.getCreatedAt(),
         saleReturn.getCreatedBy(),

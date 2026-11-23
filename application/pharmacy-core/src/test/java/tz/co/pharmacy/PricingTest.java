@@ -74,6 +74,8 @@ class PricingTest extends IntegrationTest {
             "/api/v1/branch-prices",
             "{\"productUid\":\"%s\",\"branchUid\":\"%s\",\"price\":550}".formatted(b, branch))
         .expect(200);
+    // Promotions up to the till's maximum discount need no approval (ControlsSalesTest).
+    admin.put("/api/v1/settings", "{\"maxDiscountPercent\":20}").expect(200);
     admin
         .post(
             "/api/v1/promotions",

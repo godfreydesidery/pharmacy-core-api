@@ -9,6 +9,10 @@ pharmacy:
     root-password: "Root#Test2026"
   seed:
     demo: false
+  tenancy:
+    # New pharmacies require an open till shift to sell (production default). Tests sell at once;
+    # those about shifts switch it on with PUT /settings.
+    require-open-shift-by-default: false
   edge:
     # Every test signs in from 127.0.0.1; the production default (20 a minute) would throttle them.
     auth-requests-per-minute: 1000

@@ -190,6 +190,10 @@ interface CatalogueService {
 record ProductChanged(EventMetadata metadata, UUID productUid, String name, String genericName, String sku,
                       String dosageForm, String strength, UUID categoryUid, String categoryName,
                       int reorderLevel, BigDecimal sellingPrice, boolean active) implements DomainEvent {}  // "product.changed"
+// PricingService (Batch 4): PricedLine += UUID promotionUid; savePromotion of an active promotion deeper than the
+// pharmacy's maxDiscountPercent needs approval DEEP_PROMOTION (amount = percentOff); deletePromotion is replaced by
+// PromotionView switchOffPromotion(UUID uid) (never deleted; V11 revokes delete from the application role).
+// ports.outbound: PricingSettings { BigDecimal maxDiscountPercent(); }
 ```
 
 ## partners (`tz.co.pharmacy.modules.partners`)
@@ -417,6 +421,34 @@ record SaleReturned(EventMetadata metadata, UUID returnUid, String number, UUID 
 // nameUUIDFromBytes(returnUid + "/" + method)).
 ```
 
+**Owner's controls (Batch 4, 23 Nov 2026).** Added to the above:
+```java
+enum ReturnDisposition { SHELF, DAMAGED, QUARANTINE }
+record ReturnLineCommand(UUID saleLineUid, int quantity, List<String> serialNumbers, ReturnDisposition disposition) {}
+// SaleLineCommand += String schedule, UUID promotionUid, String promotionName (the class at the moment of sale and the
+//   promotion that priced the line); SaleLineView += the same three.
+// RecordSaleCommand += String pricePlanSource (CUSTOMER | CHOSEN | null); SaleView += pricePlanSource.
+// SaleReturnLineView += UUID uid, ReturnDisposition disposition, int heldQuantity, ReturnDisposition releasedOutcome,
+//   Instant releasedAt, String releasedBy.
+interface SaleService {
+  /** record: 409 shift_required (setting requireOpenShift, the caller has no open shift here); a discount above
+      maxDiscountPercent needs approval DEEP_DISCOUNT (amount = the percent), still with sales.discount. */
+  /** recordReturn: 409 shift_required; 422 restock_not_allowed (PRESCRIPTION/CONTROLLED, by the line's schedule, else the
+      product's class now, to SHELF); disposition null = SHELF for OTC, QUARANTINE otherwise (heldQuantity = quantity);
+      after returnWindowDays (local calendar) approval LATE_RETURN (amount = refundTotal), else REFUND above the limit. */
+  ReleasedLine releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome);  // SHELF | DAMAGED, whole line
+  record ReleasedLine(SaleReturnView saleReturn, UUID productUid, UUID batchUid, int quantity, List<String> serialNumbers,
+                      String reference /* "<return number>/Q<n>" */, ReturnDisposition outcome) {}
+  List<SaleReturnView> heldReturns();   // the branch's returns with units in quarantine
+}
+// Shifts.close: |counted − expected| above the approval limit needs SHIFT_VARIANCE. Vouchers.issue: 409 shift_required.
+// ports.outbound: SalesSettings += int returnWindowDays(), boolean requireOpenShift();
+//   SalesProducts { Map<UUID, String> schedules(Collection<UUID> productUids); }   (catalogue, for lines sold before V12)
+// events: SaleReturned += BigDecimal heldCost (cost of the units held in quarantine: the ledger books cost − heldCost
+//   back to 1200); new SaleReturnReleased(metadata, returnUid, lineUid, number, branchUid, productUid, productName,
+//   quantity, cost, outcome, reference) "sale.return_released": the ledger posts Dr 1200 / Cr 5000 cost, keyed by lineUid.
+```
+
 ## checkout (`tz.co.pharmacy.application.checkout`, application service)
 
 ```java
@@ -428,7 +460,9 @@ record SellableProduct(UUID productUid, String name, String genericName, String 
                        BigDecimal taxRatePercent, int quantityOnHand) {}
 interface Checkout {
   SaleView checkout(CheckoutCommand command);          // @Transactional; an existing idempotencyKey returns that sale
-  SaleReturnView returnSale(RecordReturnCommand command); // sales.recordReturn + inventory.restore per line
+  SaleReturnView returnSale(RecordReturnCommand command); // sales.recordReturn, then per line: SHELF restore;
+                                                          // DAMAGED restore + adjust(DAMAGE); QUARANTINE nothing
+  SaleReturnView releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome); // restore (+ DAMAGE)
   Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query);  // catalogue.products(active) + inventory.onHand
   /** Priced exactly as checkout prices the sale (plan, branch prices, promotions, breaks); 422 member_not_of_customer. */
   CoverageQuote coverageQuote(UUID memberUid, List<CheckoutLine> lines, String preauthNumber,

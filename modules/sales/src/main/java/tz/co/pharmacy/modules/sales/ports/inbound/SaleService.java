@@ -54,10 +54,35 @@ public interface SaleService {
   List<SaleSummaryView> recent(Set<UUID> branchUids, int limit);
 
   /**
-   * Records a return against a sale of the current branch. Refuses 422 {@code return_exceeds_sold}.
-   * Publishes {@code sale.returned}.
+   * Records a return against a sale of the current branch. Refuses 422 {@code return_exceeds_sold},
+   * {@code restock_not_allowed} (a prescription or controlled medicine to SHELF); 409 {@code
+   * shift_required} when the pharmacy requires an open shift and the caller has none here; 403
+   * {@code approval_required} for a return after the pharmacy's return window (LATE_RETURN, which
+   * also covers the amount) or, within it, a refund above the approval limit (REFUND). The caller
+   * moves the stock by each line's disposition. Publishes {@code sale.returned}.
    */
   SaleReturnView recordReturn(RecordReturnCommand command);
+
+  /**
+   * Releases the units a return line holds in quarantine, all of them, to {@code outcome} (SHELF or
+   * DAMAGED). 404 return_not_found, return_line_not_found; 422 sale_other_branch, nothing_held,
+   * invalid_outcome, restock_not_allowed (a prescription or controlled medicine to SHELF). The
+   * caller moves the stock ({@link ReleasedLine}). Publishes {@code sale.return_released}.
+   */
+  ReleasedLine releaseReturnLine(UUID returnUid, UUID lineUid, ReturnDisposition outcome);
+
+  /** What a release frees: the units to restock under {@code reference}, and the return now. */
+  record ReleasedLine(
+      SaleReturnView saleReturn,
+      UUID productUid,
+      UUID batchUid,
+      int quantity,
+      List<String> serialNumbers,
+      String reference,
+      ReturnDisposition outcome) {}
+
+  /** The branch's returns with units still held in quarantine, newest first (at most 200). */
+  List<SaleReturnView> heldReturns();
 
   Page<SaleReturnView> returns(PageQuery query);
 

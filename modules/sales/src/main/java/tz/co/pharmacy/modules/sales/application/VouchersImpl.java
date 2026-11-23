@@ -42,10 +42,13 @@ class VouchersImpl implements Vouchers {
   private final TenantCalendar calendar;
   private final SalesCurrencies currencies;
   private final tz.co.pharmacy.platform.approval.Approvals approvals;
+  private final ShiftsImpl shifts;
 
   @Override
   @Transactional
   public VoucherView issue(IssueVoucherCommand c) {
+    // A voucher sold is money in a drawer: with the pharmacy's rule, the seller's open shift.
+    shifts.requireOpenShift();
     BigDecimal value = Checks.required(c.value(), "value");
     if (value.signum() <= 0) {
       throw Refusal.invalid("invalid_amount", "value must be more than zero.", "value");
