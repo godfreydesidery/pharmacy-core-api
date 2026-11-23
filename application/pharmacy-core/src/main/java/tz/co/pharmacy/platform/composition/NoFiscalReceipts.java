@@ -26,4 +26,10 @@ class NoFiscalReceipts implements FiscalReceipts {
   public Optional<String> issue(String saleNumber, BigDecimal total, BigDecimal taxTotal) {
     return Optional.empty();
   }
+
+  /** Its sales are never due a receipt, so nothing runs after their commit. */
+  @Override
+  public boolean enabled() {
+    return false;
+  }
 }

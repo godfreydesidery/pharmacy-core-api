@@ -14,8 +14,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
 import tz.co.pharmacy.platform.persistence.TenantEntity;
+import tz.co.pharmacy.platform.persistence.audit.AuditIgnore;
 
-/** One payment towards a sale; a sale may be split across methods. */
+/**
+ * One payment towards a sale; a sale may be split across methods. Left out of the automatic audit
+ * trail (PERF-7): the sale's audit entry records the document and its paid total, and a payment row
+ * is never changed after the sale; refunds are rows of their own on the return.
+ */
+@AuditIgnore
 @Entity
 @Table(name = "sale_payments", schema = "sales")
 @Getter

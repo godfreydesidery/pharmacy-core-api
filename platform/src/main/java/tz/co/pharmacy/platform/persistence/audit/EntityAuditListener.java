@@ -3,7 +3,10 @@ package tz.co.pharmacy.platform.persistence.audit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import org.hibernate.event.spi.FlushEvent;
+import org.hibernate.event.spi.FlushEventListener;
 import org.hibernate.event.spi.PostDeleteEvent;
 import org.hibernate.event.spi.PostDeleteEventListener;
 import org.hibernate.event.spi.PostInsertEvent;
@@ -17,15 +20,33 @@ import tz.co.pharmacy.platform.persistence.RecordedEntity;
  * Writes an audit entry for every insert, update and delete of a {@link RecordedEntity}: the new
  * values on CREATE, the changed properties before and after on UPDATE, the last values on DELETE,
  * with secrets masked and bookkeeping columns left out. An update that changes nothing but
- * bookkeeping is not recorded. Entities annotated {@link AuditIgnore} are skipped.
+ * bookkeeping is not recorded. Entities annotated {@link AuditIgnore}, and the classes named in
+ * {@code pharmacy.audit.ignored-entities} (rows of append-only ledgers in modules that keep their
+ * entities to themselves), are skipped. The entries of a session are written in batches when it
+ * flushes ({@link AuditWriter}).
  */
 public class EntityAuditListener
-    implements PostInsertEventListener, PostUpdateEventListener, PostDeleteEventListener {
+    implements PostInsertEventListener,
+        PostUpdateEventListener,
+        PostDeleteEventListener,
+        FlushEventListener {
 
   private final AuditWriter writer;
+  private final Set<Class<?>> ignored;
 
   EntityAuditListener(AuditWriter writer) {
+    this(writer, Set.of());
+  }
+
+  EntityAuditListener(AuditWriter writer, Set<Class<?>> ignored) {
     this.writer = writer;
+    this.ignored = Set.copyOf(ignored);
+  }
+
+  /** After a full flush (appended after Hibernate's own): the session's entries, in one batch. */
+  @Override
+  public void onFlush(FlushEvent event) {
+    writer.write(event.getSession());
   }
 
   @Override
@@ -34,7 +55,14 @@ public class EntityAuditListener
       return;
     }
     Map<String, Object> after = values(event.getPersister(), event.getState(), null);
-    writer.insert("CREATE", type(event.getPersister()), uid(event.getEntity()), null, after);
+    writer.insert(
+        event.getSession(),
+        "CREATE",
+        type(event.getPersister()),
+        uid(event.getEntity()),
+        null,
+        after,
+        AuditValues.label(after, null));
   }
 
   @Override
@@ -65,6 +93,7 @@ public class EntityAuditListener
     }
     Map<String, Object> current = values(event.getPersister(), now, null);
     writer.insert(
+        event.getSession(),
         "UPDATE",
         type(event.getPersister()),
         uid(event.getEntity()),
@@ -79,7 +108,14 @@ public class EntityAuditListener
       return;
     }
     Map<String, Object> before = values(event.getPersister(), event.getDeletedState(), null);
-    writer.insert("DELETE", type(event.getPersister()), uid(event.getEntity()), before, null);
+    writer.insert(
+        event.getSession(),
+        "DELETE",
+        type(event.getPersister()),
+        uid(event.getEntity()),
+        before,
+        null,
+        AuditValues.label(null, before));
   }
 
   @Override
@@ -113,9 +149,10 @@ public class EntityAuditListener
     return values;
   }
 
-  private static boolean audited(Object entity) {
+  private boolean audited(Object entity) {
     return entity instanceof RecordedEntity
-        && !entity.getClass().isAnnotationPresent(AuditIgnore.class);
+        && !entity.getClass().isAnnotationPresent(AuditIgnore.class)
+        && !ignored.contains(entity.getClass());
   }
 
   private static String type(EntityPersister persister) {

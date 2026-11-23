@@ -229,6 +229,15 @@ List<ProductView> controlledRegisterProducts();   // CONTROLLED now or ever (pro
 boolean everControlled(UUID productUid);
 ```
 
+Batch 7 (PERF-11):
+```java
+// PricingService
+List<PriceListView> priceLists();                 // the plans without items: items = null, itemCount = how many
+Optional<PriceListView> priceList(UUID uid);      // one plan with every item
+// PriceListView += int itemCount. savePriceList / importPriceList: no items named (null or empty) on a change
+// keeps the plan's items. price(...) reads the plan's items of the priced products only.
+```
+
 ## partners (`tz.co.pharmacy.modules.partners`)
 
 ```java
@@ -512,6 +521,21 @@ interface SaleService {
 // events: SaleReturned += BigDecimal heldCost (cost of the units held in quarantine: the ledger books cost − heldCost
 //   back to 1200); new SaleReturnReleased(metadata, returnUid, lineUid, number, branchUid, productUid, productName,
 //   quantity, cost, outcome, reference) "sale.return_released": the ledger posts Dr 1200 / Cr 5000 cost, keyed by lineUid.
+```
+
+**Checkout performance (Batch 7, PERF-1).** Added to the above:
+```java
+// SaleService
+void preparePayments(List<PaymentCommand> payments);  // outside any transaction: asks the providers about
+                                                       // push requests still pending; 422 payment_declined
+void fiscalise(UUID saleUid);   // after commit: lease (sales.fiscal_claimed_until, 2 min), fiscal port with no
+                                // transaction open, then the reference; a failure is thrown (the outbox retries)
+// record no longer calls FiscalReceipts: the sale is saved with fiscalDue = FiscalReceipts.enabled().
+// SaleView += boolean fiscalDue.
+// ports.outbound: PaymentAuthorizations += default Optional<String> prepare(method, channel, reference);
+//   FiscalReceipts += default boolean enabled() (NoFiscalReceipts: false).
+// composition: FiscalReactions (sale.completed -> fiscalise), only with a fiscal provider other than none.
+// SaleLine and SalePayment are @AuditIgnore (PERF-7).
 ```
 
 ## checkout (`tz.co.pharmacy.application.checkout`, application service)

@@ -80,6 +80,32 @@ class ManualPaymentAuthorizations implements PaymentAuthorizations {
         verification.declineReason());
   }
 
+  /**
+   * A reference that names a push request: asks the provider now, in the request's own short
+   * transaction ({@link Payments#paymentRequest}), and refuses while the customer has not paid. A
+   * request of another branch, an unknown one or a typed code is left to {@link #authorize}.
+   */
+  @Override
+  public java.util.Optional<String> prepare(
+      PaymentMethod method, String channel, String reference) {
+    UUID request;
+    try {
+      request = UUID.fromString(reference.trim());
+    } catch (IllegalArgumentException notARequest) {
+      return java.util.Optional.empty();
+    }
+    Payments.IntentView intent;
+    try {
+      intent = payments.paymentRequest(request);
+    } catch (tz.co.pharmacy.platform.kernel.Refusal notHere) {
+      return java.util.Optional.empty();
+    }
+    return "PENDING".equals(intent.status())
+        ? java.util.Optional.of(
+            "The " + label(method) + " request is still waiting for the customer to pay.")
+        : java.util.Optional.empty();
+  }
+
   private static String label(PaymentMethod method) {
     return method.name().toLowerCase(Locale.ROOT).replace('_', ' ');
   }
