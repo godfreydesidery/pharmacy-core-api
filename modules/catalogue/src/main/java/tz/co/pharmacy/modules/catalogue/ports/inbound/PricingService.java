@@ -13,9 +13,19 @@ import java.util.UUID;
  */
 public interface PricingService {
 
+  /**
+   * Every plan, by name, without its items ({@code items} null; {@code itemCount} says how many): a
+   * plan's items are read a page at a time ({@link #planItems}) or with {@link #priceList}.
+   */
   List<PriceListView> priceLists();
 
-  /** Creates ({@code uid} null) or replaces a price list and its items. */
+  /** One plan with all its items. */
+  java.util.Optional<PriceListView> priceList(UUID uid);
+
+  /**
+   * Creates ({@code uid} null) or replaces a price list and its items. A change that names no items
+   * (null or empty) keeps the plan's items.
+   */
   PriceListView savePriceList(UUID uid, PriceListCommand command);
 
   void deletePriceList(UUID uid);
@@ -289,9 +299,11 @@ public interface PricingService {
       LocalDate validFrom,
       LocalDate validTo,
       boolean active,
+      /* null in the list of plans (priceLists); every item for one plan. */
       List<ItemView> items,
       UUID payerUid,
-      String payerName) {}
+      String payerName,
+      int itemCount) {}
 
   record ItemView(UUID productUid, String productName, int minQuantity, BigDecimal price) {}
 

@@ -76,6 +76,12 @@ public class Refusal extends RuntimeException {
         Math.max(1, retryAfterSeconds));
   }
 
+  /** 503: the server is at its limit of work in progress; retry after {@code retryAfterSeconds}. */
+  public static Refusal unavailable(String reason, String detail, long retryAfterSeconds) {
+    return new Refusal(
+        RefusalKind.SERVICE_UNAVAILABLE, reason, detail, null, Math.max(1, retryAfterSeconds));
+  }
+
   public Long retryAfterSeconds() {
     return retryAfterSeconds;
   }

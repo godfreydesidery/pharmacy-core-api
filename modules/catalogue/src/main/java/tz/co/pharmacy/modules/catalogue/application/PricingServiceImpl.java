@@ -51,14 +51,41 @@ class PricingServiceImpl implements PricingService {
   private final CatalogueServiceImpl catalogue;
   private final tz.co.pharmacy.modules.catalogue.ports.outbound.PricingSettings settings;
   private final tz.co.pharmacy.platform.approval.Approvals approvals;
+  private final tz.co.pharmacy.modules.catalogue.persistence.PriceListItemRepository listItems;
 
   @Override
   @Transactional(readOnly = true)
   public List<PriceListView> priceLists() {
-    List<PriceList> all = lists.findAllByOrderByNameAsc();
-    Map<UUID, String> names =
-        names(all.stream().flatMap(l -> l.getItems().stream()).map(PriceListItem::getProductUid));
-    return all.stream().map(l -> view(l, names)).toList();
+    // PERF-11: the plans without their items, with how many each holds; a plan's items are read a
+    // page at a time (planItems) or for one plan (priceList).
+    Map<Long, long[]> counts = counts();
+    return lists.plansByName().stream()
+        .map(l -> header(l, counts.getOrDefault(l.getId(), new long[2])[0]))
+        .toList();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<PriceListView> priceList(UUID uid) {
+    return lists
+        .findByUid(uid)
+        .map(l -> view(l, names(l.getItems().stream().map(PriceListItem::getProductUid))));
+  }
+
+  /** One product's prices in every plan, by plan id (PERF-11: not every plan's every item). */
+  private Map<Long, List<PriceListItem>> itemsOfProduct(UUID productUid) {
+    return listItems.itemsOfProduct(productUid).stream()
+        .collect(Collectors.groupingBy(i -> i.getPriceList().getId()));
+  }
+
+  /** Per plan id: its prices and the products they are for. */
+  private Map<Long, long[]> counts() {
+    Map<Long, long[]> counts = new HashMap<>();
+    for (Object[] row : listItems.counts()) {
+      counts.put(
+          (Long) row[0], new long[] {((Number) row[1]).longValue(), ((Number) row[2]).longValue()});
+    }
+    return counts;
   }
 
   @Override
@@ -120,6 +147,13 @@ class PricingServiceImpl implements PricingService {
         c.validTo(),
         c.active() == null || c.active());
     list.forPayer(c.payerUid(), c.payerName());
+    if (uid != null && (c.items() == null || c.items().isEmpty())) {
+      // A save that names no items keeps the plan's own: a client that listed the plans (which
+      // come without their items, PERF-11) cannot empty a plan by saving its name or dates. A
+      // plan's prices are removed one by one (DELETE /pricing-plans/{plan}/prices/{product}).
+      PriceList saved = lists.save(list);
+      return view(saved, names(saved.getItems().stream().map(PriceListItem::getProductUid)));
+    }
     List<PriceListItem> items = new ArrayList<>();
     Set<String> seen = new HashSet<>();
     List<ItemCommand> commands = c.items() == null ? List.of() : c.items();
@@ -339,6 +373,12 @@ class PricingServiceImpl implements PricingService {
         plan == null
             ? listFor(customerUid, customerType, day)
             : plan.planUid() == null ? Optional.empty() : Optional.of(chosen(plan.planUid(), day));
+    // PERF-11: only these products' prices in the plan, never the whole plan.
+    Map<UUID, List<PriceListItem>> planPrices =
+        list.isEmpty() || byUid.isEmpty()
+            ? Map.of()
+            : listItems.itemsOf(list.get(), byUid.keySet()).stream()
+                .collect(Collectors.groupingBy(PriceListItem::getProductUid));
     List<Promotion> running =
         promotions.runningOn(day).stream()
             .filter(p -> p.getBranchUid() == null || p.getBranchUid().equals(branchUid))
@@ -363,8 +403,7 @@ class PricingServiceImpl implements PricingService {
       if (list.isPresent()) {
         PriceList l = list.get();
         Optional<PriceListItem> item =
-            l.getItems().stream()
-                .filter(i -> i.getProductUid().equals(product.getUid()))
+            planPrices.getOrDefault(product.getUid(), List.of()).stream()
                 .filter(i -> i.getMinQuantity() <= quantity)
                 .max(Comparator.comparingInt(PriceListItem::getMinQuantity));
         if (item.isPresent()) {
@@ -421,7 +460,7 @@ class PricingServiceImpl implements PricingService {
   /** The plan chosen for a sale: active and in its dates, or 422 price_plan_not_found. */
   private PriceList chosen(UUID planUid, LocalDate day) {
     return lists
-        .findByUid(planUid)
+        .planByUid(planUid)
         .filter(l -> l.validOn(day))
         .orElseThrow(
             () ->
@@ -469,8 +508,8 @@ class PricingServiceImpl implements PricingService {
     LocalDate day = on == null ? calendar.today() : on;
     if (payerUid != null) {
       Optional<PriceList> insurer =
-          lists.findAllByOrderByNameAsc().stream()
-              .filter(l -> payerUid.equals(l.getPayerUid()) && l.validOn(day))
+          lists.plansOfPayer(payerUid).stream()
+              .filter(l -> l.validOn(day))
               .max(Comparator.comparing(PriceList::getCreatedAt));
       if (insurer.isPresent()) {
         return planView(insurer.get());
@@ -492,7 +531,7 @@ class PricingServiceImpl implements PricingService {
   public List<PlanView> plans() {
     List<PlanView> out = new ArrayList<>();
     out.add(PlanView.normal());
-    lists.findAllByOrderByNameAsc().stream()
+    lists.plansByName().stream()
         .filter(PriceList::isActive)
         .map(PricingServiceImpl::planView)
         .forEach(out::add);
@@ -735,10 +774,11 @@ class PricingServiceImpl implements PricingService {
           tz.co.pharmacy.modules.catalogue.domain.PriceChange.Source.MANUAL);
     }
     Map<UUID, BigDecimal> prices = new java.util.LinkedHashMap<>();
-    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+    Map<Long, List<PriceListItem>> mine = itemsOfProduct(productUid);
+    for (PriceList l : lists.plansByName()) {
       if (l.isActive()) {
-        l.getItems().stream()
-            .filter(i -> i.getProductUid().equals(productUid) && i.getMinQuantity() == 1)
+        mine.getOrDefault(l.getId(), List.of()).stream()
+            .filter(i -> i.getMinQuantity() == 1)
             .findFirst()
             .ifPresent(i -> prices.put(l.getUid(), i.getPrice()));
       }
@@ -765,7 +805,8 @@ class PricingServiceImpl implements PricingService {
             null,
             null,
             medicines));
-    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+    Map<Long, long[]> counts = counts();
+    for (PriceList l : lists.plansByName()) {
       cards.add(
           new PlanCard(
               l.getUid(),
@@ -779,7 +820,7 @@ class PricingServiceImpl implements PricingService {
               l.isActive(),
               l.getValidFrom(),
               l.getValidTo(),
-              l.getItems().stream().map(PriceListItem::getProductUid).distinct().count()));
+              counts.getOrDefault(l.getId(), new long[2])[1]));
     }
     return cards;
   }
@@ -869,10 +910,10 @@ class PricingServiceImpl implements PricingService {
     out.add(
         new PlanPriceView(
             null, PriceHistory.NORMAL_SALE, product.getSellingPrice(), "PRICE", List.of(), true));
-    for (PriceList l : lists.findAllByOrderByNameAsc()) {
+    Map<Long, List<PriceListItem>> ofProduct = itemsOfProduct(productUid);
+    for (PriceList l : lists.plansByName()) {
       List<PriceListItem> mine =
-          l.getItems().stream()
-              .filter(i -> i.getProductUid().equals(productUid))
+          ofProduct.getOrDefault(l.getId(), List.of()).stream()
               .sorted(Comparator.comparingInt(PriceListItem::getMinQuantity))
               .toList();
       BigDecimal one =
@@ -927,7 +968,7 @@ class PricingServiceImpl implements PricingService {
   private Optional<PriceList> listFor(UUID customerUid, String customerType, LocalDate day) {
     if (customerUid != null) {
       Optional<PriceList> own =
-          lists.findByCustomerUid(customerUid).stream()
+          lists.plansOfCustomer(customerUid).stream()
               .filter(l -> l.validOn(day))
               .max(Comparator.comparing(PriceList::getCreatedAt));
       if (own.isPresent()) {
@@ -937,7 +978,7 @@ class PricingServiceImpl implements PricingService {
     if (customerType == null || customerType.isBlank()) {
       return Optional.empty();
     }
-    return lists.findByCustomerType(customerType).stream()
+    return lists.plansOfType(customerType).stream()
         .filter(l -> l.validOn(day))
         .max(Comparator.comparing(PriceList::getCreatedAt));
   }
@@ -987,6 +1028,24 @@ class PricingServiceImpl implements PricingService {
         .collect(Collectors.toMap(Product::getUid, Product::getName));
   }
 
+  /** A plan without its items (null), with how many prices it holds. */
+  private static PriceListView header(PriceList l, long itemCount) {
+    return new PriceListView(
+        l.getUid(),
+        l.getName(),
+        l.getCustomerType(),
+        l.getCustomerUid(),
+        l.getCustomerName(),
+        l.getAdjustmentPercent(),
+        l.getValidFrom(),
+        l.getValidTo(),
+        l.isActive(),
+        null,
+        l.getPayerUid(),
+        l.getPayerName(),
+        (int) itemCount);
+  }
+
   private static PriceListView view(PriceList l, Map<UUID, String> names) {
     return new PriceListView(
         l.getUid(),
@@ -1008,7 +1067,8 @@ class PricingServiceImpl implements PricingService {
                         i.getPrice()))
             .toList(),
         l.getPayerUid(),
-        l.getPayerName());
+        l.getPayerName(),
+        l.getItems().size());
   }
 
   private static PromotionView view(

@@ -7,8 +7,21 @@ import java.util.function.Function;
 /**
  * One page of a list: the cursor of the next page (null at the end), and for a numbered page the
  * total number of rows the list has.
+ *
+ * <p>A total is counted only up to {@link #TOTAL_CAP} on the lists that page by uid ({@code
+ * Keyset}): past it {@code total} is {@value #TOTAL_CAP} and {@code totalCapped} is true, and a
+ * table shows "of 10,000+" (as GitHub and GitLab do), so a page number never costs a count of the
+ * whole table (adversarial review PERF-5). {@code totalCapped} is null on a page without a total
+ * (asked by cursor) and false on an exact one.
  */
-public record Page<T>(List<T> items, String nextCursor, Long total) {
+public record Page<T>(List<T> items, String nextCursor, Long total, Boolean totalCapped) {
+
+  /** The most rows a list's total counts; a list with more answers this and totalCapped. */
+  public static final long TOTAL_CAP = 10_000;
+
+  public Page(List<T> items, String nextCursor, Long total) {
+    this(items, nextCursor, total, total == null ? null : Boolean.FALSE);
+  }
 
   public static <T> Page<T> of(List<T> items, String nextCursor) {
     return new Page<>(List.copyOf(items), nextCursor, null);
@@ -26,6 +39,15 @@ public record Page<T>(List<T> items, String nextCursor, Long total) {
   /** A numbered page: its rows and how many the whole list has. */
   public static <T> Page<T> numbered(List<T> items, long total) {
     return new Page<>(List.copyOf(items), null, total);
+  }
+
+  /**
+   * A numbered page whose total was counted at most to {@link #TOTAL_CAP} + 1: past the cap, the
+   * total is the cap and {@code totalCapped} is true.
+   */
+  public static <T> Page<T> numberedCapped(List<T> items, long countedUpToCapPlusOne) {
+    boolean capped = countedUpToCapPlusOne > TOTAL_CAP;
+    return new Page<>(List.copyOf(items), null, capped ? TOTAL_CAP : countedUpToCapPlusOne, capped);
   }
 
   /**
@@ -48,6 +70,6 @@ public record Page<T>(List<T> items, String nextCursor, Long total) {
   }
 
   public <R> Page<R> map(Function<T, R> mapping) {
-    return new Page<>(items.stream().map(mapping).toList(), nextCursor, total);
+    return new Page<>(items.stream().map(mapping).toList(), nextCursor, total, totalCapped);
   }
 }

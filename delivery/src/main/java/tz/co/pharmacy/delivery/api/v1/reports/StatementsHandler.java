@@ -74,9 +74,9 @@ public class StatementsHandler {
   public ApiResponse<VatSummary> vat(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-    return ApiResponse.ok(
-        statements.vat(from == null ? orToday(null).withDayOfMonth(1) : from, orToday(to)),
-        "VAT summary retrieved");
+    ReportRange range =
+        ReportRange.limited(from == null ? orToday(null).withDayOfMonth(1) : from, orToday(to));
+    return ApiResponse.ok(statements.vat(range.from(), range.to()), "VAT summary retrieved");
   }
 
   /** Stock at cost and at retail for one branch. */
@@ -112,6 +112,9 @@ public class StatementsHandler {
   public ApiResponse<List<CashierSummary>> cashiers(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+    // From a given day (default today) to a given day (default the same day), at most 366 days.
+    LocalDate start = orToday(from);
+    ReportRange.limited(start, to == null ? start : to);
     List<CashierSummary> rows = salesReports.cashiers(from, to, calendar.zone());
     // One row per person, named as their account is now (refunds carry no name of their own);
     // rows from before accounts were recorded are named by their email. Someone who has left the

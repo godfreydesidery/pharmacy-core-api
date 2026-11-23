@@ -286,8 +286,13 @@ class ImportsTest extends IntegrationTest {
     assertThat((Boolean) saved.json().read("$.data.saved")).isTrue();
     assertThat((Integer) saved.json().read("$.data.creating")).isEqualTo(2);
     assertThat((Integer) saved.json().read("$.data.updating")).isEqualTo(1);
-    Api.Response lists = admin.get("/api/v1/price-lists").expect(200);
-    List<Object> items = lists.json().read("$.data[0].items");
+    // The list of plans comes without items (PERF-11); one plan is read with all of its items.
+    assertThat(
+            (Integer)
+                admin.get("/api/v1/price-lists").expect(200).json().read("$.data[0].itemCount"))
+        .isEqualTo(4);
+    Api.Response lists = admin.get("/api/v1/price-lists/" + list).expect(200);
+    List<Object> items = lists.json().read("$.data.items");
     assertThat(items).hasSize(4);
     assertThat(lists.body()).contains("420", "400", "1400", "350");
 

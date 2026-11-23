@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -17,12 +18,14 @@ import tz.co.pharmacy.platform.composition.LocalDatabase;
 /**
  * Runs the whole application on a random port against an embedded PostgreSQL with the production
  * roles: the application connects as a role that cannot bypass row-level security, so these tests
- * exercise tenant isolation exactly as production does.
+ * exercise tenant isolation exactly as production does. Every context also carries the {@link
+ * StatementCounter}, which watches nothing unless a test records.
  */
 @SpringBootTest(
     classes = PharmacyApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@Import(StatementCounter.class)
 public abstract class IntegrationTest {
 
   private static Map<String, String> database;

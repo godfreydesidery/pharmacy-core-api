@@ -29,7 +29,10 @@ import org.springframework.core.env.Environment;
  * statement at most {@code statement_timeout} (5 min) (OPS-10): a migration that queues behind a
  * long transaction of the running API fails fast instead of stalling every query queued behind its
  * lock, and PostgreSQL rolls it back (Flyway runs each migration in its own transaction). Run the
- * migration again once the database is quieter; see the runbook "Migrations".
+ * migration again once the database is quieter; see the runbook "Migrations". A migration that
+ * builds an index {@code CONCURRENTLY} has a {@code .sql.conf} beside it with {@code
+ * executeInTransaction=false}, and runs outside a transaction; Flyway then holds its schema lock as
+ * a session advisory lock, so the build does not wait for Flyway's own transaction.
  *
  * <p>The schemas migrate one after the other: when one fails, the schemas before it are complete,
  * it stays at its last applied version, and the schemas after it are untouched. Migrating again
@@ -121,9 +124,18 @@ public class ModuleMigrations {
             "pharmacy.migrations.statement-timeout", DEFAULT_STATEMENT_TIMEOUT));
   }
 
-  /** The Flyway of one schema, as the owner, with the timeouts on every connection. */
+  /**
+   * The Flyway of one schema, as the owner, with the timeouts on every connection.
+   *
+   * <p>Flyway's lock against a second migrator is a session-level advisory lock, not the
+   * transactional one (Flyway's default on PostgreSQL): the transactional lock keeps a transaction
+   * open for the whole run, and {@code CREATE INDEX CONCURRENTLY} waits for every open transaction
+   * to end, so it would wait on Flyway itself until {@code lock_timeout} cancels it. The session
+   * lock still lets one migrator in at a time and ends with its connection.
+   */
   public FluentConfiguration configure(String schema) {
     return Flyway.configure()
+        .configuration(Map.of("flyway.postgresql.transactional.lock", "false"))
         .dataSource(url, ownerUsername, ownerPassword)
         .schemas(schema)
         .defaultSchema(schema)

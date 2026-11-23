@@ -17,7 +17,12 @@ public enum RefusalKind {
   /** 423: the account is locked for a while, such as after repeated failed sign-ins. */
   LOCKED(423),
   /** 429: too many requests from this client; retry after the given seconds. */
-  TOO_MANY_REQUESTS(429);
+  TOO_MANY_REQUESTS(429),
+  /**
+   * 503: this instance is at its limit of requests in progress, or the database is; retry after the
+   * given seconds (load shedding, adversarial review PERF-2).
+   */
+  SERVICE_UNAVAILABLE(503);
 
   private final int status;
 

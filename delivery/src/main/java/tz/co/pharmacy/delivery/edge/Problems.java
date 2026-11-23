@@ -53,6 +53,7 @@ final class Problems {
       case 422 -> "Unprocessable request";
       case 423 -> "Locked";
       case 429 -> "Too many requests";
+      case 503 -> "Service unavailable";
       default -> "Error";
     };
   }

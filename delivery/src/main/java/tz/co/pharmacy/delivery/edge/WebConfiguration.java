@@ -37,7 +37,9 @@ public class WebConfiguration implements WebMvcConfigurer {
           .allowedOrigins(allowedOrigins)
           .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
           .allowedHeaders("*")
-          .exposedHeaders(EdgeFilter.CORRELATION_HEADER, IdempotencyFilter.REPLAYED_HEADER)
+          // Retry-After: the web waits as long as a 429 or 503 says before it sends again.
+          .exposedHeaders(
+              EdgeFilter.CORRELATION_HEADER, IdempotencyFilter.REPLAYED_HEADER, "Retry-After")
           .maxAge(3600);
     }
   }

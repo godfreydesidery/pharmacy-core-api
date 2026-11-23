@@ -45,6 +45,16 @@ public final class Api {
     return send("GET", path, null);
   }
 
+  /** A GET with extra headers, given as name, value, name, value… */
+  public Response get(String path, String... headers) {
+    HttpRequest.Builder request = request(path);
+    for (int i = 0; i + 1 < headers.length; i += 2) {
+      request.header(headers[i], headers[i + 1]);
+    }
+    request.GET();
+    return call(request);
+  }
+
   public Response post(String path, String json) {
     return send("POST", path, json);
   }

@@ -17,5 +17,17 @@ public interface PaymentAuthorizations {
   PaymentAuthorization authorize(
       PaymentMethod method, String channel, BigDecimal amount, String reference, String saleNumber);
 
+  /**
+   * Runs before the sale's transaction, outside any (PERF-1): asks the provider about a push
+   * request it has not confirmed yet, so that {@link #authorize}, inside the transaction that takes
+   * the sale number and the stock, makes no call out. Returns why the tender cannot be approved now
+   * (the request is still waiting for the customer), or empty to go on to {@link #authorize}, which
+   * decides.
+   */
+  default java.util.Optional<String> prepare(
+      PaymentMethod method, String channel, String reference) {
+    return java.util.Optional.empty();
+  }
+
   record PaymentAuthorization(boolean approved, String reference, String declineReason) {}
 }

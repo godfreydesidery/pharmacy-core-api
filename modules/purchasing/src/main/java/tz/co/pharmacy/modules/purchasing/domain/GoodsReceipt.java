@@ -54,8 +54,13 @@ public class GoodsReceipt extends TenantEntity {
     this.baseTotal = baseTotal;
   }
 
+  /**
+   * Loaded for up to 100 documents at once when a list maps them (one query for the page's lines,
+   * not one per document: adversarial review PERF-16).
+   */
   @OneToMany(mappedBy = "goodsReceipt", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("id")
+  @org.hibernate.annotations.BatchSize(size = 100)
   private List<GoodsReceiptLine> lines = new ArrayList<>();
 
   public GoodsReceipt(

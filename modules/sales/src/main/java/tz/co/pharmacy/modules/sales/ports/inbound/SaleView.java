@@ -30,4 +30,6 @@ public record SaleView(
     UUID priceListUid,
     String priceListName,
     /* CUSTOMER: the customer's own plan (not Normal Sale); CHOSEN: switched at the till. */
-    String pricePlanSource) {}
+    String pricePlanSource,
+    /* The fiscal receipt is still to be issued (it is issued after the sale commits). */
+    boolean fiscalDue) {}

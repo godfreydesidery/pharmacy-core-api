@@ -108,9 +108,26 @@ with a new migration instead.
 
 ### Non-transactional migrations (`CREATE INDEX CONCURRENTLY`)
 
-`CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Put it **alone** in its own migration file, which
-Flyway then runs without a transaction. Keep `lock_timeout` in mind: it still waits for a brief lock at the start
-and the end.
+`CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Put it in its own migration file, with only such
+statements, and a script configuration file beside it, `V<n>__<name>.sql.conf`, containing
+`executeInTransaction=false` (Flyway reads it in the open-source edition). Flyway then runs that migration
+without a transaction, one statement at a time. Examples: `finance/V8__list_indexes.sql`,
+`inventory/V11__list_indexes.sql`, `reporting/V3__processed_events_by_age.sql`. Write
+`create index concurrently if not exists`, so that a rerun after a partial failure skips the indexes already built.
+Keep `lock_timeout` in mind: it still waits for a brief lock at the start and the end, and for the transactions
+running when it starts.
+`CREATE INDEX CONCURRENTLY` cannot run inside a transaction. Put it **alone** in its own migration file, with a
+`<script>.sql.conf` beside it that says `executeInTransaction=false`. Start it with
+`drop index concurrently if exists` of the same index, so a run that failed half-way can simply run again
+(partners V6, V7, purchasing V6). Flyway takes its own lock as a session advisory lock
+(`flyway.postgresql.transactional.lock=false`, `ModuleMigrations`). With its default transactional lock, a
+transaction stays open for the whole run, and the index build waits for it until `lock_timeout`.
+
+Keep `lock_timeout` in mind. The build waits for every transaction that is older than it, in the whole database,
+and that wait also ends at `lock_timeout` (5 s). With the API's limits (30 s statements, 60 s idle in a
+transaction) this is short, but a long report or job can make it fail. Run it again, or give the migrate-only task
+`PHARMACY_MIGRATIONS_LOCK_TIMEOUT=2min` for that release. The wait blocks no reads or writes: the build's
+`SHARE UPDATE EXCLUSIVE` lock does not conflict with them.
 
 If such a migration fails, two things are left behind:
 - a failed row in the history (`success = false`);
@@ -125,7 +142,20 @@ drop index concurrently if exists <schema>.<index>;
 delete from <schema>.flyway_schema_history where not success;          -- what `flyway repair` does
 ```
 
-Then run the migrate-only task again.
+Then run the migrate-only task again. Drop the invalid index first: `if not exists` would otherwise skip it and
+leave it invalid.
+
+### Read-model backfills (Batch 7)
+
+`finance/V7` (daily account balances), `inventory/V10` (product stock) and `receivables/V3` (customer daily
+balances) create a read model, the trigger that keeps it, and backfill it from the existing rows in one
+transaction. Creating the trigger locks the source table against writes (SHARE ROW EXCLUSIVE) until the migration
+commits, so no row is missed or counted twice; postings, stock changes and customer entries wait meanwhile (on the
+QA copy with synthetic volume, 900k journal lines, 81k stock levels and 100k customer entries across five
+pharmacies: about 3 s, 0.4 s and 0.7 s; on the QA copy as it is, under 0.1 s each). Run them when the pharmacies
+are quiet. If a
+read model is ever found to disagree (`GET /finance/reconciliation/balances`), rebuild it as the owner, for one
+pharmacy at a time, with the same `insert ... select ... group by` as the migration after deleting its rows.
 
 ## Writing migrations that are safe on a live database
 

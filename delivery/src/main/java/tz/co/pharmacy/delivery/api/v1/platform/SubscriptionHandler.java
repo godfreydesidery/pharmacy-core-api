@@ -40,10 +40,15 @@ public class SubscriptionHandler {
 
   private final Subscriptions subscriptions;
   private final SubscriptionPayments payments;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
-  public SubscriptionHandler(Subscriptions subscriptions, SubscriptionPayments payments) {
+  public SubscriptionHandler(
+      Subscriptions subscriptions,
+      SubscriptionPayments payments,
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
     this.subscriptions = subscriptions;
     this.payments = payments;
+    this.accessCache = accessCache;
   }
 
   // ---------------------------------------------------------------- platform
@@ -92,8 +97,10 @@ public class SubscriptionHandler {
         body.cycle() == null || body.cycle().isBlank()
             ? null
             : Checks.oneOf(BillingCycle.class, body.cycle(), "cycle");
-    return ApiResponse.ok(
-        subscriptions.changePlan(tenantUid, body.planCode(), cycle), "Subscription changed");
+    SubscriptionView changed = subscriptions.changePlan(tenantUid, body.planCode(), cycle);
+    // A plan change may suspend or reactivate the pharmacy (PERF-9: its cached access goes).
+    accessCache.forgetTenant(tenantUid);
+    return ApiResponse.ok(changed, "Subscription changed");
   }
 
   public record ExtendTrialRequest(Integer days) {}
@@ -103,7 +110,9 @@ public class SubscriptionHandler {
   public ApiResponse<SubscriptionView> extendTrial(
       @PathVariable UUID tenantUid, @RequestBody ExtendTrialRequest body) {
     int days = body == null || body.days() == null ? 0 : body.days();
-    return ApiResponse.ok(subscriptions.extendTrial(tenantUid, days), "Trial extended");
+    SubscriptionView extended = subscriptions.extendTrial(tenantUid, days);
+    accessCache.forgetTenant(tenantUid);
+    return ApiResponse.ok(extended, "Trial extended");
   }
 
   public record PaymentRequest(
@@ -116,10 +125,12 @@ public class SubscriptionHandler {
     if (body == null) {
       throw Refusal.malformed("The request needs a body.");
     }
-    return ApiResponse.ok(
+    InvoiceView paid =
         payments.recordPayment(
-            invoiceUid, body.amount(), body.method(), body.reference(), body.paidOn()),
-        "Payment recorded");
+            invoiceUid, body.amount(), body.method(), body.reference(), body.paidOn());
+    // A paid invoice lifts an unpaid suspension at once, on every instance.
+    accessCache.forgetAll();
+    return ApiResponse.ok(paid, "Payment recorded");
   }
 
   public record RunRequest(LocalDate asOf, UUID tenantUid) {}
@@ -128,10 +139,11 @@ public class SubscriptionHandler {
   @PostMapping("/platform/subscriptions/run")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<List<String>> run(@RequestBody(required = false) RunRequest body) {
-    return ApiResponse.ok(
+    List<String> ran =
         subscriptions.runLifecycle(
-            body == null ? null : body.asOf(), body == null ? null : body.tenantUid()),
-        "Lifecycle run");
+            body == null ? null : body.asOf(), body == null ? null : body.tenantUid());
+    accessCache.forgetAll();
+    return ApiResponse.ok(ran, "Lifecycle run");
   }
 
   // ------------------------------------------------------------------ tenant

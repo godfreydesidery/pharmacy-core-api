@@ -12,6 +12,7 @@ import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.finance.ports.inbound.AccountView;
+import tz.co.pharmacy.modules.finance.ports.inbound.BalanceMismatch;
 import tz.co.pharmacy.modules.finance.ports.inbound.JournalEntryView;
 import tz.co.pharmacy.modules.finance.ports.inbound.Ledger;
 import tz.co.pharmacy.modules.finance.ports.inbound.LedgerReconciliation;
@@ -42,6 +43,19 @@ public class LedgerHandler {
       @RequestParam(required = false) Integer days) {
     return ApiResponse.ok(
         reconciliation.unposted(days == null ? 7 : days), "Unposted documents retrieved");
+  }
+
+  /**
+   * The daily account balances (what the balances, trial balance, balance sheet and VAT read)
+   * against the journal, for booking days from {@code days} days ago (default 7, at most 366): each
+   * account, day and branch where they disagree. Empty when the books agree.
+   */
+  @GetMapping("/finance/reconciliation/balances")
+  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  public ApiResponse<List<BalanceMismatch>> balanceReconciliation(
+      @RequestParam(required = false) Integer days) {
+    return ApiResponse.ok(
+        reconciliation.balanceMismatches(days == null ? 7 : days), "Balance mismatches retrieved");
   }
 
   @GetMapping("/accounts")

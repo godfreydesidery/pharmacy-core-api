@@ -10,6 +10,9 @@ import tz.co.pharmacy.platform.kernel.PageQuery;
 /** Customer credit accounts of the current tenant; all amounts in the base currency. */
 public interface CustomerCredit {
 
+  /** A statement without {@code from} covers this many days up to {@code to}, both included. */
+  int STATEMENT_DAYS = 90;
+
   /** The account, created on first use; credit limit and terms come from partners. */
   AccountView account(UUID customerUid);
 
@@ -52,9 +55,14 @@ public interface CustomerCredit {
   /** An account on hold takes no new credit. */
   AccountView hold(UUID customerUid, boolean onHold, String reason);
 
-  /** Entries in date order with a running balance from the opening balance before {@code from}. */
+  /**
+   * One page of the entries dated {@code from} to {@code to}, in date order, each with the running
+   * balance from the opening balance before {@code from}. Without {@code to}, up to today; without
+   * {@code from}, the 90 days up to {@code to}. 422 invalid_period when from is after to.
+   */
   Page<EntryView> statement(UUID customerUid, LocalDate from, LocalDate to, PageQuery query);
 
+  /** What the customer owed before {@code before}, from the daily balances (not every entry). */
   BigDecimal openingBalance(UUID customerUid, LocalDate before);
 
   List<AgeingRow> ageing(LocalDate asOf);

@@ -15,6 +15,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService;
 import tz.co.pharmacy.modules.access.ports.inbound.ClientInfo;
@@ -69,6 +71,8 @@ public class EdgeFilter extends OncePerRequestFilter {
   private final RootActivity rootActivity;
   private final PharmacyVisits visits;
   private final TenantConcurrency fairShare;
+  private final EdgeAccessCache accessCache;
+  private final TransactionTemplate reads;
   private final int authRequestsPerMinute;
 
   public EdgeFilter(
@@ -80,8 +84,13 @@ public class EdgeFilter extends OncePerRequestFilter {
       RootActivity rootActivity,
       PharmacyVisits visits,
       TenantConcurrency fairShare,
+      EdgeAccessCache accessCache,
+      PlatformTransactionManager transactions,
       @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute) {
     this.fairShare = fairShare;
+    this.accessCache = accessCache;
+    this.reads = new TransactionTemplate(transactions);
+    this.reads.setReadOnly(true);
     this.authentication = authentication;
     this.memberships = memberships;
     this.tenants = tenants;
@@ -209,23 +218,28 @@ public class EdgeFilter extends OncePerRequestFilter {
       }
       return new Frame(actor, correlationId, null, null, Set.of(), Set.of(), principal.rootAdmin());
     }
-    TenantView tenant =
-        tenants
-            .find(tenantUid)
-            .orElseThrow(() -> Refusal.forbidden("forbidden", "You may not act in this tenant."));
+    EdgeAccessCache.Access access =
+        accessCache.get(
+            new EdgeAccessCache.Key(
+                principal.sessionUid(),
+                principal.userUid(),
+                principal.rootAdmin(),
+                tenantUid,
+                branchUid),
+            () -> read(principal, tenantUid, branchUid),
+            read -> granted(read, principal.rootAdmin(), branchUid));
+    TenantView tenant = access.tenant();
+    if (tenant == null) {
+      throw Refusal.forbidden("forbidden", "You may not act in this tenant.");
+    }
 
     Set<String> permissions = Set.of();
     Set<UUID> allowedBranches = null;
     if (!principal.rootAdmin()) {
-      MembershipGrant grant =
-          TenantContext.callAs(
-                  tenantUid,
-                  () ->
-                      TenantContext.callAsUser(
-                          principal.userUid(),
-                          () -> memberships.resolve(principal.userUid(), tenantUid)))
-              .filter(MembershipGrant::active)
-              .orElseThrow(() -> Refusal.forbidden("forbidden", "You may not act in this tenant."));
+      MembershipGrant grant = access.grant();
+      if (grant == null || !grant.active()) {
+        throw Refusal.forbidden("forbidden", "You may not act in this tenant.");
+      }
       if (tenant.status() != TenantStatus.ACTIVE) {
         suspended(tenant, grant, request);
       }
@@ -235,10 +249,10 @@ public class EdgeFilter extends OncePerRequestFilter {
     }
 
     if (branchUid != null) {
-      BranchView branch =
-          TenantContext.callAs(tenantUid, () -> branches.find(branchUid))
-              .filter(BranchView::active)
-              .orElseThrow(BranchAccess::notAllowed);
+      BranchView branch = access.branch();
+      if (branch == null || !branch.active()) {
+        throw BranchAccess.notAllowed();
+      }
       if (allowedBranches != null && !allowedBranches.contains(branch.uid())) {
         throw BranchAccess.notAllowed();
       }
@@ -251,6 +265,49 @@ public class EdgeFilter extends OncePerRequestFilter {
         permissions,
         allowedBranches == null ? null : Set.copyOf(allowedBranches),
         principal.rootAdmin());
+  }
+
+  /**
+   * The pharmacy, the person's membership in it (not for a root administrator) and the branch, read
+   * in one transaction as the pharmacy and the person (the membership's row-level security needs
+   * both). What is missing is null; the checks are made on what comes back, cached or not.
+   */
+  private EdgeAccessCache.Access read(Principal principal, UUID tenantUid, UUID branchUid) {
+    return TenantContext.callAs(
+        tenantUid,
+        () ->
+            TenantContext.callAsUser(
+                principal.userUid(),
+                () ->
+                    reads.execute(
+                        status -> {
+                          TenantView tenant = tenants.find(tenantUid).orElse(null);
+                          if (tenant == null) {
+                            return new EdgeAccessCache.Access(null, null, null);
+                          }
+                          MembershipGrant grant =
+                              principal.rootAdmin()
+                                  ? null
+                                  : memberships
+                                      .resolve(principal.userUid(), tenantUid)
+                                      .orElse(null);
+                          if (!principal.rootAdmin() && (grant == null || !grant.active())) {
+                            return new EdgeAccessCache.Access(tenant, grant, null);
+                          }
+                          BranchView branch =
+                              branchUid == null ? null : branches.find(branchUid).orElse(null);
+                          return new EdgeAccessCache.Access(tenant, grant, branch);
+                        })));
+  }
+
+  /**
+   * Whether what was read lets the session in (the pharmacy's status and the branch list are
+   * checked on every request): only that is cached.
+   */
+  private static boolean granted(EdgeAccessCache.Access access, boolean rootAdmin, UUID branchUid) {
+    return access.tenant() != null
+        && (rootAdmin || (access.grant() != null && access.grant().active()))
+        && (branchUid == null || (access.branch() != null && access.branch().active()));
   }
 
   /** A route of the person's own account, outside any pharmacy (all of /auth but the activity). */

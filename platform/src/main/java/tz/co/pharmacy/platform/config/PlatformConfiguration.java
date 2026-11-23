@@ -16,8 +16,8 @@ import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.SimulatedClock;
 
 /**
- * Async event delivery (listeners run after commit on their own, virtual, threads) and the clock.
- * The application runs in UTC; clients show times in the tenant's timezone.
+ * Async event delivery (listeners run after commit on the bounded pool of {@link AsyncExecution})
+ * and the clock. The application runs in UTC; clients show times in the tenant's timezone.
  *
  * <p>The clock is the system clock, except under the {@code sim} profile, where it is a {@link
  * SimulatedClock} that a simulated world moves forward. Either way it is installed in {@link

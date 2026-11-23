@@ -84,6 +84,14 @@ class SaleServiceImpl implements SaleService {
   private final ShiftsImpl shifts;
   private final Approvals approvals;
   private final SalesProducts products;
+  private final org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+  /**
+   * How long one attempt at the fiscal receipt may hold the sale before another may try: longer
+   * than the authority's slowest answer (VFD: about 30 s), short enough that a crashed instance's
+   * claim expires before the outbox delivers the event again (5 minutes).
+   */
+  static final java.time.Duration FISCAL_LEASE = java.time.Duration.ofMinutes(2);
 
   /** The dispensing classes that never go back on the shelf once sold. */
   private static final Set<String> RESTRICTED = Set.of("PRESCRIPTION", "CONTROLLED");
@@ -95,6 +103,63 @@ class SaleServiceImpl implements SaleService {
   public String nextSaleNumber() {
     UUID branch = ExecutionContext.requireBranch();
     return documentNumbers.format(settings.invoicePrefix() + "-" + settings.branchCode(branch), 6);
+  }
+
+  @Override
+  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+  public void preparePayments(List<PaymentCommand> payments) {
+    if (payments == null) {
+      return;
+    }
+    for (int i = 0; i < payments.size(); i++) {
+      PaymentCommand payment = payments.get(i);
+      if (payment == null
+          || payment.method() == null
+          || payment.method() == PaymentMethod.CASH
+          || payment.method() == PaymentMethod.VOUCHER
+          || payment.reference() == null
+          || payment.reference().isBlank()) {
+        continue;
+      }
+      Optional<String> waiting =
+          paymentAuthorizations.prepare(
+              payment.method(), payment.channel(), payment.reference().trim());
+      if (waiting.isPresent()) {
+        throw Refusal.invalid("payment_declined", waiting.get(), "payments[" + i + "]");
+      }
+    }
+  }
+
+  @Override
+  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+  public void fiscalise(UUID saleUid) {
+    if (!fiscalReceipts.enabled()) {
+      return;
+    }
+    org.springframework.transaction.support.TransactionTemplate transaction =
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    Instant now = tz.co.pharmacy.platform.kernel.Clocks.now();
+    // 1. The lease, in a short transaction of its own.
+    Sale due =
+        transaction.execute(
+            status ->
+                sales.claimFiscalReceipt(saleUid, now, now.plus(FISCAL_LEASE)) == 0
+                    ? null
+                    : sales.findByUid(saleUid).orElse(null));
+    if (due == null) {
+      return;
+    }
+    // 2. The tax authority, with no transaction and no lock held.
+    Optional<String> reference;
+    try {
+      reference = fiscalReceipts.issue(due.getNumber(), due.getTotal(), due.getTaxTotal());
+    } catch (RuntimeException failure) {
+      transaction.executeWithoutResult(status -> sales.releaseFiscalReceipt(saleUid));
+      throw failure;
+    }
+    // 3. The reference, in another short transaction.
+    transaction.executeWithoutResult(
+        status -> sales.recordFiscalReceipt(saleUid, reference.orElse(null)));
   }
 
   @Override
@@ -325,10 +390,10 @@ class SaleServiceImpl implements SaleService {
     }
 
     sale.totals(totals, Amounts.money(paid), changeDue);
+    // PERF-1: the fiscal receipt is issued after commit (fiscalise), not while this transaction
+    // holds the branch's sale number and the stock.
+    sale.fiscalReceiptDue(fiscalReceipts.enabled());
     Sale saved = sales.save(sale);
-    fiscalReceipts
-        .issue(saved.getNumber(), totals.total(), totals.taxTotal())
-        .ifPresent(saved::fiscalised);
 
     events.publish(
         "sale.completed",
@@ -931,7 +996,8 @@ class SaleServiceImpl implements SaleService {
         sale.getCreatedAt(),
         sale.getPriceListUid(),
         sale.getPriceListName(),
-        sale.getPricePlanSource());
+        sale.getPricePlanSource(),
+        sale.isFiscalDue());
   }
 
   static SaleSummaryView summary(Sale sale) {

@@ -27,13 +27,15 @@ Rules:
 
 Composition (`application/pharmacy-core/src/main/java/tz/co/pharmacy/platform/composition`):
 - **Adapters.** `@Component class <Consumer><Provider>Adapter implements <consumer>.ports.outbound.Y` calls the provider's `ports.inbound`. The module that owns the outbound port writes the adapter.
-- **Reactions.** `@Component class <Target>Reactions` with methods `@Async @TransactionalEventListener void on(SomeEvent e) { EventScopes.run(e.metadata(), "<service>", () -> target.port(...)); }`. Use one listener method per target module, so a failure in one does not hold the others.
+- **Reactions.** `@Component class <Target>Reactions` with methods `@Async @TransactionalEventListener void on(SomeEvent e) { EventScopes.run(e.metadata(), "<service>", () -> target.port(...)); }`. Use one listener method per target module, so a failure in one does not hold the others. Every `@Async` method runs on the one bounded pool of `platform.config.AsyncExecution` (8 threads, a queue of 10,000). When the queue is full a reaction is refused, and its event is delivered again by the `event-resubmission` job. So an `@Async` method is always an AFTER_COMMIT `@TransactionalEventListener`, whose event the registry keeps.
 
 Delivery (`delivery/src/main/java/tz/co/pharmacy/delivery/api/v1/<area>/`):
 - `@RestController @RequestMapping("/api/v1/...")` classes.
 - Every method is annotated `@Access(scope = AccessScope.X, permission = "...")` and returns `ApiResponse<T>` (`ApiResponse.ok(data, "…")`, or `ApiResponse.created(...)` with `@ResponseStatus(HttpStatus.CREATED)`).
 - Request bodies are records in the handler file (or `<Area>Requests.java`) and are mapped to the module's commands. Responses are the module's views directly when they match the contract, otherwise a response record.
 - Lists return `ApiResponse<Page<View>>`, with paging from `@RequestParam(required=false) String cursor, Integer limit` and `Pages.of(cursor, limit)`.
+- `Page` is `{items, nextCursor, total, totalCapped}`. `total` is there only for a numbered page (`?page=`). A list paged by `Keyset.page` counts at most 10,001 rows: with more, `total` is 10,000 and `totalCapped` is true ("10,000+"). Lists with a count of their own (`Page.offset`, `Page.numbered`) give the exact total and `totalCapped: false`. `totalCapped` is null when there is no total (Batch 7, PERF-5).
+- Exports (`Spreadsheet.all`) read the list by its cursor in pages of 500, never by page number, so they run no count. A uid-ordered list then pages by keyset.
 - The JSON contract is `pharmacy-core-docs/contracts/api-v1.md`.
 
 ---
@@ -229,6 +231,15 @@ List<ProductView> controlledRegisterProducts();   // CONTROLLED now or ever (pro
 boolean everControlled(UUID productUid);
 ```
 
+Batch 7 (PERF-11):
+```java
+// PricingService
+List<PriceListView> priceLists();                 // the plans without items: items = null, itemCount = how many
+Optional<PriceListView> priceList(UUID uid);      // one plan with every item
+// PriceListView += int itemCount. savePriceList / importPriceList: no items named (null or empty) on a change
+// keeps the plan's items. price(...) reads the plan's items of the priced products only.
+```
+
 ## partners (`tz.co.pharmacy.modules.partners`)
 
 ```java
@@ -313,8 +324,8 @@ interface StockService {                                  // current branch = Ex
   TransferView receiveTransfer(UUID transferUid);          // current branch must be the destination: 403 not_destination
 }
 interface StockQueries {
-  Page<StockItemView> stock(StockFilter filter, PageQuery query);            // current branch, by product name (offset)
-  StockSummaryView summary(Set<UUID> branchUids /* null = all */, int expiryAlertDays);
+  Page<StockItemView> stock(StockFilter filter, PageQuery query);            // current branch, by product name (offset); reads inventory.product_stock
+  StockSummaryView summary(Set<UUID> branchUids /* null = all */, int expiryAlertDays);   // product figures from inventory.product_stock
   List<BatchView> batches(UUID productUid);                                  // current branch, quantity > 0
   Page<ExpiringBatchView> expiring(Set<UUID> branchUids, int withinDays, PageQuery query);  // earliest first (offset)
   Page<MovementView> movements(UUID productUid, MovementType type, PageQuery query);         // current branch, keyset
@@ -514,6 +525,21 @@ interface SaleService {
 //   quantity, cost, outcome, reference) "sale.return_released": the ledger posts Dr 1200 / Cr 5000 cost, keyed by lineUid.
 ```
 
+**Checkout performance (Batch 7, PERF-1).** Added to the above:
+```java
+// SaleService
+void preparePayments(List<PaymentCommand> payments);  // outside any transaction: asks the providers about
+                                                       // push requests still pending; 422 payment_declined
+void fiscalise(UUID saleUid);   // after commit: lease (sales.fiscal_claimed_until, 2 min), fiscal port with no
+                                // transaction open, then the reference; a failure is thrown (the outbox retries)
+// record no longer calls FiscalReceipts: the sale is saved with fiscalDue = FiscalReceipts.enabled().
+// SaleView += boolean fiscalDue.
+// ports.outbound: PaymentAuthorizations += default Optional<String> prepare(method, channel, reference);
+//   FiscalReceipts += default boolean enabled() (NoFiscalReceipts: false).
+// composition: FiscalReactions (sale.completed -> fiscalise), only with a fiscal provider other than none.
+// SaleLine and SalePayment are @AuditIgnore (PERF-7).
+```
+
 ## checkout (`tz.co.pharmacy.application.checkout`, application service)
 
 ```java
@@ -608,10 +634,23 @@ Payment methods map to accounts: `CASH` → 1000, `CARD` → 1010, `MOBILE_MONEY
 
 Expenses and supplier payments are paid only from money accounts: `CASH` → 1000, `BANK_TRANSFER`, `CARD`, `CHEQUE` → 1010, `MOBILE_MONEY` → 1020; any other method is 422 `invalid_payment_method`. Their dates default to today in the pharmacy's time zone and may not be later (422 `future_date`). A supplier payment naming goods receipts settles each up to what is still open of it (`finance.supplier_payment_allocations`), else 422 `overpayment`.
 
+Balances (`Ledger.accounts`), the trial balance, the balance sheet and VAT read `finance.account_daily_balances`
+(PERF-4): one row per account, booking day and branch, kept by a trigger on `finance.journal_lines` in the same
+transaction as each line (an atomic upsert), so they always equal the journal; `balanceMismatches` checks it. Journal
+numbers are `JV-<booking year>-<000123>`, a gap-free series per pharmacy and year (`finance.journal_counters`, a
+counter row taken by an upsert ... returning as the last step before the entry is inserted, PERF-14); numbers given
+before (`JV-000123`) stay. The journal writer locks an entry's balance rows in account order before taking the number.
+
 ```java
 // reconciliation (MON-13)
 record UnpostedDocument(String sourceType, UUID sourceUid, String number, UUID branchUid, Instant recordedAt) {}
-interface LedgerReconciliation { List<UnpostedDocument> unposted(int days); }   // GET /finance/reconciliation; 422 invalid_days outside 1-92
+interface LedgerReconciliation {
+  List<UnpostedDocument> unposted(int days);              // GET /finance/reconciliation; 422 invalid_days outside 1-92
+  List<BalanceMismatch> balanceMismatches(int days);      // GET /finance/reconciliation/balances; 422 invalid_days outside 1-366
+}
+// the daily balances read model against the journal, per account, booking day and branch (PERF-4); empty when they agree
+record BalanceMismatch(String accountCode, LocalDate day, UUID branchUid, BigDecimal journalDebit, BigDecimal journalCredit,
+                       BigDecimal readModelDebit, BigDecimal readModelCredit) {}
 // ports.outbound, implemented in composition (LedgerSourcesAdapter)
 interface LedgerSources { List<UnpostedDocument> recorded(Instant from, Instant before); }
 ```
@@ -624,7 +663,9 @@ Read models via `JdbcTemplate` or `JdbcClient` upserts, all with RLS:
 - `reporting.daily_payments`
 - `reporting.daily_purchases`
 - `reporting.daily_expenses`
-- `reporting.processed_events` (`(tenant_uid, event_id)` primary key, for idempotency)
+- `reporting.processed_events` (`(tenant_uid, event_id)` primary key, for idempotency); markers older than
+  `pharmacy.retention.processed-events-days` (30) are deleted nightly by the module's `RetentionTask`
+  (`ProcessedEventsRetention`, through the definer function `reporting.purge_processed_events`)
 
 The day is the local date in the tenant's timezone, from `ports.outbound.ReportingTenant`.
 

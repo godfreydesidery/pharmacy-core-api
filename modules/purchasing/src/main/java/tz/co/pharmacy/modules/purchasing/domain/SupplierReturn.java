@@ -33,8 +33,13 @@ public class SupplierReturn extends TenantEntity {
   private String createdByName;
   private BigDecimal total = BigDecimal.ZERO;
 
+  /**
+   * Loaded for up to 100 documents at once when a list maps them (one query for the page's lines,
+   * not one per document: adversarial review PERF-16).
+   */
   @OneToMany(mappedBy = "supplierReturn", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("id")
+  @org.hibernate.annotations.BatchSize(size = 100)
   private List<SupplierReturnLine> lines = new ArrayList<>();
 
   public SupplierReturn(

@@ -60,8 +60,13 @@ public class PurchaseOrder extends TenantEntity {
     this.baseTotal = baseTotal;
   }
 
+  /**
+   * Loaded for up to 100 documents at once when a list maps them (one query for the page's lines,
+   * not one per document: adversarial review PERF-16).
+   */
   @OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("id")
+  @org.hibernate.annotations.BatchSize(size = 100)
   private List<PurchaseOrderLine> lines = new ArrayList<>();
 
   public PurchaseOrder(

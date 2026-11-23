@@ -41,16 +41,19 @@ public class UserHandler {
   private final MemberEnrolment enrolment;
   private final ManagedLogins managedLogins;
   private final TenantService tenants;
+  private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
 
   public UserHandler(
       UserAdministration users,
       MemberEnrolment enrolment,
       ManagedLogins managedLogins,
-      TenantService tenants) {
+      TenantService tenants,
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
     this.users = users;
     this.enrolment = enrolment;
     this.managedLogins = managedLogins;
     this.tenants = tenants;
+    this.accessCache = accessCache;
   }
 
   @GetMapping
@@ -155,26 +158,38 @@ public class UserHandler {
     if (body == null) {
       throw Refusal.malformed("A user is required.");
     }
+    // A member's role, branches or deactivation take effect at their next request, on every
+    // instance (the edge's access cache, PERF-9).
     return ApiResponse.ok(
-        users.changeMember(
-            membershipUid,
-            new ChangeMemberCommand(
-                body.roleUid(),
-                Boolean.TRUE.equals(body.allBranches()),
-                body.branchUids(),
-                // Missing keeps the member as they are; only true reactivates (INT-6).
-                body.active(),
-                body.phone(),
-                body.name(),
-                body.contactEmail(),
-                body.staffNumber() == null
-                        && body.jobTitle() == null
-                        && body.workPhone() == null
-                        && body.workEmail() == null
-                    ? null
-                    : new StaffDetails(
-                        body.staffNumber(), body.jobTitle(), body.workPhone(), body.workEmail()))),
+        forgetPharmacy(
+            users.changeMember(
+                membershipUid,
+                new ChangeMemberCommand(
+                    body.roleUid(),
+                    Boolean.TRUE.equals(body.allBranches()),
+                    body.branchUids(),
+                    // Missing keeps the member as they are; only true reactivates (INT-6).
+                    body.active(),
+                    body.phone(),
+                    body.name(),
+                    body.contactEmail(),
+                    body.staffNumber() == null
+                            && body.jobTitle() == null
+                            && body.workPhone() == null
+                            && body.workEmail() == null
+                        ? null
+                        : new StaffDetails(
+                            body.staffNumber(),
+                            body.jobTitle(),
+                            body.workPhone(),
+                            body.workEmail())))),
         "User changed");
+  }
+
+  /** The pharmacy's cached access, forgotten on every instance once the change is made. */
+  private <T> T forgetPharmacy(T changed) {
+    accessCache.forgetTenant(TenantContext.requireTenant());
+    return changed;
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)

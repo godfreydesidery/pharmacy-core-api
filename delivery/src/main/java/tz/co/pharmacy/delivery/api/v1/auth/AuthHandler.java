@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.edge.EdgeAccessCache;
 import tz.co.pharmacy.delivery.edge.EdgeFilter;
 import tz.co.pharmacy.modules.access.ports.inbound.AuthenticationService;
 import tz.co.pharmacy.modules.access.ports.inbound.Principal;
@@ -41,16 +42,26 @@ public class AuthHandler {
   private final TwoFactorService twoFactor;
   private final SessionResponses responses;
   private final SettingsService settings;
+  private final EdgeAccessCache accessCache;
 
   public AuthHandler(
       AuthenticationService authentication,
       TwoFactorService twoFactor,
       SessionResponses responses,
-      SettingsService settings) {
+      SettingsService settings,
+      EdgeAccessCache accessCache) {
     this.authentication = authentication;
     this.twoFactor = twoFactor;
     this.responses = responses;
     this.settings = settings;
+    this.accessCache = accessCache;
+  }
+
+  /** The person's cached pharmacy access, forgotten on every instance (PERF-9). */
+  private void forgetMe() {
+    ExecutionContext.current()
+        .map(ExecutionContext.Frame::actor)
+        .ifPresent(actor -> accessCache.forgetUser(actor.uid()));
   }
 
   /**
@@ -107,6 +118,7 @@ public class AuthHandler {
     if (token != null) {
       authentication.signOut(token, body != null && "IDLE".equalsIgnoreCase(body.reason()));
     }
+    forgetMe();
     return ApiResponse.ok("Signed out");
   }
 
@@ -139,6 +151,7 @@ public class AuthHandler {
         body == null ? null : body.currentPassword(),
         body == null ? null : body.newPassword(),
         bearer(authorization));
+    forgetMe();
     return ApiResponse.ok("Password changed");
   }
 
@@ -155,6 +168,7 @@ public class AuthHandler {
   @Access(scope = AccessScope.AUTHENTICATED)
   public ApiResponse<Void> revokeSession(@PathVariable UUID sessionUid) {
     authentication.revokeSession(ExecutionContext.actor().uid(), sessionUid);
+    forgetMe();
     return ApiResponse.ok("Session signed out");
   }
 
@@ -165,6 +179,7 @@ public class AuthHandler {
       @RequestHeader(name = "Authorization", required = false) String authorization) {
     int revoked =
         authentication.revokeOtherSessions(ExecutionContext.actor().uid(), bearer(authorization));
+    forgetMe();
     return ApiResponse.ok(new RevokedResponse(revoked), "Signed out of other devices");
   }
 
