@@ -36,7 +36,6 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
 @Component
 public class ProviderRouter {
 
-  private static final Logger log = LoggerFactory.getLogger("notifications.log-provider");
   private static final Logger LOG = LoggerFactory.getLogger(ProviderRouter.class);
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -78,6 +77,7 @@ public class ProviderRouter {
   private final SmsSender envSms;
   private final WhatsAppSender envWhatsApp;
   private final ProviderHealth health;
+  private final LogOutput logOutput;
   private final TransactionTemplate reads;
   private final Map<String, JavaMailSenderImpl> mailers = new ConcurrentHashMap<>();
 
@@ -89,6 +89,7 @@ public class ProviderRouter {
       SmsSender envSms,
       WhatsAppSender envWhatsApp,
       ProviderHealth health,
+      LogOutput logOutput,
       PlatformTransactionManager transactionManager) {
     this.settings = settings;
     this.seal = seal;
@@ -97,6 +98,7 @@ public class ProviderRouter {
     this.envSms = envSms;
     this.envWhatsApp = envWhatsApp;
     this.health = health;
+    this.logOutput = logOutput;
     this.reads = new TransactionTemplate(transactionManager);
     this.reads.setReadOnly(true);
     this.reads.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -329,15 +331,9 @@ public class ProviderRouter {
     return new Route(row.getUid(), row.getName(), code, source, sender);
   }
 
-  private static ChannelSender logSender(String channel, String source) {
+  private ChannelSender logSender(String channel, String source) {
     return (to, subject, html, text) ->
-        log.info(
-            "[{}:{}] to={}{}\n{}",
-            channel,
-            source.toLowerCase(),
-            to,
-            subject == null ? "" : " subject=\"" + subject + "\"",
-            text);
+        logOutput.write(channel + ":" + source.toLowerCase(), to, subject, text);
   }
 
   private ChannelSender smtp(

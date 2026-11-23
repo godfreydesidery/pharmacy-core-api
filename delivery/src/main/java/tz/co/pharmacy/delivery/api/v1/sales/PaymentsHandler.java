@@ -111,7 +111,7 @@ public class PaymentsHandler {
 
   @PostMapping("/vouchers")
   @ResponseStatus(HttpStatus.CREATED)
-  @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.voucher")
   public ApiResponse<VoucherView> issue(@RequestBody VoucherRequest body) {
     if (body == null) {
       throw Refusal.malformed("The request needs a body.");

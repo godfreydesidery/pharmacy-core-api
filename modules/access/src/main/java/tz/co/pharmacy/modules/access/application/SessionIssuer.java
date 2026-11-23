@@ -58,7 +58,7 @@ class SessionIssuer {
       ObjectProvider<AccessNotices> notices,
       PlatformTransactionManager transactionManager,
       @Value("${pharmacy.access.session-hours:12}") long sessionHours,
-      @Value("${pharmacy.access.require-2fa-for-root:false}") boolean twoFactorRequiredForRoot,
+      @Value("${pharmacy.access.require-2fa-for-root:true}") boolean twoFactorRequiredForRoot,
       IdlePolicy idle,
       Clock clock) {
     this.clock = clock;

@@ -129,7 +129,11 @@ class MoneyScenariosTest extends IntegrationTest {
   @DisplayName("mixed currencies cover a sale; change is given in base cash")
   void mixedCurrencyTenderAndChange() {
     Response mixed =
-        sell(null, payment("CASH", 2, "USD"), payment("MOBILE_MONEY", 4_700, null)).expect(201);
+        sell(
+                null,
+                payment("CASH", 2, "USD"),
+                "{\"method\":\"MOBILE_MONEY\",\"channel\":\"MOBILE_OTHER\",\"amount\":4700}")
+            .expect(201);
     assertThat(money(mixed, "$.data.paidTotal")).isEqualTo(PRICE);
     assertThat(money(mixed, "$.data.changeDue")).isZero();
 

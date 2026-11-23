@@ -67,6 +67,7 @@ class VouchersImpl implements Vouchers {
     } else if (vouchers.existsByCodeIgnoreCase(code)) {
       throw Refusal.conflict("duplicate_voucher", "A voucher with code " + code + " exists.");
     }
+    UUID branch = ExecutionContext.current().map(f -> f.branchUid()).orElse(null);
     Voucher voucher =
         vouchers.save(
             new Voucher(
@@ -74,8 +75,8 @@ class VouchersImpl implements Vouchers {
                 value,
                 c.expiresOn(),
                 Checks.optionalText(c.holderName(), "holderName", 120),
-                paidBy.name()));
-    UUID branch = ExecutionContext.current().map(f -> f.branchUid()).orElse(null);
+                paidBy.name(),
+                branch));
     events.publish(
         "voucher.issued",
         meta ->

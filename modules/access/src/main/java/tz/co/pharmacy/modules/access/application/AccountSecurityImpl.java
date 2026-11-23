@@ -348,7 +348,10 @@ class AccountSecurityImpl implements AccountSecurity {
         users
             .findByPhoneAndPhoneVerifiedAtIsNotNull(number)
             .filter(User::isActive)
-            .filter(user -> !user.isManaged());
+            .filter(user -> !user.isManaged())
+            // A root administrator holds every pharmacy: a SIM swap must not be enough to take
+            // the account, so root resets go by email (with its second factor) only.
+            .filter(user -> !user.isRootAdmin());
     if (found.isEmpty()) {
       return;
     }
@@ -383,6 +386,7 @@ class AccountSecurityImpl implements AccountSecurity {
             .findByPhoneAndPhoneVerifiedAtIsNotNull(number)
             .filter(User::isActive)
             .filter(found -> !found.isManaged())
+            .filter(found -> !found.isRootAdmin())
             .orElseThrow(AccountSecurityImpl::invalidCode);
     String hash = passwords.hash(newPassword, "newPassword");
     boolean[] ok = {false};
