@@ -654,17 +654,53 @@ interface DashboardFacts { StockFigures stock(Set<UUID> branchUids, int expiryAl
 ```java
 enum DeliveryStatus { PENDING, DELIVERED, FAILED }
 record WebhookCommand(String name, String url, List<String> eventTypes, Boolean active) {}
-record WebhookView(UUID uid, String name, String url, List<String> eventTypes, boolean active, String secret /* only on create, else null */, Instant createdAt) {}
-record DeliveryView(UUID uid, String eventType, UUID eventId, DeliveryStatus status, Integer responseStatus, int attempts, String lastError, Instant createdAt, Instant deliveredAt) {}
+record WebhookView(UUID uid, String name, String url, List<String> eventTypes, boolean active,
+                   String secret /* only on create and rotate-secret, else null */,
+                   Instant previousSecretUntil /* the old secret signs until then, after a rotation */,
+                   Instant createdAt) {}
+record DeliveryView(UUID uid, String eventType, UUID eventId, DeliveryStatus status, Integer responseStatus, int attempts, String lastError, Instant createdAt, Instant deliveredAt, Instant nextAttemptAt) {}
 interface Webhooks {
+  int MAX_WEBHOOKS = 10;       // per pharmacy: 422 webhook_limit
   List<String> eventTypes();   // sale.completed, sale.returned, goods.received, stock.adjusted, stock.low, product.changed, tenant.registered
   List<WebhookView> list();
-  WebhookView create(WebhookCommand c);       // https (or http://localhost) url; 32-byte random secret
+  WebhookView create(WebhookCommand c);       // https url to a public host (422 webhook_url_not_allowed); secret whsec_<base64 32 bytes>, sealed at rest
   WebhookView change(UUID uid, WebhookCommand c);
+  WebhookView rotateSecret(UUID uid);         // new secret returned once; the old one also signs for 24 h
   void delete(UUID uid);
   Page<DeliveryView> deliveries(UUID webhookUid, PageQuery query);
-  /** Called by composition reactions: records a delivery per subscribed active webhook, then sends each as a
-      CloudEvent (HMAC-SHA256 X-Pharmacy-Signature), up to 3 attempts with backoff, recording the outcome. */
+  /** Called by composition reactions: records a delivery per subscribed active webhook, then sends them side
+      by side as CloudEvents signed per Standard Webhooks (webhook-id, webhook-timestamp,
+      webhook-signature: v1,<base64 HMAC-SHA256 of "id.timestamp.body">; plus the old X-Pharmacy-Signature
+      for one release), up to 3 attempts with backoff, recording the outcome. */
   void dispatch(UUID eventId, String eventType, Instant occurredAt, Object data);
+  /** Due failed deliveries, claimed FOR UPDATE SKIP LOCKED with a lease, one lane per webhook. */
+  int retryDue();
 }
+/** The SSRF rules of webhook targets for any host (SMTP servers reuse them). */
+interface PublicAddresses { Optional<String> problem(String host); }
+// Payments: SIMULATOR exists only under the sim, local (and test) profiles: elsewhere saving it in the
+// registry, enabling it or pushing through it is 422 adapter_not_available, and it is not offered.
+// verify(): a push request pays only a tender of its own method at its own branch: 422 payment_mismatch.
+
+// ports.outbound (adapters in composition)
+interface SecretSealing { String seal(String plain); String open(String sealed); }  // → notifications Sealing
 ```
+
+## notifications (`tz.co.pharmacy.modules.notifications`): ports added for the outside-connection hardening
+
+```java
+// ports.inbound
+interface Sealing { String seal(String plain); String open(String sealed); }   // provider-secret sealing (AES-256-GCM, pharmacy.access.encryption-key), reused by integrations
+interface NotificationUsage { /* … */ long platformSmsThisMonth(UUID tenantUid, ZoneId zone); }  // SMS on the platform's account, the pharmacy's month
+record DeliveryView(/* … */ Instant sentAt, String reason) {}   // reason: sms_cap_reached when the platform refused the message
+record DeliveryDetail(/* … */ Instant sentAt, String reason) {}
+TemplateKeys.SMS_CAP_REACHED = "tenant.sms_cap_reached"          // in-app notice to the admins, once a month
+// ports.outbound (adapters in composition)
+interface PublicHosts { Optional<String> problem(String host); }                 // → integrations PublicAddresses (SMTP host rule)
+interface SmsAllowance { Allowance of(UUID tenantUid);                           // → tenancy Subscriptions + TenantService
+                         record Allowance(Integer perMonth, String planName, ZoneId zone) {} }
+```
+SMTP providers (INT-2): host public (the webhook targets' rules), port 25/465/587/2525/2587 (422 `smtp_host_not_allowed`,
+`smtp_port_not_allowed`), checked on save, on "Send test" and before every send; implicit TLS on 465, STARTTLS required
+elsewhere; a changed host or port drops the stored secrets. SMS on the platform's account (INT-5) stop at the plan's
+`sms_per_month`, counted from the delivery log in the pharmacy's calendar month: FAILED, reason `sms_cap_reached`.

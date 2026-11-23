@@ -63,6 +63,12 @@ public class Message extends ScopedEntity {
   private Instant sentAt;
   private String dedupKey;
 
+  /**
+   * Why the message was not sent, as a stable code, when the platform refused it rather than a
+   * provider failing (such as {@code sms_cap_reached}); null otherwise.
+   */
+  private String reason;
+
   @SuppressWarnings("java:S107")
   public Message(
       String templateKey,
@@ -122,6 +128,7 @@ public class Message extends ScopedEntity {
     this.provider = providerName;
     this.sentAt = Clocks.now();
     this.lastError = null;
+    this.reason = null;
     this.nextAttemptAt = null;
   }
 
@@ -131,6 +138,20 @@ public class Message extends ScopedEntity {
     this.status = MessageStatus.FAILED;
     this.provider = providerName;
     this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
+    this.reason = null;
     this.nextAttemptAt = attempts >= MAX_ATTEMPTS ? null : nextAttempt;
+  }
+
+  /**
+   * Not sent, and not to be retried, because the platform refused it ({@code reason}, such as
+   * {@code sms_cap_reached}); {@code error} says why in words.
+   */
+  public void refused(String providerName, String reason, String error) {
+    this.attempts++;
+    this.status = MessageStatus.FAILED;
+    this.provider = providerName;
+    this.reason = reason;
+    this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
+    this.nextAttemptAt = null;
   }
 }

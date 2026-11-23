@@ -11,14 +11,15 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tz.co.pharmacy.modules.notifications.ports.inbound.Sealing;
 
 /**
  * Seals provider secrets (API keys, auth tokens, SMTP passwords) with AES-256-GCM under a key
  * derived from {@code pharmacy.access.encryption-key}, the same key the access module seals TOTP
- * seeds with.
+ * seeds with. Other modules reach it as the {@link Sealing} port (webhook signing secrets).
  */
 @Component
-public class SecretSeal {
+public class SecretSeal implements Sealing {
 
   private static final String LOCAL_KEY = "local-development-only-encryption-key";
   private static final int IV_BYTES = 12;
@@ -36,6 +37,7 @@ public class SecretSeal {
     }
   }
 
+  @Override
   public String seal(String plain) {
     try {
       byte[] iv = new byte[IV_BYTES];
@@ -51,6 +53,7 @@ public class SecretSeal {
     }
   }
 
+  @Override
   public String open(String sealedText) {
     try {
       byte[] all = Base64.getDecoder().decode(sealedText);

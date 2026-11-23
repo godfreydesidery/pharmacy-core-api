@@ -51,7 +51,7 @@ architecture-tests/       Spring Modulith verify + ArchUnit rules
 | `sales` | `sales` | Sales, payments, prescriptions, returns |
 | `finance` | `finance` | Expenses, chart of accounts, double-entry journal (idempotent postings) |
 | `reporting` | `reporting` | Read models built from events; dashboard and reports |
-| `integrations` | `integrations` | Outbound webhooks (CloudEvents 1.0, HMAC-SHA256 signed), delivery log |
+| `integrations` | `integrations` | Outbound webhooks (CloudEvents 1.0, Standard Webhooks signatures), delivery log, payment methods |
 | `onboarding` | — | Application service: register a tenant and its first administrator |
 | `checkout` | — | Application service: POS sale (catalogue + FEFO allocation + sale) and returns |
 | `receiving` | — | Application service: goods receipt + stock in |
@@ -181,7 +181,7 @@ mvn verify
 |---|---|---|---|
 | Payment authorization (M-Pesa, Airtel Money, card terminals, insurers) | `sales.ports.outbound.PaymentAuthorizations` | `ManualPaymentAuthorizations` (approves, keeps the reference) | Add a `@Component` implementing the port with `@ConditionalOnProperty(name = "pharmacy.integrations.payments.provider", havingValue = "mpesa")`, then set `PHARMACY_PAYMENTS_PROVIDER=mpesa` |
 | Fiscal receipts (TRA VFD/EFD, KRA eTIMS) | `sales.ports.outbound.FiscalReceipts` | `NoFiscalReceipts` (returns empty) | Same pattern, with `pharmacy.integrations.fiscal.provider` |
-| Outbound events to any system | `integrations` module, `/api/v1/webhooks` | — | Register a webhook. Events arrive as CloudEvents 1.0 JSON, signed with `X-Pharmacy-Signature: sha256=<HMAC>` |
+| Outbound events to any system | `integrations` module, `/api/v1/webhooks` | — | Register a webhook (at most 10 per pharmacy). Events arrive as CloudEvents 1.0 JSON signed as [Standard Webhooks](https://www.standardwebhooks.com/) define: `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64 HMAC-SHA256 of "id.timestamp.body">` with the `whsec_` secret. `POST /webhooks/{uid}/rotate-secret` issues a new secret; both sign for 24 h. The old `X-Pharmacy-Signature: sha256=<hex>` is still sent for one release |
 | External POS, ERP, e-commerce | The versioned REST API `/api/v1` | — | Use a session token and the tenant and branch headers, with `Idempotency-Key` on `POST /sales` for safe retries |
 
 Adapters live in `application/pharmacy-core/src/main/java/tz/co/pharmacy/platform/composition`, the only place that binds a module to the outside world. A module never knows which provider it talks to.

@@ -7,11 +7,13 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tz.co.pharmacy.modules.integrations.ports.inbound.PublicAddresses;
 
 /**
  * Where a webhook may point. A pharmacy admin types the URL, so the server must never be made to
@@ -22,9 +24,11 @@ import org.springframework.stereotype.Component;
  * unspecified and multicast addresses are refused, as are localhost and *.local, *.internal and
  * *.localhost names. Hosts listed in {@code pharmacy.integrations.webhooks.allowed-hosts} (empty by
  * default; for local development only) skip these checks and may use plain http.
+ *
+ * <p>The host rules alone are the {@link PublicAddresses} port, which SMTP provider settings reuse.
  */
 @Component
-class WebhookTargets {
+class WebhookTargets implements PublicAddresses {
 
   /** Why a URL was refused, or null when it may be called. */
   record Verdict(String problem) {
@@ -77,21 +81,36 @@ class WebhookTargets {
     if (!scheme.equals("https")) {
       return new Verdict("The address must be an https URL.");
     }
+    return new Verdict(problem(host).orElse(null));
+  }
+
+  @Override
+  public Optional<String> problem(String rawHost) {
+    String host = rawHost == null ? "" : rawHost.trim().toLowerCase(Locale.ROOT);
+    if (host.startsWith("[") && host.endsWith("]")) {
+      host = host.substring(1, host.length() - 1);
+    }
+    if (host.isEmpty()) {
+      return Optional.of("The address must name a host.");
+    }
     if (internalName(host)) {
-      return new Verdict("The address points to an internal host name.");
+      return Optional.of("The address points to an internal host name.");
     }
     InetAddress[] addresses;
     try {
       addresses = resolver.resolve(host);
     } catch (UnknownHostException unknown) {
-      return new Verdict("The host " + host + " could not be found.");
+      return Optional.of("The host " + host + " could not be found.");
+    }
+    if (addresses == null || addresses.length == 0) {
+      return Optional.of("The host " + host + " could not be found.");
     }
     for (InetAddress address : addresses) {
       if (!isPublic(address)) {
-        return new Verdict("The address points to a private or local network address.");
+        return Optional.of("The address points to a private or local network address.");
       }
     }
-    return new Verdict(null);
+    return Optional.empty();
   }
 
   private static boolean internalName(String host) {

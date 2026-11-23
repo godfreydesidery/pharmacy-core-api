@@ -49,6 +49,7 @@ class Dispatcher {
   private final ApplicationEventPublisher events;
   private final ExecutorService senders;
   private final TransactionTemplate transactions;
+  private final SmsCap smsCap;
 
   @SuppressWarnings("java:S107")
   private final Clock clock;
@@ -69,7 +70,9 @@ class Dispatcher {
       @org.springframework.beans.factory.annotation.Value(
               "${pharmacy.notifications.keep-account-messages:false}")
           boolean keepAccountMessages,
+      SmsCap smsCap,
       Clock clock) {
+    this.smsCap = smsCap;
     this.keepAccountMessages = keepAccountMessages;
     this.clock = clock;
     this.messages = messages;
@@ -130,10 +133,24 @@ class Dispatcher {
     String provider = message.getChannel() == Channel.IN_APP ? "in-app" : null;
     String error = null;
     if (message.getChannel() != Channel.IN_APP) {
+      List<ProviderRouter.Route> routes = router.routes(message.getChannel());
+      Optional<UUID> tenant = TenantContext.tenantUid();
+      if (message.getChannel() == Channel.SMS
+          && tenant.isPresent()
+          && !ProviderRouter.SOURCE_OWN.equals(routes.getFirst().source())) {
+        // On the platform's account: the plan's SMS a month apply (INT-5).
+        Optional<SmsCap.Refused> refused =
+            smsCap.admit(tenant.get(), messageUid, routes.getFirst().label());
+        if (refused.isPresent()) {
+          log.info("SMS {} not sent: {}", messageUid, SmsCap.REASON);
+          refused.get().noticed().forEach(user -> announce(tenant.get(), user));
+          return;
+        }
+      }
       // Failover: the providers in order (the pharmacy's own, else the platform's, else the
       // environment's); the first that accepts the message sends it.
       List<String> failures = new ArrayList<>();
-      for (ProviderRouter.Route route : router.routes(message.getChannel())) {
+      for (ProviderRouter.Route route : routes) {
         provider = route.label();
         try {
           route

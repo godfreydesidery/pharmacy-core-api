@@ -5,7 +5,9 @@ import java.util.UUID;
 
 /**
  * One message in the delivery log. {@code status} is QUEUED, SENDING, SENT or FAILED; {@code to} is
- * the address it was sent to.
+ * the address it was sent to; {@code reason} a stable code when the platform refused it rather than
+ * a provider failing ({@code sms_cap_reached}: the plan's SMS a month on the platform's account are
+ * used).
  */
 public record DeliveryView(
     UUID uid,
@@ -17,4 +19,5 @@ public record DeliveryView(
     int attempts,
     String lastError,
     Instant createdAt,
-    Instant sentAt) {}
+    Instant sentAt,
+    String reason) {}

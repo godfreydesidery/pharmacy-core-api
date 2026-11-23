@@ -1,6 +1,7 @@
 package tz.co.pharmacy.modules.notifications.ports.inbound;
 
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 
@@ -13,6 +14,13 @@ public interface NotificationUsage {
 
   /** Messages of the channel sent this calendar month (UTC). */
   long sentThisMonth(UUID tenantUid, Channel channel);
+
+  /**
+   * SMS sent on the platform's account (the platform's or the environment's providers, not the
+   * pharmacy's own) this calendar month in {@code zone}, the pharmacy's time zone: what the plan's
+   * {@code sms_per_month} caps.
+   */
+  long platformSmsThisMonth(UUID tenantUid, ZoneId zone);
 
   /** Messages of the channel sent in the month. */
   long sentIn(UUID tenantUid, Channel channel, YearMonth month);

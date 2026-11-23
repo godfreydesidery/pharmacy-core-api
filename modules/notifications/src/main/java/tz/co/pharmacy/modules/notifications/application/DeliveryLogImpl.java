@@ -67,7 +67,8 @@ class DeliveryLogImpl implements DeliveryLog {
         m.getAttempts(),
         m.getLastError(),
         m.getCreatedAt(),
-        m.getSentAt());
+        m.getSentAt(),
+        m.getReason());
   }
 
   @Override
@@ -138,7 +139,8 @@ class DeliveryLogImpl implements DeliveryLog {
         m.getAttempts(),
         m.getLastError(),
         m.getCreatedAt(),
-        m.getSentAt());
+        m.getSentAt(),
+        m.getReason());
   }
 
   @Override

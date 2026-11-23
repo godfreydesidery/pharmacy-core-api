@@ -32,7 +32,6 @@ public final class ProviderCatalog {
                   new Field("port", false, true),
                   new Field("username", false, false),
                   new Field("from", false, true),
-                  new Field("tls", false, false),
                   new Field("password", true, false))),
           new Definition(Channel.SMS, "log", List.of()),
           new Definition(

@@ -21,4 +21,5 @@ public record DeliveryDetail(
     int attempts,
     String lastError,
     Instant createdAt,
-    Instant sentAt) {}
+    Instant sentAt,
+    String reason) {}

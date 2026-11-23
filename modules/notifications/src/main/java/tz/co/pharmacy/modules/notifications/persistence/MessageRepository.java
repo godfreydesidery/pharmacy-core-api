@@ -78,4 +78,43 @@ public interface MessageRepository
       tz.co.pharmacy.modules.notifications.domain.MessageStatus status,
       Instant from,
       Instant to);
+
+  /**
+   * The pharmacy's SMS sent on the platform's account between {@code from} and {@code to}: through
+   * the platform's providers or the environment's, never its own (a provider label whose second
+   * part is {@code own}, such as {@code beem:own} or {@code log:own:Our SMS}).
+   */
+  @Query(
+      value =
+          "select count(*) from notifications.messages m"
+              + " where m.tenant_uid = :tenant and m.channel = 'SMS' and m.status = 'SENT'"
+              + " and m.sent_at >= :fromAt and m.sent_at < :toAt"
+              + " and split_part(coalesce(m.provider, ''), ':', 2) <> 'own'",
+      nativeQuery = true)
+  long countPlatformSmsSent(
+      @Param("tenant") UUID tenant, @Param("fromAt") Instant from, @Param("toAt") Instant to);
+
+  /**
+   * The pharmacy's SMS another sender is sending right now (claimed, lease not run out), other than
+   * {@code self}: they count toward the cap, so concurrent senders cannot pass it together.
+   */
+  @Query(
+      value =
+          "select count(*) from notifications.messages m"
+              + " where m.tenant_uid = :tenant and m.channel = 'SMS' and m.status = 'SENDING'"
+              + " and m.next_attempt_at > :now and m.uid <> :self",
+      nativeQuery = true)
+  long countSmsInFlight(
+      @Param("tenant") UUID tenant, @Param("now") Instant now, @Param("self") UUID self);
+
+  boolean existsByTemplateKeyAndDedupKey(String templateKey, String dedupKey);
+
+  /**
+   * Takes a transaction-scoped PostgreSQL advisory lock named {@code key}: one pharmacy's SMS cap
+   * is checked by one sender at a time, on every instance.
+   */
+  @Query(
+      value = "select count(*) from (select pg_advisory_xact_lock(hashtextextended(:key, 0))) l",
+      nativeQuery = true)
+  long lock(@Param("key") String key);
 }
