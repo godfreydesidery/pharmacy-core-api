@@ -170,8 +170,29 @@ class PlanningTest extends IntegrationTest {
             .string("$.data.number");
     Api.eventually(() -> admin.get("/api/v1/journal?limit=100").expect(200).body().contains(sale));
 
-    // Unlocking reopens the period.
-    admin.put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}").expect(200);
+    // Unlocking reopens the period; it always needs a second person's approval (FRD-10).
+    assertThat(
+            admin
+                .put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}")
+                .expect(403)
+                .string("$.reason"))
+        .isEqualTo("approval_required");
+    Api anonymous = api();
+    String manager =
+        tz.co.pharmacy.support.Staff.login(
+                admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x")
+            .signIn();
+    String approval =
+        admin
+            .post(
+                "/api/v1/approvals",
+                "{\"action\":\"PERIOD_UNLOCK\",\"login\":\"%s\",\"password\":\"Manager#2026x\"}"
+                    .formatted(manager))
+            .expect(201)
+            .string("$.data.token");
+    admin
+        .put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}", "X-Approval", approval)
+        .expect(200);
     hq.post("/api/v1/expenses", expense.formatted(through)).expect(201);
   }
 

@@ -142,6 +142,16 @@ interface UserAdministration {                // current tenant unless stated
   boolean anyRootAdmin();
   long userCount();
 }
+/** The one-time "Apply recommended roles" notice (owner, 23 Nov 2026). Current tenant. Decisions per
+    Permissions.PRESETS_VERSION in access.role_preset_decisions. */
+interface RolePresets {
+  Recommendations recommendations();
+  Recommendations apply();     // built-in roles := presets; audited; 409 last_admin; 403 permission_not_held
+  Recommendations dismiss();   // keep the pharmacy's roles
+  record Recommendations(String presetsVersion, boolean showNotice, boolean dismissed, String decision,
+                         Instant decidedAt, String decidedBy, List<RoleChange> roles) {}
+  record RoleChange(UUID roleUid, String code, String name, List<String> add, List<String> remove) {}
+}
 ```
 
 ## onboarding (`tz.co.pharmacy.application.onboarding`, application service)

@@ -13,7 +13,10 @@ import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.modules.finance.ports.inbound.PeriodLocks;
 import tz.co.pharmacy.modules.finance.ports.inbound.PeriodLocks.PeriodLockView;
 
-/** Closing the books through a date; finance managers only. */
+/**
+ * Closing the books through a date: {@code finance.period_lock} (not finance.manage, adversarial
+ * review FRD-10); moving the lock back or removing it also needs an approval (PERIOD_UNLOCK).
+ */
 @RestController
 @RequestMapping("/api/v1/finance/period-lock")
 @RequiredArgsConstructor
@@ -28,7 +31,7 @@ public class PeriodLockHandler {
   }
 
   @PutMapping
-  @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.manage")
+  @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.period_lock")
   public ApiResponse<PeriodLockView> lock(@RequestBody LockRequest body) {
     return ApiResponse.ok(
         periodLocks.lockThrough(body == null ? null : body.lockedThrough()), "Period lock changed");

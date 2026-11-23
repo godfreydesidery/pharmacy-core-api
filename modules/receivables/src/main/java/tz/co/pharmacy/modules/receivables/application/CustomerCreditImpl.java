@@ -35,6 +35,8 @@ import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivePaymentCommand;
 import tz.co.pharmacy.modules.receivables.ports.outbound.CustomerDirectory;
 import tz.co.pharmacy.modules.receivables.ports.outbound.CustomerDirectory.CustomerFacts;
 import tz.co.pharmacy.modules.receivables.ports.outbound.ReceivablesCurrency;
+import tz.co.pharmacy.platform.approval.ApprovalActions;
+import tz.co.pharmacy.platform.approval.Approvals;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
@@ -62,6 +64,7 @@ class CustomerCreditImpl implements CustomerCredit {
   private final Clock clock;
   private final JdbcTemplate jdbc;
   private final TenantCalendar calendar;
+  private final Approvals approvals;
 
   CustomerCreditImpl(
       CreditAccountRepository accounts,
@@ -73,8 +76,10 @@ class CustomerCreditImpl implements CustomerCredit {
       DomainEventPublisher events,
       Clock clock,
       DataSource dataSource,
-      TenantCalendar calendar) {
+      TenantCalendar calendar,
+      Approvals approvals) {
     this.calendar = calendar;
+    this.approvals = approvals;
     this.accounts = accounts;
     this.entries = entries;
     this.allocations = allocations;
@@ -271,7 +276,7 @@ class CustomerCreditImpl implements CustomerCredit {
   @Override
   @Transactional
   public EntryView writeOff(UUID customerUid, BigDecimal amount, String reason) {
-    accountOf(customerUid);
+    CreditAccount account = accountOf(customerUid);
     BigDecimal value = positive(amount, "amount");
     String why = Checks.text(reason, "reason", 500);
     List<Entry> debits = entries.openDebits(customerUid);
@@ -283,6 +288,9 @@ class CustomerCreditImpl implements CustomerCredit {
           "Only " + open.toPlainString() + " is open on this account.",
           "amount");
     }
+    // Writing off a debt is forgiving money: a second person approves it, whatever the amount
+    // (the owner's rules of 23 Nov 2026; adversarial review FRD-17).
+    approvals.require(ApprovalActions.CREDIT_WRITE_OFF, value, account.getCustomerName());
     String number = numbers.format("WO", 6);
     Entry writeOff =
         entries.save(

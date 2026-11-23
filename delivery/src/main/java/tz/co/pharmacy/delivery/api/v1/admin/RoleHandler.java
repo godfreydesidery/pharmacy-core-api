@@ -18,6 +18,7 @@ import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.modules.access.ports.inbound.PermissionView;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.access.ports.inbound.RoleCommand;
+import tz.co.pharmacy.modules.access.ports.inbound.RolePresets;
 import tz.co.pharmacy.modules.access.ports.inbound.RoleView;
 import tz.co.pharmacy.modules.access.ports.inbound.UserAdministration;
 import tz.co.pharmacy.platform.kernel.Refusal;
@@ -28,9 +29,11 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class RoleHandler {
 
   private final UserAdministration users;
+  private final RolePresets presets;
 
-  public RoleHandler(UserAdministration users) {
+  public RoleHandler(UserAdministration users, RolePresets presets) {
     this.users = users;
+    this.presets = presets;
   }
 
   @GetMapping("/roles")
@@ -63,6 +66,30 @@ public class RoleHandler {
             roleUid,
             new RoleCommand(body.code(), body.name(), body.description(), body.permissions())),
         "Role changed");
+  }
+
+  /**
+   * How the built-in roles differ from the recommended presets, and whether the admin has decided:
+   * the web shows the one-time "Apply recommended roles" notice while {@code showNotice} is true.
+   */
+  @GetMapping("/roles/recommendations")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ApiResponse<RolePresets.Recommendations> recommendations() {
+    return ApiResponse.ok(presets.recommendations(), "Role recommendations retrieved");
+  }
+
+  /** Sets every built-in role to its recommended permissions. */
+  @PostMapping("/roles/recommendations/apply")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ApiResponse<RolePresets.Recommendations> applyRecommendations() {
+    return ApiResponse.ok(presets.apply(), "Recommended roles applied");
+  }
+
+  /** Keeps the pharmacy's own roles; the notice is not shown again. */
+  @PostMapping("/roles/recommendations/dismiss")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ApiResponse<RolePresets.Recommendations> dismissRecommendations() {
+    return ApiResponse.ok(presets.dismiss(), "The pharmacy keeps its roles");
   }
 
   /** The permissions a tenant role may hold. */
