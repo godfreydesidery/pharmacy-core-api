@@ -29,7 +29,10 @@ import org.springframework.core.env.Environment;
  * statement at most {@code statement_timeout} (5 min) (OPS-10): a migration that queues behind a
  * long transaction of the running API fails fast instead of stalling every query queued behind its
  * lock, and PostgreSQL rolls it back (Flyway runs each migration in its own transaction). Run the
- * migration again once the database is quieter; see the runbook "Migrations".
+ * migration again once the database is quieter; see the runbook "Migrations". A migration that
+ * builds an index {@code CONCURRENTLY} has a {@code .sql.conf} beside it with {@code
+ * executeInTransaction=false}, and runs outside a transaction; Flyway then holds its schema lock as
+ * a session advisory lock, so the build does not wait for Flyway's own transaction.
  *
  * <p>The schemas migrate one after the other: when one fails, the schemas before it are complete,
  * it stays at its last applied version, and the schemas after it are untouched. Migrating again
@@ -131,7 +134,12 @@ public class ModuleMigrations {
         .initSql(initSql())
         .table(HISTORY_TABLE)
         .locations("classpath:db/migration/" + schema)
-        .placeholders(Map.of("application_role", applicationRole));
+        .placeholders(Map.of("application_role", applicationRole))
+        // Flyway's lock on the schema history as a session advisory lock, not one held by an open
+        // transaction on its own connection: CREATE INDEX CONCURRENTLY (a script with
+        // executeInTransaction=false in its .sql.conf) waits for every open transaction, so it
+        // would wait for that one until the lock timeout.
+        .configuration(Map.of("flyway.postgresql.transactional.lock", "false"));
   }
 
   /** The settings of every migration connection. */

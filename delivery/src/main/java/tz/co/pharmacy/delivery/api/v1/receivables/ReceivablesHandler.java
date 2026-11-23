@@ -27,6 +27,7 @@ import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivableTotals;
 import tz.co.pharmacy.modules.receivables.ports.inbound.ReceivePaymentCommand;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /** Customer accounts: balances, statements, payments on account, holds, write-offs and ageing. */
 @RestController
@@ -35,6 +36,7 @@ import tz.co.pharmacy.platform.kernel.Page;
 public class ReceivablesHandler {
 
   private final CustomerCredit credit;
+  private final TenantCalendar calendar;
 
   /** Accounts by customer name; {@code ?withBalance=true} only those that owe or hold credit. */
   @GetMapping("/accounts")
@@ -61,7 +63,12 @@ public class ReceivablesHandler {
     return ApiResponse.ok(credit.account(customerUid), "Account retrieved");
   }
 
-  /** Entries in date order with a running balance; {@code openingBalance} precedes them. */
+  /**
+   * One page of the entries dated {@code from} to {@code to} in date order, each with its running
+   * balance; {@code openingBalance} (what was owed before {@code from}) precedes them. Without
+   * {@code to}, up to the pharmacy's today; without {@code from}, the 90 days up to {@code to}
+   * (PERF-17). Pages by {@code cursor} and {@code limit} (default 100).
+   */
   @GetMapping("/accounts/{customerUid}/statement")
   @Access(scope = AccessScope.TENANT, permission = "finance.view")
   public ApiResponse<Statement> statement(
@@ -71,14 +78,12 @@ public class ReceivablesHandler {
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
     AccountView account = credit.account(customerUid);
-    BigDecimal opening = from == null ? BigDecimal.ZERO : credit.openingBalance(customerUid, from);
+    LocalDate end = to == null ? calendar.today() : to;
+    LocalDate start = from == null ? end.minusDays(CustomerCredit.STATEMENT_DAYS - 1L) : from;
+    Page<EntryView> entries =
+        credit.statement(customerUid, start, end, Pages.of(cursor, limit == null ? 100 : limit));
     return ApiResponse.ok(
-        new Statement(
-            account,
-            from,
-            to,
-            opening,
-            credit.statement(customerUid, from, to, Pages.of(cursor, limit == null ? 100 : limit))),
+        new Statement(account, start, end, credit.openingBalance(customerUid, start), entries),
         "Statement retrieved");
   }
 

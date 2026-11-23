@@ -313,8 +313,8 @@ interface StockService {                                  // current branch = Ex
   TransferView receiveTransfer(UUID transferUid);          // current branch must be the destination: 403 not_destination
 }
 interface StockQueries {
-  Page<StockItemView> stock(StockFilter filter, PageQuery query);            // current branch, by product name (offset)
-  StockSummaryView summary(Set<UUID> branchUids /* null = all */, int expiryAlertDays);
+  Page<StockItemView> stock(StockFilter filter, PageQuery query);            // current branch, by product name (offset); reads inventory.product_stock
+  StockSummaryView summary(Set<UUID> branchUids /* null = all */, int expiryAlertDays);   // product figures from inventory.product_stock
   List<BatchView> batches(UUID productUid);                                  // current branch, quantity > 0
   Page<ExpiringBatchView> expiring(Set<UUID> branchUids, int withinDays, PageQuery query);  // earliest first (offset)
   Page<MovementView> movements(UUID productUid, MovementType type, PageQuery query);         // current branch, keyset
@@ -608,10 +608,23 @@ Payment methods map to accounts: `CASH` → 1000, `CARD` → 1010, `MOBILE_MONEY
 
 Expenses and supplier payments are paid only from money accounts: `CASH` → 1000, `BANK_TRANSFER`, `CARD`, `CHEQUE` → 1010, `MOBILE_MONEY` → 1020; any other method is 422 `invalid_payment_method`. Their dates default to today in the pharmacy's time zone and may not be later (422 `future_date`). A supplier payment naming goods receipts settles each up to what is still open of it (`finance.supplier_payment_allocations`), else 422 `overpayment`.
 
+Balances (`Ledger.accounts`), the trial balance, the balance sheet and VAT read `finance.account_daily_balances`
+(PERF-4): one row per account, booking day and branch, kept by a trigger on `finance.journal_lines` in the same
+transaction as each line (an atomic upsert), so they always equal the journal; `balanceMismatches` checks it. Journal
+numbers are `JV-<booking year>-<000123>`, a gap-free series per pharmacy and year (`finance.journal_counters`, a
+counter row taken by an upsert ... returning as the last step before the entry is inserted, PERF-14); numbers given
+before (`JV-000123`) stay. The journal writer locks an entry's balance rows in account order before taking the number.
+
 ```java
 // reconciliation (MON-13)
 record UnpostedDocument(String sourceType, UUID sourceUid, String number, UUID branchUid, Instant recordedAt) {}
-interface LedgerReconciliation { List<UnpostedDocument> unposted(int days); }   // GET /finance/reconciliation; 422 invalid_days outside 1-92
+interface LedgerReconciliation {
+  List<UnpostedDocument> unposted(int days);              // GET /finance/reconciliation; 422 invalid_days outside 1-92
+  List<BalanceMismatch> balanceMismatches(int days);      // GET /finance/reconciliation/balances; 422 invalid_days outside 1-366
+}
+// the daily balances read model against the journal, per account, booking day and branch (PERF-4); empty when they agree
+record BalanceMismatch(String accountCode, LocalDate day, UUID branchUid, BigDecimal journalDebit, BigDecimal journalCredit,
+                       BigDecimal readModelDebit, BigDecimal readModelCredit) {}
 // ports.outbound, implemented in composition (LedgerSourcesAdapter)
 interface LedgerSources { List<UnpostedDocument> recorded(Instant from, Instant before); }
 ```
@@ -624,7 +637,9 @@ Read models via `JdbcTemplate` or `JdbcClient` upserts, all with RLS:
 - `reporting.daily_payments`
 - `reporting.daily_purchases`
 - `reporting.daily_expenses`
-- `reporting.processed_events` (`(tenant_uid, event_id)` primary key, for idempotency)
+- `reporting.processed_events` (`(tenant_uid, event_id)` primary key, for idempotency); markers older than
+  `pharmacy.retention.processed-events-days` (30) are deleted nightly by the module's `RetentionTask`
+  (`ProcessedEventsRetention`, through the definer function `reporting.purge_processed_events`)
 
 The day is the local date in the tenant's timezone, from `ports.outbound.ReportingTenant`.
 
