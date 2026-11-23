@@ -14,6 +14,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
@@ -89,11 +90,12 @@ public class Approvals {
   /**
    * Lets {@code action} of {@code amount} go ahead: at once when it needs no approval, otherwise
    * consuming the approval the request carries, or refusing with {@code 403 approval_required}.
-   * {@code reference} (a sale number, a product…) goes into the audit trail.
+   * {@code reference} (a sale number, a product…) goes into the audit trail. Returns the manager
+   * who approved, or empty when none was needed (a destruction names them as its witness).
    */
-  public void require(String action, BigDecimal amount, String reference) {
+  public Optional<Approver> require(String action, BigDecimal amount, String reference) {
     if (!needed(action, amount)) {
-      return;
+      return Optional.empty();
     }
     BigDecimal value = amount == null ? Amounts.ZERO : Amounts.money(amount);
     List<String> tokens = ApprovalContext.tokens();
@@ -163,7 +165,15 @@ public class Approvals {
     details.put("approvedBy", used.getFirst().get("approved_by_name"));
     details.put("approvedByUid", String.valueOf(used.getFirst().get("approved_by_uid")));
     audit.record("APPROVAL_USED", "Approval", requester, null, details);
+    Object approverUid = used.getFirst().get("approved_by_uid");
+    return Optional.of(
+        new Approver(
+            approverUid instanceof UUID uid ? uid : UUID.fromString(String.valueOf(approverUid)),
+            String.valueOf(used.getFirst().get("approved_by_name"))));
   }
+
+  /** The manager whose approval a request used. */
+  public record Approver(UUID uid, String name) {}
 
   /** What {@link #grant} hands back: the token to send as {@link #HEADER}, once. */
   public record Granted(String token, String action, BigDecimal amount, Instant expiresAt) {}

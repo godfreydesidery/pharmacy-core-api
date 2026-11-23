@@ -4,8 +4,6 @@ import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
-import javax.sql.DataSource;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -14,7 +12,6 @@ import tz.co.pharmacy.platform.approval.ApprovalActions;
 import tz.co.pharmacy.platform.approval.Approvals;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
-import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
@@ -36,12 +33,10 @@ class StockControls {
 
   private final Approvals approvals;
   private final ProductCatalogue catalogue;
-  private final JdbcTemplate jdbc;
 
-  StockControls(Approvals approvals, ProductCatalogue catalogue, DataSource dataSource) {
+  StockControls(Approvals approvals, ProductCatalogue catalogue) {
     this.approvals = approvals;
     this.catalogue = catalogue;
-    this.jdbc = new JdbcTemplate(dataSource);
   }
 
   /** Whether the product is a controlled medicine now. */
@@ -83,17 +78,15 @@ class StockControls {
         reference);
   }
 
-  /**
-   * {@link Approvals#require} and, when an approval was used, the name of the manager who gave it
-   * (read back from the approval consumed in this transaction).
-   */
+  /** {@link Approvals#require} and, when an approval was used, the manager who gave it. */
   Optional<Approver> approve(String action, BigDecimal value, String reference) {
     BigDecimal amount = Amounts.money(value == null ? BigDecimal.ZERO : value);
     if (!approvals.needed(action, amount)) {
       return Optional.empty();
     }
-    approvals.require(action, amount, reference);
-    return approver(action, reference);
+    return approvals
+        .require(action, amount, reference)
+        .map(approver -> new Approver(approver.name(), approver.uid()));
   }
 
   /**
@@ -136,20 +129,5 @@ class StockControls {
   /** Whether the current write-off is part of a document already approved. */
   boolean isCovered() {
     return Boolean.TRUE.equals(COVERED.get());
-  }
-
-  private Optional<Approver> approver(String action, String reference) {
-    UUID requester = ExecutionContext.actor().uid();
-    return jdbc
-        .query(
-            "select approved_by_name, approved_by_uid from platform.approvals where action = ?"
-                + " and used_reference is not distinct from ? and requested_by_uid = ?"
-                + " and used_at is not null order by used_at desc limit 1",
-            (rs, row) -> new Approver(rs.getString(1), rs.getObject(2, UUID.class)),
-            action,
-            reference,
-            requester)
-        .stream()
-        .findFirst();
   }
 }

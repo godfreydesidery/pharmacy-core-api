@@ -69,8 +69,7 @@ class ControlsSalesTest extends IntegrationTest {
     hq = admin.in(tenantUid, branch);
     Staff.Login login =
         Staff.login(admin, anonymous, "Juma Manager", "BRANCH_MANAGER", CLERK_PASSWORD);
-    clerk =
-        anonymous.as(anonymous.signIn(login.signIn(), CLERK_PASSWORD)).in(tenantUid, branch);
+    clerk = anonymous.as(anonymous.signIn(login.signIn(), CLERK_PASSWORD)).in(tenantUid, branch);
     supplier =
         admin
             .post("/api/v1/suppliers", "{\"name\":\"Lake Zone Drugs\",\"paymentTerms\":\"NET_30\"}")
@@ -119,10 +118,7 @@ class ControlsSalesTest extends IntegrationTest {
     assertThat(money(refused, "$.amount")).isEqualTo(60_000.0);
     // An approval for less does not cover it.
     String small = approve("REFUND", 50_000);
-    assertThat(
-            returnLine(clerk, sale, 1, null, "X-Approval", small)
-                .expect(403)
-                .string("$.reason"))
+    assertThat(returnLine(clerk, sale, 1, null, "X-Approval", small).expect(403).string("$.reason"))
         .isEqualTo("approval_invalid");
     returnLine(clerk, sale, 1, null, "X-Approval", approve("REFUND", 60_000)).expect(201);
 
@@ -339,9 +335,7 @@ class ControlsSalesTest extends IntegrationTest {
 
   // ---------------------------------------------------------------- helpers
 
-  /**
-   * A manager (the owner) approves {@code action} up to {@code amount} on the clerk's screen.
-   */
+  /** A manager (the owner) approves {@code action} up to {@code amount} on the clerk's screen. */
   private String approve(String action, long amount) {
     return clerk
         .post(
