@@ -138,7 +138,10 @@ class ProductionSafetyTest {
             .withProperty("pharmacy.sealing.totp", "k2026t")
             .withProperty("pharmacy.sealing.providers", "k2026p")
             .withProperty("pharmacy.access.web-url", "https://app.example.co.tz")
-            .withProperty("pharmacy.files.storage", "s3");
+            .withProperty("pharmacy.files.storage", "s3")
+            .withProperty("pharmacy.files.s3.bucket", "pharmacy-prod-files")
+            // Upload links are signed with either store (Batch 6, files on S3).
+            .withProperty("pharmacy.files.signing-secret", "s".repeat(40));
     assertThat(ProductionSafety.problems(rotated))
         .singleElement()
         .asString()
