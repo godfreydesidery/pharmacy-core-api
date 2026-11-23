@@ -40,6 +40,7 @@ public interface Shifts {
       Map<String, BigDecimal> tenders,
       BigDecimal changeGiven,
       BigDecimal cashRefunds,
+      BigDecimal voucherCash,
       BigDecimal expectedCash,
       BigDecimal countedCash,
       BigDecimal variance,

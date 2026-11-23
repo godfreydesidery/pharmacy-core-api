@@ -180,9 +180,12 @@ class PaymentsImpl implements Payments {
   @Override
   @Transactional
   public IntentView paymentRequest(UUID uid) {
+    UUID branch = ExecutionContext.branchUid().orElse(null);
     PaymentIntent intent =
         intents
             .lockByUid(uid)
+            // Another branch's request is not found, like its sales.
+            .filter(found -> branch == null || branch.equals(found.getBranchUid()))
             .orElseThrow(() -> Refusal.notFound("payment_request_not_found", "No such request."));
     refresh(intent);
     return view(intent);

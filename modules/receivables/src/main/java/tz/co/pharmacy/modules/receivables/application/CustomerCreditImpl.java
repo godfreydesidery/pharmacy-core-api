@@ -450,13 +450,39 @@ class CustomerCreditImpl implements CustomerCredit {
     if (paidIn.equals(base)) {
       return new Conversion(Amounts.money(paid), BigDecimal.ONE, Amounts.ZERO);
     }
-    BigDecimal rate = givenRate != null ? givenRate : currency.rateToBase(paidIn, on);
-    if (rate == null || rate.signum() <= 0) {
+    if (givenRate != null && givenRate.signum() <= 0) {
       throw Refusal.invalid(
           "invalid_exchange_rate", "exchangeRate must be more than zero.", "exchangeRate");
     }
+    // The recorded rate of the day values the money: whoever takes the payment cannot set it. A
+    // rate sent with the payment must agree with it to within 2%.
+    BigDecimal rate = currency.rateToBase(paidIn, on);
+    if (rate == null || rate.signum() <= 0) {
+      throw Refusal.invalid(
+          "invalid_exchange_rate", "No " + paidIn + " rate is recorded.", "exchangeRate");
+    }
+    if (givenRate != null
+        && givenRate
+                .subtract(rate)
+                .abs()
+                .divide(rate, 6, RoundingMode.HALF_EVEN)
+                .compareTo(RATE_TOLERANCE)
+            > 0) {
+      throw Refusal.invalid(
+          "exchange_rate_mismatch",
+          "The "
+              + paidIn
+              + " rate on "
+              + on
+              + " is "
+              + rate.stripTrailingZeros().toPlainString()
+              + "; a different rate is recorded under Exchange rates first.",
+          "exchangeRate");
+    }
     return conversion(paid, rate);
   }
+
+  static final BigDecimal RATE_TOLERANCE = new BigDecimal("0.02");
 
   /** Exact base value, rounded to cents; the sub-cent rounding is reported, never lost. */
   static Conversion conversion(BigDecimal paid, BigDecimal rate) {

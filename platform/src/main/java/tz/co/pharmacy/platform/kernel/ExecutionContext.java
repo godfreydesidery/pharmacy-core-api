@@ -67,6 +67,21 @@ public final class ExecutionContext {
     return frame.allowedBranches();
   }
 
+  /**
+   * Whether the actor may work in this branch: a membership for every branch (or a root
+   * administrator, or a platform service), or one listing it. For records found by uid that belong
+   * to a branch, so a user limited to one branch does not reach another's (ADR 0003).
+   */
+  public static boolean mayUseBranch(UUID branch) {
+    return current()
+        .map(
+            frame ->
+                frame.rootAdmin()
+                    || frame.allowedBranches() == null
+                    || (branch != null && frame.allowedBranches().contains(branch)))
+        .orElse(false);
+  }
+
   public static boolean rootAdmin() {
     return current().map(Frame::rootAdmin).orElse(false);
   }

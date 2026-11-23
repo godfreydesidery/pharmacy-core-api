@@ -105,13 +105,15 @@ class ShiftsImpl implements Shifts {
       BigDecimal total,
       BigDecimal change,
       Map<String, BigDecimal> tenders,
-      BigDecimal cashRefunds) {
+      BigDecimal cashRefunds,
+      BigDecimal voucherCash) {
 
     BigDecimal expected(Shift shift) {
       return Amounts.money(
           shift
               .getOpeningFloat()
               .add(tenders.getOrDefault("CASH", BigDecimal.ZERO))
+              .add(voucherCash)
               .subtract(change)
               .subtract(cashRefunds));
     }
@@ -182,12 +184,21 @@ class ShiftsImpl implements Shifts {
         window[3],
         window[1],
         window[1]);
+    // Vouchers this cashier sold for cash at this branch: the money is in the drawer.
+    BigDecimal voucherCash =
+        jdbc.queryForObject(
+            "select coalesce(sum(v.initial_value), 0) from sales.vouchers v"
+                + " where v.branch_uid = ? and v.created_by_uid = ? and v.paid_by = 'CASH'"
+                + " and v.created_at >= ? and v.created_at <= ?",
+            BigDecimal.class,
+            window);
     return new Figures(
         count[0],
         Amounts.money(totals[0]),
         Amounts.money(totals[1]),
         tenders,
-        Amounts.money(totals[2]));
+        Amounts.money(totals[2]),
+        Amounts.money(voucherCash));
   }
 
   private static ShiftView view(Shift s, Figures f) {
@@ -204,6 +215,7 @@ class ShiftsImpl implements Shifts {
         f.tenders(),
         f.change(),
         f.cashRefunds(),
+        f.voucherCash(),
         s.getExpectedCash() != null ? s.getExpectedCash() : f.expected(s),
         s.getCountedCash(),
         s.getVariance(),

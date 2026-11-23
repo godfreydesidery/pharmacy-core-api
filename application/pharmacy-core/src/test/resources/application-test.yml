@@ -1,4 +1,8 @@
 pharmacy:
+  access:
+    require-2fa-for-root: false
+  notifications:
+    log-bodies: true
   bootstrap:
     root-email: root@test.local
     root-password: "Root#Test2026"

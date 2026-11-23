@@ -28,6 +28,12 @@ import tz.co.pharmacy.platform.kernel.SimulatedClock;
 @EnableScheduling
 public class PlatformConfiguration {
 
+  /** Stops a server that would run on development defaults, before anything else starts. */
+  @Bean
+  static ProductionSafety productionSafety() {
+    return new ProductionSafety();
+  }
+
   @Bean
   @Profile("!sim")
   Clock clock() {

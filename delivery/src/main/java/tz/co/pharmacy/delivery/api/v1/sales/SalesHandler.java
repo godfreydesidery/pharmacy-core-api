@@ -37,6 +37,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleStatus;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleSummaryView;
 import tz.co.pharmacy.modules.sales.ports.inbound.SaleView;
 import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
@@ -145,9 +146,12 @@ public class SalesHandler {
   @GetMapping("/sales/{uid}")
   @Access(scope = AccessScope.BRANCH, permission = "sales.view")
   public ApiResponse<SaleView> get(@PathVariable UUID uid) {
+    // A sale of another branch is not found: a user limited to one branch sees only its sales.
+    UUID branch = ExecutionContext.requireBranch();
     return ApiResponse.ok(
         saleService
             .find(uid)
+            .filter(sale -> branch.equals(sale.branchUid()))
             .orElseThrow(() -> Refusal.notFound("sale_not_found", "No such sale.")),
         "Sale retrieved");
   }

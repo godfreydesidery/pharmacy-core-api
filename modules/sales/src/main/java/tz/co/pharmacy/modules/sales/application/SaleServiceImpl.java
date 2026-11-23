@@ -242,12 +242,16 @@ class SaleServiceImpl implements SaleService {
           throw Refusal.invalid(
               "invalid_exchange_rate", "exchangeRate must be more than zero.", "exchangeRate");
         }
+        if (method == PaymentMethod.VOUCHER && !currency.equals(base)) {
+          // A voucher's balance is held in the base currency; spending it in another one would
+          // take the foreign figure off the balance.
+          throw Refusal.invalid(
+              "base_currency_only", "A voucher is spent in " + base + ".", "currency");
+        }
         rate =
             currency.equals(base)
                 ? BigDecimal.ONE
-                : payment.exchangeRate() != null
-                    ? payment.exchangeRate()
-                    : currencies.rateToBase(currency, today);
+                : tillRate(currency, payment.exchangeRate(), today);
       } catch (Refusal refusal) {
         throw refusal.about(field + "." + (refusal.field() == null ? "currency" : refusal.field()));
       }
@@ -674,9 +678,7 @@ class SaleServiceImpl implements SaleService {
       BigDecimal rate =
           currency.equals(base)
               ? BigDecimal.ONE
-              : payment.exchangeRate() != null
-                  ? payment.exchangeRate()
-                  : currencies.rateToBase(currency, today);
+              : tillRate(currency, payment.exchangeRate(), today);
       BigDecimal value =
           tz.co.pharmacy.modules.sales.domain.Tender.line(
                   payment.method(), currency, payment.amount(), rate, base, currencies::round)
@@ -693,5 +695,33 @@ class SaleServiceImpl implements SaleService {
         Amounts.money(paid),
         Amounts.money(cash),
         List.copyOf(baseAmounts));
+  }
+
+  /** How far a rate the till sends may be from the recorded one (it may have been read earlier). */
+  static final BigDecimal RATE_TOLERANCE = new BigDecimal("0.02");
+
+  /**
+   * The rate a foreign tender is valued at: always the pharmacy's recorded rate for the day, so a
+   * cashier cannot set the value of the money they take in. The till may send the rate it showed;
+   * one more than 2% from the recorded rate is refused ({@code exchange_rate_mismatch}) rather than
+   * silently replaced, so the cashier sees that the change on screen was wrong.
+   */
+  private BigDecimal tillRate(String currency, BigDecimal sent, java.time.LocalDate today) {
+    BigDecimal recorded = currencies.rateToBase(currency, today);
+    if (sent != null && recorded != null && recorded.signum() > 0) {
+      BigDecimal deviation =
+          sent.subtract(recorded).abs().divide(recorded, 6, RoundingMode.HALF_EVEN);
+      if (deviation.compareTo(RATE_TOLERANCE) > 0) {
+        throw Refusal.invalid(
+            "exchange_rate_mismatch",
+            "The "
+                + currency
+                + " rate is "
+                + recorded.stripTrailingZeros().toPlainString()
+                + " today; a different rate is recorded under Exchange rates first.",
+            "exchangeRate");
+      }
+    }
+    return recorded;
   }
 }

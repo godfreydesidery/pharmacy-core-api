@@ -47,6 +47,11 @@ spring:
 server:
   port: ${PHARMACY_PORT:8080}
   shutdown: graceful
+  # gzip JSON over a cellular link (RFC 9110 content coding); the live stream is never compressed.
+  compression:
+    enabled: true
+    mime-types: application/json,application/problem+json,text/csv,text/plain
+    min-response-size: 1KB
 
 pharmacy:
   database:
@@ -59,6 +64,9 @@ pharmacy:
     # pharmacy is chosen and for root administrators; each pharmacy sets its own (5-60) in Settings.
     idle-minutes: ${PHARMACY_IDLE_MINUTES:15}
     idle-timeout-enabled: ${PHARMACY_IDLE_TIMEOUT_ENABLED:true}
+    # Root administrators must add an authenticator app at their next sign-in (NIST 800-63B AAL2
+    # for privileged accounts). Only the local and test profiles turn it off.
+    require-2fa-for-root: ${PHARMACY_REQUIRE_2FA_FOR_ROOT:true}
   edge:
     cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
     # Fair share: requests one pharmacy may have in progress at once (keep it under the database
@@ -90,6 +98,9 @@ pharmacy:
     fiscal:
       provider: ${PHARMACY_FISCAL_PROVIDER:none}
   notifications:
+    # The log providers write only a masked address and the length: a message may carry a reset
+    # link or a sign-in code. The local and test profiles log the whole message.
+    log-bodies: false
     # Local numbers (0712…) are sent as +<code>712… (255 = Tanzania).
     default-country-code: ${PHARMACY_NOTIFY_COUNTRY_CODE:255}
     email:
@@ -124,11 +135,12 @@ pharmacy:
       # Expiry digest at 07:00 and daily summary at 18:00, each tenant's local time.
       cron: "0 */15 * * * *"
 
+# The API map is for development: off on a server unless PHARMACY_SWAGGER_ENABLED=true.
 springdoc:
   api-docs:
-    enabled: ${PHARMACY_SWAGGER_ENABLED:true}
+    enabled: ${PHARMACY_SWAGGER_ENABLED:false}
   swagger-ui:
-    enabled: ${PHARMACY_SWAGGER_ENABLED:true}
+    enabled: ${PHARMACY_SWAGGER_ENABLED:false}
 
 logging:
   structured:
@@ -139,7 +151,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # Only health (and its readiness/liveness probes) is public; metrics stay inside.
+        include: health
   endpoint:
     health:
       probes:

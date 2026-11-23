@@ -3,6 +3,10 @@
 # PharmacyApplication starts an embedded PostgreSQL (data in target/local-postgres) with the
 # production roles before Spring starts, creates the root administrator and seeds a demo tenant.
 pharmacy:
+  access:
+    require-2fa-for-root: false
+  notifications:
+    log-bodies: true
   edge:
     cors-allowed-origins: http://localhost:4200
   bootstrap:
@@ -10,3 +14,13 @@ pharmacy:
     root-password: "Root#2026"
   seed:
     demo: true
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

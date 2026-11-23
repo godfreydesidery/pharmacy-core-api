@@ -4,6 +4,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -25,8 +26,16 @@ public class Voucher extends TenantEntity {
   private String paidBy;
   private String status;
 
+  /** Where it was sold (null for vouchers sold before branches were recorded). */
+  private UUID branchUid;
+
   public Voucher(
-      String code, BigDecimal value, LocalDate expiresOn, String holderName, String paidBy) {
+      String code,
+      BigDecimal value,
+      LocalDate expiresOn,
+      String holderName,
+      String paidBy,
+      UUID branchUid) {
     this.code = code;
     this.initialValue = Amounts.money(value);
     this.balance = Amounts.money(value);
@@ -34,6 +43,7 @@ public class Voucher extends TenantEntity {
     this.holderName = holderName;
     this.paidBy = paidBy;
     this.status = "ACTIVE";
+    this.branchUid = branchUid;
   }
 
   public void spend(BigDecimal amount) {
