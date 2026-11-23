@@ -76,7 +76,7 @@ public class ReportingReactions {
             net,
             LedgerReactions.cost(event.lines()),
             products(event.lines()),
-            Map.of(event.refundMethod() == null ? "CASH" : event.refundMethod(), net.add(tax)),
+            refundsByMethod(event),
             -1);
     EventScopes.run(event.metadata(), SERVICE, () -> projections.sale(fact));
   }
@@ -104,6 +104,20 @@ public class ReportingReactions {
             event.category(),
             event.amount());
     EventScopes.run(event.metadata(), SERVICE, () -> projections.expense(fact));
+  }
+
+  /** The refund by the way it went back (the sale's own methods), for the day's tender totals. */
+  static Map<String, BigDecimal> refundsByMethod(SaleReturned event) {
+    Map<String, BigDecimal> byMethod = new java.util.LinkedHashMap<>();
+    event
+        .shares()
+        .forEach(
+            share ->
+                byMethod.merge(
+                    share.method() == null ? "CASH" : share.method(),
+                    share.amount() == null ? BigDecimal.ZERO : share.amount(),
+                    BigDecimal::add));
+    return byMethod;
   }
 
   private static List<ProductFact> products(List<SaleCompleted.Line> lines) {

@@ -25,8 +25,10 @@ public interface StockCounts {
   StockCountView record(UUID uid, List<CountEntry> entries);
 
   /**
-   * Posts every counted line whose count differs from expected as a COUNT_CORRECTION adjustment;
-   * uncounted lines are left alone. 422 count_posted.
+   * Posts every counted line whose count differs from the book quantity as a COUNT_CORRECTION
+   * adjustment: counted − (expected + what the batch's stock moved at the branch since the sheet),
+   * so sales and receipts during the count are not taken for losses or gains. Uncounted lines are
+   * left alone. A view's variance is reckoned the same way. 422 count_posted.
    */
   StockCountView post(UUID uid);
 

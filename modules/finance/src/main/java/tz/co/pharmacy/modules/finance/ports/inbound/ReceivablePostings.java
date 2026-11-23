@@ -39,7 +39,10 @@ public interface ReceivablePostings {
 
   /**
    * The rejected part of a claim: to the patient's account (Dr 1100 / Cr 1110) or written off (Dr
-   * 6095 Insurance Rejections / Cr 1110).
+   * 6095 Insurance Rejections / Cr 1110). A negative {@code amount} reverses part of an earlier
+   * rejection (Dr 1110 / Cr 6095, or Cr 1100 for the patient's): a re-adjudication that approves
+   * more, or goods returned on a written-off claim. {@code claimUid} keys the posting, so a
+   * reversal needs its own key.
    */
   void claimRejection(
       UUID claimUid, String reference, LocalDate date, BigDecimal amount, boolean toPatient);

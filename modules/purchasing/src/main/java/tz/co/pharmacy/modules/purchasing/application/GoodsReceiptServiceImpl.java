@@ -2,7 +2,6 @@ package tz.co.pharmacy.modules.purchasing.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +30,7 @@ import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -45,6 +45,7 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
   private final DocumentNumbers documentNumbers;
   private final DomainEventPublisher events;
   private final tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingCurrencies currencies;
+  private final TenantCalendar calendar;
 
   @Override
   @Transactional
@@ -169,8 +170,9 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
   @Override
   @Transactional(readOnly = true)
   public BigDecimal purchasesTotal(Set<UUID> branchUids, LocalDate from, LocalDate to) {
-    var start = from.atStartOfDay().toInstant(ZoneOffset.UTC);
-    var end = to.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+    // The pharmacy's own days (STD-12): in Dar es Salaam a day starts at 21:00 UTC the day before.
+    var start = from.atStartOfDay(calendar.zone()).toInstant();
+    var end = to.plusDays(1).atStartOfDay(calendar.zone()).toInstant();
     if (branchUids == null) {
       return Amounts.money(receipts.totalBetween(start, end));
     }

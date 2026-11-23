@@ -10,18 +10,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfiguration implements WebMvcConfigurer {
 
   private final AccessInterceptor accessInterceptor;
+  private final IdempotencyInterceptor idempotencyInterceptor;
   private final String[] allowedOrigins;
 
   public WebConfiguration(
       AccessInterceptor accessInterceptor,
+      IdempotencyInterceptor idempotencyInterceptor,
       @Value("${pharmacy.edge.cors-allowed-origins:}") String[] allowedOrigins) {
     this.accessInterceptor = accessInterceptor;
+    this.idempotencyInterceptor = idempotencyInterceptor;
     this.allowedOrigins = allowedOrigins;
   }
 
+  /** Access first: only a caller allowed to use a route reserves or replays an idempotency key. */
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(accessInterceptor).addPathPatterns("/api/**");
+    registry.addInterceptor(idempotencyInterceptor).addPathPatterns("/api/**");
   }
 
   @Override
@@ -32,7 +37,7 @@ public class WebConfiguration implements WebMvcConfigurer {
           .allowedOrigins(allowedOrigins)
           .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
           .allowedHeaders("*")
-          .exposedHeaders(EdgeFilter.CORRELATION_HEADER)
+          .exposedHeaders(EdgeFilter.CORRELATION_HEADER, IdempotencyFilter.REPLAYED_HEADER)
           .maxAge(3600);
     }
   }

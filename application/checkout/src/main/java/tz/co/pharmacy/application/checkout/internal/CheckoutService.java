@@ -117,57 +117,12 @@ class CheckoutService implements Checkout {
       customerName = customer.name();
       customerType = customer.type() == null ? null : customer.type().name();
     }
-    // The pricing plan: the customer's own (special prices, else their type's, else Normal Sale),
-    // or another one chosen by someone allowed to. A plan's price replaces the Normal Sale price;
-    // Normal Sale takes the branch price and the best running promotion.
-    // An insured sale takes the insurer's plan, when it has one.
-    UUID payerUid = null;
-    if (command.memberUid() != null && command.customerUid() != null) {
-      payerUid =
-          insurance.membersOf(command.customerUid()).stream()
-              .filter(m -> m.uid().equals(command.memberUid()))
-              .map(tz.co.pharmacy.modules.insurance.ports.inbound.MemberView::payerUid)
-              .findFirst()
-              .orElse(null);
-    }
-    PricingService.ResolvedPlan plan =
-        pricing.resolvePlan(
-            command.pricePlan(), command.customerUid(), customerType, payerUid, calendar.today());
-    Map<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
-    lines.forEach(l -> quantities.merge(l.productUid(), l.quantity(), Integer::sum));
-    List<PricingService.PricedLine> priced =
-        pricing.price(
-            ExecutionContext.requireBranch(),
-            customerType,
-            command.customerUid(),
-            plan.choice(),
-            quantities.entrySet().stream()
-                .filter(e -> products.containsKey(e.getKey()))
-                .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
-                .toList(),
-            calendar.today());
-    for (PricingService.PricedLine line : priced) {
-      if (line.unpriced()) {
-        ProductView product = products.get(line.productUid());
-        throw Refusal.invalid(
-            "no_plan_price",
-            "No "
-                + plan.plan().name()
-                + " price for "
-                + (product == null ? "this medicine" : product.name())
-                + ".",
-            "lines");
-      }
-    }
-    BigDecimal normalTotal =
-        priced.stream()
-            .map(l -> l.retailPrice().multiply(BigDecimal.valueOf(l.quantity())))
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-    Map<UUID, BigDecimal> prices =
-        priced.stream()
-            .collect(
-                Collectors.toMap(
-                    PricingService.PricedLine::productUid, PricingService.PricedLine::unitPrice));
+    UUID payerUid = payerOf(command.memberUid(), command.customerUid());
+    Basket basket =
+        priceBasket(
+            command.pricePlan(), command.customerUid(), customerType, payerUid, lines, products);
+    Map<UUID, BigDecimal> prices = basket.prices();
+    lockProducts(products.keySet());
 
     String number = sales.nextSaleNumber();
     List<SaleLineCommand> saleLines = new ArrayList<>();
@@ -231,7 +186,107 @@ class CheckoutService implements Checkout {
     }
     requireControlledPrescription(command, products);
     return settle(
-        command, number, key, customerName, saleLines, products, plan.plan(), normalTotal);
+        command,
+        number,
+        key,
+        customerName,
+        saleLines,
+        products,
+        basket.plan().plan(),
+        basket.normalTotal());
+  }
+
+  /**
+   * Takes the stock lock of every product the cart may draw on (each line's, and the pack it can be
+   * opened from) up front, in one fixed order, before any stock is taken: two tills selling [A, B]
+   * and [B, A] then queue rather than deadlock (the loser of a deadlock would be refused).
+   */
+  private void lockProducts(java.util.Set<UUID> productUids) {
+    java.util.Set<UUID> all = new java.util.HashSet<>(productUids);
+    for (UUID product : productUids) {
+      packaging.packOf(product).ifPresent(link -> all.add(link.packProductUid()));
+    }
+    stock.lockProducts(all);
+  }
+
+  /**
+   * The insurer of an insured sale: the member must be one of the customer's own memberships (422
+   * member_not_of_customer), so a sale cannot be charged to someone else's insurance.
+   */
+  private UUID payerOf(UUID memberUid, UUID customerUid) {
+    if (memberUid == null || customerUid == null) {
+      return null;
+    }
+    return insurance.membersOf(customerUid).stream()
+        .filter(m -> m.uid().equals(memberUid))
+        .map(tz.co.pharmacy.modules.insurance.ports.inbound.MemberView::payerUid)
+        .findFirst()
+        .orElseThrow(
+            () ->
+                Refusal.invalid(
+                    "member_not_of_customer",
+                    "This insurance membership is not the customer's.",
+                    "memberUid"));
+  }
+
+  /**
+   * A cart priced: the plan it is sold under, the unit price per product, the Normal Sale total.
+   */
+  private record Basket(
+      PricingService.ResolvedPlan plan, Map<UUID, BigDecimal> prices, BigDecimal normalTotal) {}
+
+  /**
+   * The pricing plan: the customer's own (special prices, else their type's, else Normal Sale), or
+   * another one chosen by someone allowed to. A plan's price replaces the Normal Sale price; Normal
+   * Sale takes the branch price and the best running promotion, and quantity breaks apply. An
+   * insured sale takes the insurer's plan, when it has one. Checkout and the coverage quote both
+   * price here, so the quote is what the sale will be.
+   */
+  private Basket priceBasket(
+      String pricePlan,
+      UUID customerUid,
+      String customerType,
+      UUID payerUid,
+      List<CheckoutLine> lines,
+      Map<UUID, ProductView> products) {
+    PricingService.ResolvedPlan plan =
+        pricing.resolvePlan(pricePlan, customerUid, customerType, payerUid, calendar.today());
+    Map<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
+    lines.forEach(l -> quantities.merge(l.productUid(), l.quantity(), Integer::sum));
+    List<PricingService.PricedLine> priced =
+        pricing.price(
+            ExecutionContext.requireBranch(),
+            customerType,
+            customerUid,
+            plan.choice(),
+            quantities.entrySet().stream()
+                .filter(e -> products.containsKey(e.getKey()))
+                .map(e -> new PricingService.PriceRequest(e.getKey(), e.getValue()))
+                .toList(),
+            calendar.today());
+    for (PricingService.PricedLine line : priced) {
+      if (line.unpriced()) {
+        ProductView product = products.get(line.productUid());
+        throw Refusal.invalid(
+            "no_plan_price",
+            "No "
+                + plan.plan().name()
+                + " price for "
+                + (product == null ? "this medicine" : product.name())
+                + ".",
+            "lines");
+      }
+    }
+    BigDecimal normalTotal =
+        priced.stream()
+            .map(l -> l.retailPrice().multiply(BigDecimal.valueOf(l.quantity())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    Map<UUID, BigDecimal> prices =
+        priced.stream()
+            .collect(
+                Collectors.toMap(
+                    PricingService.PricedLine::productUid, PricingService.PricedLine::unitPrice));
+    return new Basket(plan, prices, normalTotal);
   }
 
   /**
@@ -430,7 +485,9 @@ class CheckoutService implements Checkout {
               trimmed.reference(),
               trimmed.currency(),
               trimmed.exchangeRate(),
-              trimmed.channel()));
+              trimmed.channel(),
+              // Verified for what the provider confirmed; only the sale's part is recorded on it.
+              Amounts.money(trimmed.amount())));
     }
 
     SaleView sale =
@@ -571,55 +628,79 @@ class CheckoutService implements Checkout {
   }
 
   /**
-   * Scenario 8. The refund splits like the sale was paid: the insurer's share comes off the claim;
-   * on a credit sale the patient's share first settles the sale's open charge as a credit note, and
-   * the rest is refunded by the chosen method, or kept on account when that method is CREDIT or
-   * ACCOUNT_CREDIT.
+   * Scenario 8. The refund goes back the way the sale was paid (the sales module splits it): the
+   * insurer's share comes off the claim, never to the patient; the share paid on credit or from
+   * account credit goes back to the customer's account as a credit note, settling the sale's open
+   * charge first; a voucher's share went back onto the voucher; the rest is paid out by the method
+   * it came in by. The ledger posts each share to its own account, so the reductions here post
+   * nothing more (their method names the account the return already credited).
    */
   private void settleReturn(SaleView sale, SaleReturnView saleReturn) {
-    BigDecimal refund = saleReturn.refundTotal();
-    if (refund == null || refund.signum() <= 0 || sale.total().signum() <= 0) {
-      return;
+    BigDecimal insurer = refundedBy(saleReturn, PaymentMethod.INSURANCE);
+    if (insurer.signum() > 0) {
+      insurance.reduceForReturn(
+          sale.uid(), insurer, saleReturn.number(), PaymentMethod.INSURANCE.name());
     }
-    String method = saleReturn.refundMethod() == null ? null : saleReturn.refundMethod().name();
-    BigDecimal insured = paidBy(sale, PaymentMethod.INSURANCE);
-    BigDecimal insurerShare = Amounts.ZERO;
-    if (insured.signum() > 0) {
-      insurerShare =
-          Amounts.money(
-              refund
-                  .multiply(insured)
-                  .divide(sale.total(), 6, java.math.RoundingMode.HALF_UP)
-                  .min(refund));
-      insurance.reduceForReturn(sale.uid(), insurerShare, saleReturn.number(), method);
+    BigDecimal toAccount =
+        Amounts.money(
+            refundedBy(saleReturn, PaymentMethod.CREDIT)
+                .add(refundedBy(saleReturn, PaymentMethod.ACCOUNT_CREDIT)));
+    if (toAccount.signum() > 0 && sale.customerUid() != null) {
+      credit.creditNote(
+          sale.customerUid(),
+          sale.uid(),
+          saleReturn.number(),
+          toAccount,
+          PaymentMethod.CREDIT.name());
     }
-    BigDecimal patientShare = Amounts.money(refund.subtract(insurerShare));
-    if (sale.customerUid() == null || patientShare.signum() <= 0) {
-      return;
-    }
-    boolean toAccount =
-        saleReturn.refundMethod() == PaymentMethod.CREDIT
-            || saleReturn.refundMethod() == PaymentMethod.ACCOUNT_CREDIT;
-    BigDecimal open =
-        paidBy(sale, PaymentMethod.CREDIT).signum() > 0
-            ? credit.openForSale(sale.customerUid(), sale.uid())
-            : Amounts.ZERO;
-    BigDecimal note = toAccount ? patientShare : Amounts.money(patientShare.min(open));
-    if (note.signum() > 0) {
-      credit.creditNote(sale.customerUid(), sale.uid(), saleReturn.number(), note, method);
-    }
+  }
+
+  private static BigDecimal refundedBy(SaleReturnView saleReturn, PaymentMethod method) {
+    return saleReturn.refunds() == null
+        ? Amounts.ZERO
+        : saleReturn.refunds().stream()
+            .filter(r -> r.method() == method)
+            .map(r -> r.amount())
+            .reduce(Amounts.ZERO, BigDecimal::add);
   }
 
   @Override
   @Transactional(readOnly = true)
   public CoverageQuote coverageQuote(
-      UUID memberUid, List<CheckoutLine> lines, String preauthNumber) {
+      UUID memberUid,
+      List<CheckoutLine> lines,
+      String preauthNumber,
+      UUID customerUid,
+      String pricePlan,
+      BigDecimal discountPercent) {
     List<CheckoutLine> basket = Checks.notEmpty(lines, "lines");
+    for (int i = 0; i < basket.size(); i++) {
+      Checks.required(basket.get(i).productUid(), "lines[" + i + "].productUid");
+      Checks.positive(basket.get(i).quantity(), "lines[" + i + "].quantity");
+    }
     Map<UUID, ProductView> products =
         catalogue
             .products(basket.stream().map(CheckoutLine::productUid).distinct().toList())
             .stream()
             .collect(Collectors.toMap(ProductView::uid, Function.identity()));
+    String customerType = null;
+    if (customerUid != null) {
+      var customer =
+          customers
+              .find(customerUid)
+              .orElseThrow(
+                  () -> Refusal.invalid("customer_not_found", "No such customer.", "customerUid"));
+      customerType = customer.type() == null ? null : customer.type().name();
+    }
+    Basket pricedBasket =
+        priceBasket(
+            pricePlan,
+            customerUid,
+            customerType,
+            payerOf(memberUid, customerUid),
+            basket,
+            products);
+    boolean taxIncluded = pricesIncludeTax();
     List<SaleLineCommand> priced = new ArrayList<>();
     for (int i = 0; i < basket.size(); i++) {
       ProductView product = products.get(basket.get(i).productUid());
@@ -635,15 +716,15 @@ class CheckoutService implements Checkout {
               null,
               null,
               null,
-              Checks.positive(basket.get(i).quantity(), "lines[" + i + "].quantity"),
-              product.sellingPrice(),
+              basket.get(i).quantity(),
+              pricedBasket.prices().getOrDefault(product.uid(), product.sellingPrice()),
               null,
               product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent(),
               null,
               null,
-              pricesIncludeTax()));
+              taxIncluded));
     }
-    SalePreview preview = sales.preview(priced, BigDecimal.ZERO, List.of());
+    SalePreview preview = sales.preview(priced, discountPercent, List.of());
     return insurance.quote(memberUid, coverage(priced, preview, products), preauthNumber);
   }
 

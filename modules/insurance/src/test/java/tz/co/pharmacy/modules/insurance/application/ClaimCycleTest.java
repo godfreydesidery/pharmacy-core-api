@@ -1,6 +1,7 @@
 package tz.co.pharmacy.modules.insurance.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -25,6 +26,7 @@ import tz.co.pharmacy.modules.insurance.domain.ClaimLine;
 import tz.co.pharmacy.modules.insurance.domain.FhirClaims;
 import tz.co.pharmacy.modules.insurance.domain.Payer;
 import tz.co.pharmacy.modules.insurance.events.ClaimAdjudicated;
+import tz.co.pharmacy.modules.insurance.events.ClaimReduced;
 import tz.co.pharmacy.modules.insurance.persistence.ClaimBatchRepository;
 import tz.co.pharmacy.modules.insurance.persistence.ClaimRepository;
 import tz.co.pharmacy.modules.insurance.persistence.MemberRepository;
@@ -194,5 +196,136 @@ class ClaimCycleTest {
         .contains("\"currency\":\"TZS\"")
         .contains("Amoxicillin 250mg")
         .contains("NHIF-0099812");
+  }
+
+  private ClaimView decide(Claim claim, UUID product, String approved, RejectedTo to) {
+    return insurance.adjudicate(
+        claim.getUid(),
+        new AdjudicationCommand(
+            null,
+            List.of(new ClaimLineView(product, null, 1, null, new BigDecimal(approved), null)),
+            null,
+            to));
+  }
+
+  private Claim single() {
+    Claim claim = new Claim();
+    claim.setNumber("CLM-000009");
+    claim.setPayerUid(nhif.getUid());
+    claim.setStatus(ClaimStatus.SUBMITTED);
+    claim.setCustomerUid(UUID.randomUUID());
+    claim.setSaleUid(UUID.randomUUID());
+    when(claims.findByUid(claim.getUid())).thenReturn(Optional.of(claim));
+    return claim;
+  }
+
+  @Test
+  @DisplayName("MON-4: adjudicated again, only the change in the rejected part is published")
+  void readjudicationPostsTheChange() {
+    UUID product = UUID.randomUUID();
+    Claim claim = single();
+    claim.add(line(product, "Insulin", "10000.00"));
+
+    decide(claim, product, "6000.00", RejectedTo.WRITE_OFF);
+    assertThat(published)
+        .isInstanceOfSatisfying(
+            ClaimAdjudicated.class,
+            event -> {
+              assertThat(event.writeOffChange()).isEqualByComparingTo("4000.00");
+              assertThat(event.patientChange()).isEqualByComparingTo("0");
+            });
+    decide(claim, product, "8000.00", RejectedTo.WRITE_OFF);
+    assertThat(published)
+        .isInstanceOfSatisfying(
+            ClaimAdjudicated.class,
+            event -> {
+              assertThat(event.rejected()).isEqualByComparingTo("2000.00");
+              assertThat(event.writeOffChange()).isEqualByComparingTo("-2000.00");
+            });
+    // The rejected part moves to the patient: the write-off is given back, the patient charged.
+    decide(claim, product, "8000.00", RejectedTo.PATIENT_ACCOUNT);
+    assertThat(published)
+        .isInstanceOfSatisfying(
+            ClaimAdjudicated.class,
+            event -> {
+              assertThat(event.writeOffChange()).isEqualByComparingTo("-2000.00");
+              assertThat(event.patientChange()).isEqualByComparingTo("2000.00");
+            });
+    assertThat(claim.getChargedToPatient()).isEqualByComparingTo("2000.00");
+    assertThat(claim.getWrittenOff()).isEqualByComparingTo("0");
+  }
+
+  @Test
+  @DisplayName("MON-5: a return on a rejected claim comes off the write-off, not off 1110 again")
+  void returnOnRejectedClaim() {
+    UUID product = UUID.randomUUID();
+    Claim claim = single();
+    claim.add(line(product, "Insulin", "10000.00"));
+    when(claims.findFirstBySaleUidOrderByIdDesc(claim.getSaleUid())).thenReturn(Optional.of(claim));
+    decide(claim, product, "0", RejectedTo.WRITE_OFF);
+    assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
+
+    insurance.reduceForReturn(claim.getSaleUid(), new BigDecimal("4000.00"), "RET-1", "CASH");
+    assertThat(published)
+        .isInstanceOfSatisfying(
+            ClaimReduced.class,
+            event -> {
+              assertThat(event.receivableReduction()).isEqualByComparingTo("0");
+              assertThat(event.writeOffReversal()).isEqualByComparingTo("4000.00");
+              assertThat(event.patientReduction()).isEqualByComparingTo("0");
+            });
+    assertThat(claim.getWrittenOff()).isEqualByComparingTo("6000.00");
+    assertThat(claim.getClaimed()).isEqualByComparingTo("6000.00");
+  }
+
+  @Test
+  @DisplayName(
+      "MON-5: on an approved claim the return comes off approved − paid, then the rejection")
+  void returnOnApprovedClaimIsCapped() {
+    UUID product = UUID.randomUUID();
+    Claim claim = single();
+    claim.add(line(product, "Insulin", "10000.00"));
+    when(claims.findFirstBySaleUidOrderByIdDesc(claim.getSaleUid())).thenReturn(Optional.of(claim));
+    decide(claim, product, "6000.00", RejectedTo.PATIENT_ACCOUNT);
+    claim.setPaid(new BigDecimal("5000.00"));
+
+    insurance.reduceForReturn(claim.getSaleUid(), new BigDecimal("3000.00"), "RET-2", "CASH");
+    assertThat(published)
+        .isInstanceOfSatisfying(
+            ClaimReduced.class,
+            event -> {
+              assertThat(event.receivableReduction()).isEqualByComparingTo("1000.00");
+              assertThat(event.patientReduction()).isEqualByComparingTo("2000.00");
+              assertThat(event.writeOffReversal()).isEqualByComparingTo("0");
+              assertThat(event.customerUid()).isEqualTo(claim.getCustomerUid());
+            });
+    assertThat(claim.getApproved()).isEqualByComparingTo("5000.00");
+    assertThat(claim.due()).isEqualByComparingTo("0");
+    assertThat(claim.getChargedToPatient()).isEqualByComparingTo("2000.00");
+  }
+
+  @Test
+  @DisplayName("MON-19: a remittance refuses a negative or zero amount for a claim")
+  void negativeAllocationRefused() {
+    Claim first = claim("CLM-000001", UUID.randomUUID(), UUID.randomUUID());
+    Claim second = claim("CLM-000002", UUID.randomUUID(), UUID.randomUUID());
+    first.setApproved(new BigDecimal("9000.00"));
+    first.setStatus(ClaimStatus.APPROVED);
+    second.setApproved(new BigDecimal("9000.00"));
+    second.setStatus(ClaimStatus.APPROVED);
+    when(claims.payable(nhif.getUid())).thenReturn(List.of(first, second));
+    Map<UUID, BigDecimal> split = new java.util.LinkedHashMap<>();
+    split.put(first.getUid(), new BigDecimal("9000.00"));
+    split.put(second.getUid(), new BigDecimal("-4000.00"));
+
+    assertThatThrownBy(
+            () ->
+                insurance.remit(
+                    new RemittanceCommand(
+                        nhif.getUid(), new BigDecimal("5000.00"), "EFT", null, split)))
+        .isInstanceOfSatisfying(
+            tz.co.pharmacy.platform.kernel.Refusal.class,
+            refusal -> assertThat(refusal.reason()).isEqualTo("invalid_amount"));
+    assertThat(first.getPaid()).isEqualByComparingTo("0");
   }
 }

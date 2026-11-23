@@ -25,6 +25,7 @@ import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutLine;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.RequiresFeature;
 import tz.co.pharmacy.modules.insurance.ports.inbound.AdjudicationCommand;
@@ -174,7 +175,12 @@ public class InsuranceHandler {
             .toList();
     return ApiResponse.ok(
         checkout.coverageQuote(
-            Checks.required(body.memberUid(), "memberUid"), lines, body.preauthNumber()),
+            Checks.required(body.memberUid(), "memberUid"),
+            lines,
+            body.preauthNumber(),
+            body.customerUid(),
+            body.pricePlan(),
+            body.discountPercent()),
         "Coverage quoted");
   }
 
@@ -290,6 +296,7 @@ public class InsuranceHandler {
 
   /** A payer's payment, spread over claims as given or oldest approved first. */
   @RequiresFeature(PlanFeature.INSURANCE)
+  @Idempotent
   @PostMapping("/insurance/remittances")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")
@@ -326,7 +333,17 @@ public class InsuranceHandler {
 
   public record QuoteLine(UUID productUid, Integer quantity) {}
 
-  public record QuoteRequest(UUID memberUid, List<QuoteLine> lines, String preauthNumber) {}
+  /**
+   * {@code customerUid}, {@code pricePlan} and {@code discountPercent} as the sale will send them,
+   * so the quote is priced exactly as checkout prices the sale.
+   */
+  public record QuoteRequest(
+      UUID memberUid,
+      List<QuoteLine> lines,
+      String preauthNumber,
+      UUID customerUid,
+      String pricePlan,
+      java.math.BigDecimal discountPercent) {}
 
   public record AdjudicationRequest(
       String status, List<ClaimLineView> lines, String note, String rejectedTo) {}

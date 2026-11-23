@@ -9,6 +9,8 @@ import java.util.UUID;
  * A return. {@code refundTotal} is the base value booked at the sale. A refund in a foreign
  * currency also gives the amount paid back in it, the sale's and today's rates, and {@code
  * fxDifference} (base paid out − refundTotal): positive a realised exchange loss, negative a gain.
+ * {@code refunds} is how the refund went back, the way the sale was paid; {@code refundMethod}
+ * names the share the till chose to show (a return from before the split has one share, it).
  */
 public record SaleReturnView(
     UUID uid,
@@ -25,4 +27,5 @@ public record SaleReturnView(
     BigDecimal fxDifference,
     List<SaleReturnLineView> lines,
     Instant createdAt,
-    String createdBy) {}
+    String createdBy,
+    List<SaleRefundView> refunds) {}

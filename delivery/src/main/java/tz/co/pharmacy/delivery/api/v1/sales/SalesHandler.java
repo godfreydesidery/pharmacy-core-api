@@ -24,6 +24,7 @@ import tz.co.pharmacy.application.checkout.ports.inbound.SellableProduct;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentCommand;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
@@ -157,6 +158,7 @@ public class SalesHandler {
   }
 
   /** Units of a sale coming back; they return to the batch they were sold from. */
+  @Idempotent
   @PostMapping("/sales/{uid}/returns")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "sales.refund")
@@ -181,7 +183,9 @@ public class SalesHandler {
             new RecordReturnCommand(
                 uid,
                 body.reason(),
-                Checks.oneOf(PaymentMethod.class, body.refundMethod(), "refundMethod"),
+                body.refundMethod() == null || body.refundMethod().isBlank()
+                    ? null
+                    : Checks.oneOf(PaymentMethod.class, body.refundMethod(), "refundMethod"),
                 lines,
                 body.refundCurrency())),
         "Sale return recorded");

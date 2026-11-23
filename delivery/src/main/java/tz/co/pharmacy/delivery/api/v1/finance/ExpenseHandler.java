@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.finance.ports.inbound.ExpenseCategory;
 import tz.co.pharmacy.modules.finance.ports.inbound.ExpenseCommand;
@@ -57,6 +58,7 @@ public class ExpenseHandler {
         expenses.list(filter, from, to, Pages.of(cursor, limit)), "Expenses retrieved");
   }
 
+  @Idempotent
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "finance.manage")

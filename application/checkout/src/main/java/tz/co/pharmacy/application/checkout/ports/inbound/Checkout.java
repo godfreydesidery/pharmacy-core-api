@@ -26,6 +26,22 @@ public interface Checkout {
    * How a basket splits between the member's insurer and the patient, priced as checkout would
    * price it; for the POS coverage panel.
    */
+  default tz.co.pharmacy.modules.insurance.ports.inbound.CoverageQuote coverageQuote(
+      UUID memberUid, java.util.List<CheckoutLine> lines, String preauthNumber) {
+    return coverageQuote(memberUid, lines, preauthNumber, null, null, null);
+  }
+
+  /**
+   * As checkout prices the sale: {@code customerUid} (the member must be theirs, 422
+   * member_not_of_customer), so the insurer's or the customer's plan applies; {@code pricePlan} and
+   * {@code discountPercent} as the sale will send them. Without a customer the basket is priced at
+   * Normal Sale (branch prices, promotions, quantity breaks).
+   */
   tz.co.pharmacy.modules.insurance.ports.inbound.CoverageQuote coverageQuote(
-      UUID memberUid, java.util.List<CheckoutLine> lines, String preauthNumber);
+      UUID memberUid,
+      java.util.List<CheckoutLine> lines,
+      String preauthNumber,
+      UUID customerUid,
+      String pricePlan,
+      java.math.BigDecimal discountPercent);
 }

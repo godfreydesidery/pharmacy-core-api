@@ -339,6 +339,18 @@ class StockQueriesImpl implements StockQueries {
   }
 
   @Override
+  @Transactional(readOnly = true)
+  public java.math.BigDecimal restockedValue(String reference) {
+    Object[] counted = movements.restockedCount(reference).getFirst();
+    long all = counted[0] == null ? 0 : ((Number) counted[0]).longValue();
+    long uncosted = counted[1] == null ? 0 : ((Number) counted[1]).longValue();
+    if (all == 0 || uncosted > 0) {
+      return null;
+    }
+    return tz.co.pharmacy.platform.kernel.Amounts.money(movements.restockedValue(reference));
+  }
+
+  @Override
   public Page<TransferView> transfers(String direction, PageQuery query) {
     UUID branch = ExecutionContext.requireBranch();
     Specification<Transfer> filter;

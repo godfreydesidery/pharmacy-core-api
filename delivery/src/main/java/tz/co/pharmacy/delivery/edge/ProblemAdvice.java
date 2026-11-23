@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -85,6 +86,50 @@ public class ProblemAdvice {
         409, "stale_version", "Someone changed this record meanwhile; reload and retry.", null);
   }
 
+  /** Seconds a client waits before retrying a request that lost a lock to another one. */
+  static final long BUSY_RETRY_SECONDS = 1;
+
+  /**
+   * Another request held what this one needed: a lock wait that timed out, a deadlock the database
+   * broke by refusing this transaction (SQLState 40P01), or a serialization failure (40001).
+   * Nothing was written; the same request sent again succeeds. 409 busy_try_again, Retry-After.
+   */
+  @ExceptionHandler(PessimisticLockingFailureException.class)
+  ResponseEntity<ProblemDetail> busy(PessimisticLockingFailureException exception) {
+    log.info("Lost a lock to another request: {}", exception.getMostSpecificCause().getMessage());
+    return busy();
+  }
+
+  private static ResponseEntity<ProblemDetail> busy() {
+    ResponseEntity<ProblemDetail> problem =
+        problem(
+            409,
+            "busy_try_again",
+            "Another till was using the same stock or account; send it again.",
+            null);
+    problem.getBody().setProperty("retryAfterSeconds", BUSY_RETRY_SECONDS);
+    return ResponseEntity.status(409)
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+        .header("Retry-After", String.valueOf(BUSY_RETRY_SECONDS))
+        .body(problem.getBody());
+  }
+
+  /** Whether a failure is, somewhere in its causes, a lock lost to another transaction. */
+  static boolean lostLock(Throwable failure) {
+    for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+      if (t instanceof PessimisticLockingFailureException) {
+        return true;
+      }
+      if (t instanceof java.sql.SQLException sql) {
+        String state = sql.getSQLState();
+        if ("40P01".equals(state) || "40001".equals(state) || "55P03".equals(state)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   @ExceptionHandler(DataIntegrityViolationException.class)
   ResponseEntity<ProblemDetail> integrity(DataIntegrityViolationException exception) {
     log.warn("Integrity violation: {}", exception.getMostSpecificCause().getMessage());
@@ -93,6 +138,11 @@ public class ProblemAdvice {
 
   @ExceptionHandler(Exception.class)
   ResponseEntity<ProblemDetail> unexpected(Exception exception) {
+    if (lostLock(exception)) {
+      // A deadlock or lock timeout surfaced wrapped (at commit, through JPA): still a retry.
+      log.info("Lost a lock to another request: {}", exception.toString());
+      return busy();
+    }
     log.error("Unexpected failure", exception);
     return problem(500, "internal_error", "Something went wrong; it has been logged.", null);
   }

@@ -68,6 +68,12 @@ public class SaleReturn extends TenantEntity {
   @BatchSize(size = 50)
   private List<SaleReturnLine> lines = new ArrayList<>();
 
+  /** How the refund went back, by the way the sale was paid (none for returns before V11). */
+  @OneToMany(mappedBy = "saleReturn", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("id")
+  @BatchSize(size = 50)
+  private List<SaleReturnRefund> refunds = new ArrayList<>();
+
   public SaleReturn(
       String number,
       UUID branchUid,
@@ -88,6 +94,16 @@ public class SaleReturn extends TenantEntity {
     line.attachTo(this);
     lines.add(line);
     refundTotal = Amounts.money(refundTotal.add(line.getRefund()));
+  }
+
+  /** Records how the refund goes back; {@code refundMethod} names the share chosen as headline. */
+  public void refundedBy(List<SaleReturnRefund> shares, PaymentMethod headline) {
+    shares.forEach(
+        share -> {
+          share.attachTo(this);
+          refunds.add(share);
+        });
+    this.refundMethod = headline;
   }
 
   /** Pays the refund back as {@code foreignAmount} of {@code currency}, once the lines are in. */

@@ -390,6 +390,12 @@ class InsuranceImpl implements Insurance {
       return Optional.of(view(claim));
     }
     BigDecimal value = Amounts.money(amount.min(claim.getClaimed()));
+    // Where the share comes off, so that the books move only where the claim's value still sits:
+    // an undecided claim is all receivable; a decided one owes approved − paid, and its rejected
+    // part is held as the patient's charge or a write-off (MON-5).
+    BigDecimal receivable = value;
+    BigDecimal patient = Amounts.ZERO;
+    BigDecimal writeOff = Amounts.ZERO;
     if (claim.getStatus() == ClaimStatus.DRAFT && value.compareTo(claim.getClaimed()) >= 0) {
       claim.setStatus(ClaimStatus.VOIDED);
       claim.setNote("Voided: sale fully returned (" + reference + ")");
@@ -400,12 +406,36 @@ class InsuranceImpl implements Insurance {
       line.setAmount(value.negate());
       claim.add(line);
       if (claim.getApproved() != null) {
-        claim.setApproved(Amounts.money(claim.getApproved().subtract(value).max(BigDecimal.ZERO)));
+        BigDecimal due = claim.due().max(BigDecimal.ZERO);
+        BigDecimal left = value.subtract(value.min(due));
+        patient = Amounts.money(left.min(claim.getChargedToPatient()));
+        left = left.subtract(patient);
+        writeOff = Amounts.money(left.min(claim.getWrittenOff()));
+        // What remains was already paid by the payer: the claim owes it back (approved < paid),
+        // which is what the receivable's credit balance shows.
+        receivable = Amounts.money(value.subtract(patient).subtract(writeOff));
+        claim.setApproved(Amounts.money(claim.getApproved().subtract(receivable)));
+        claim.setChargedToPatient(Amounts.money(claim.getChargedToPatient().subtract(patient)));
+        claim.setWrittenOff(Amounts.money(claim.getWrittenOff().subtract(writeOff)));
       }
     }
+    BigDecimal fromReceivable = receivable;
+    BigDecimal fromPatient = patient;
+    BigDecimal fromWriteOff = writeOff;
     events.publish(
         "insurance.claim_reduced",
-        meta -> new ClaimReduced(meta, claim.getUid(), saleUid, value, refundMethod, reference));
+        meta ->
+            new ClaimReduced(
+                meta,
+                claim.getUid(),
+                saleUid,
+                value,
+                refundMethod,
+                reference,
+                fromReceivable,
+                fromWriteOff,
+                fromPatient,
+                claim.getCustomerUid()));
     return Optional.of(view(claim));
   }
 
@@ -575,6 +605,15 @@ class InsuranceImpl implements Insurance {
     claim.setStatus(status);
     claim.setNote(Checks.optionalText(c.note(), "note", 500));
     RejectedTo to = c.rejectedTo() == null ? RejectedTo.WRITE_OFF : c.rejectedTo();
+    // MON-4: the books already hold the earlier decision's rejection; post only the move from it
+    // to this one (either sign), also when the rejected part changes from write-off to patient.
+    boolean toPatient = to == RejectedTo.PATIENT_ACCOUNT && claim.getCustomerUid() != null;
+    BigDecimal writeOffChange =
+        Amounts.money((toPatient ? Amounts.ZERO : rejected).subtract(claim.getWrittenOff()));
+    BigDecimal patientChange =
+        Amounts.money((toPatient ? rejected : Amounts.ZERO).subtract(claim.getChargedToPatient()));
+    claim.setWrittenOff(toPatient ? Amounts.ZERO : rejected);
+    claim.setChargedToPatient(toPatient ? rejected : Amounts.ZERO);
     BigDecimal approvedTotal = approved;
     events.publish(
         "insurance.claim_adjudicated",
@@ -590,7 +629,9 @@ class InsuranceImpl implements Insurance {
                 claim.getCustomerUid(),
                 claim.getSaleUid(),
                 claim.getSaleNumber(),
-                claim.getNumber()));
+                claim.getNumber(),
+                writeOffChange,
+                patientChange));
     return view(claim);
   }
 
@@ -608,6 +649,14 @@ class InsuranceImpl implements Insurance {
     Map<String, BigDecimal> allocated = new LinkedHashMap<>();
     BigDecimal left = amount;
     if (c.perClaim() != null && !c.perClaim().isEmpty()) {
+      // MON-19: a negative or zero share would raise what the payer owes on one claim to pay
+      // another with it; every share is checked before any is paid.
+      for (BigDecimal share : c.perClaim().values()) {
+        if (share == null || Amounts.money(share).signum() <= 0) {
+          throw Refusal.invalid(
+              "invalid_amount", "Each perClaim amount must be more than zero.", "perClaim");
+        }
+      }
       for (var entry : c.perClaim().entrySet()) {
         Claim claim = byUid.get(entry.getKey());
         if (claim == null) {

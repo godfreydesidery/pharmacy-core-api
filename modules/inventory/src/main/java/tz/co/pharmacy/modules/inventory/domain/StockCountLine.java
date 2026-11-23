@@ -33,6 +33,12 @@ public class StockCountLine extends TenantEntity {
   private int expected;
   private Integer counted;
 
+  /**
+   * How far the batch's stock at the branch moved (sales, receipts, transfers) between the sheet
+   * and the posting; null until posted. The correction posted is counted − (expected + moved).
+   */
+  private Integer moved;
+
   public StockCountLine(
       UUID productUid,
       String productName,
@@ -52,6 +58,10 @@ public class StockCountLine extends TenantEntity {
 
   public void counted(Integer counted) {
     this.counted = counted;
+  }
+
+  public void moved(int moved) {
+    this.moved = moved;
   }
 
   void attachTo(StockCount count) {

@@ -22,7 +22,10 @@ public interface GoodsReceiptService {
 
   Page<GoodsReceiptView> list(UUID supplierUid, PageQuery query);
 
-  /** The total received at the branches (null = all) from {@code from} to {@code to}, UTC dates. */
+  /**
+   * The total received at the branches (null = all) from {@code from} to {@code to}: the pharmacy's
+   * local dates, in its time zone.
+   */
   BigDecimal purchasesTotal(Set<UUID> branchUids, LocalDate from, LocalDate to);
 
   /** The current tenant's receipts with these uids, at any branch (for supplier payments). */

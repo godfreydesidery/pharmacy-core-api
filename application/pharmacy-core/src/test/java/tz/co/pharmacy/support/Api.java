@@ -49,6 +49,21 @@ public final class Api {
     return send("POST", path, json);
   }
 
+  /** A POST with extra headers, given as name, value, name, value… */
+  public Response post(String path, String json, String... headers) {
+    HttpRequest.Builder request = request(path);
+    for (int i = 0; i + 1 < headers.length; i += 2) {
+      request.header(headers[i], headers[i + 1]);
+    }
+    if (json != null) {
+      request.header("Content-Type", "application/json");
+      request.POST(HttpRequest.BodyPublishers.ofString(json));
+    } else {
+      request.POST(HttpRequest.BodyPublishers.noBody());
+    }
+    return call(request);
+  }
+
   public Response put(String path, String json) {
     return send("PUT", path, json);
   }
@@ -149,7 +164,7 @@ public final class Api {
     try {
       HttpResponse<String> response =
           CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
-      return new Response(response.statusCode(), response.body());
+      return new Response(response.statusCode(), response.body(), response.headers().map());
     } catch (IOException exception) {
       throw new IllegalStateException(exception);
     } catch (InterruptedException exception) {
@@ -187,7 +202,21 @@ public final class Api {
     throw new AssertionError("condition not met within 15 seconds");
   }
 
-  public record Response(int status, String body) {
+  public record Response(
+      int status, String body, java.util.Map<String, java.util.List<String>> headers) {
+
+    public Response(int status, String body) {
+      this(status, body, java.util.Map.of());
+    }
+
+    /** The first value of a response header, or null. */
+    public String header(String name) {
+      return headers.entrySet().stream()
+          .filter(entry -> entry.getKey().equalsIgnoreCase(name))
+          .flatMap(entry -> entry.getValue().stream())
+          .findFirst()
+          .orElse(null);
+    }
 
     public Response expect(int expected) {
       if (status != expected) {

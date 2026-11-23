@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustStockCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustmentReason;
@@ -145,6 +146,7 @@ public class StockHandler {
         "Movements retrieved");
   }
 
+  @Idempotent
   @PostMapping("/opening")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")
@@ -163,6 +165,7 @@ public class StockHandler {
         "Opening stock recorded");
   }
 
+  @Idempotent
   @PostMapping("/adjustments")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "inventory.adjust")

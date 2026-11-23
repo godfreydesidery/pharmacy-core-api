@@ -47,4 +47,11 @@ public interface StockService {
 
   /** Receives a transfer at its destination, the current branch; 403 not_destination. */
   TransferView receiveTransfer(UUID transferUid);
+
+  /**
+   * Takes, until the transaction ends, the per-product lock that {@link #allocate} takes, for all
+   * the products at once in uid order. A caller about to take several products (a cart) calls it
+   * first, so two tills selling [A, B] and [B, A] queue instead of deadlocking.
+   */
+  void lockProducts(java.util.Collection<UUID> productUids);
 }

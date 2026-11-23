@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Payments;
 import tz.co.pharmacy.modules.integrations.ports.inbound.Payments.IntentView;
@@ -82,6 +83,7 @@ public class PaymentsHandler {
     return ApiResponse.ok(payments.tillMethods(), "Payment methods retrieved");
   }
 
+  @Idempotent
   @PostMapping("/pos/payment-requests")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
@@ -109,6 +111,7 @@ public class PaymentsHandler {
   public record VoucherRequest(
       String code, BigDecimal value, LocalDate expiresOn, String holderName, String paidBy) {}
 
+  @Idempotent
   @PostMapping("/vouchers")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "sales.voucher")
@@ -129,6 +132,7 @@ public class PaymentsHandler {
         "Voucher issued");
   }
 
+  @Idempotent
   @PostMapping("/vouchers/{uid}/void")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "sales.refund")
   public ApiResponse<VoucherView> voidVoucher(@PathVariable UUID uid) {

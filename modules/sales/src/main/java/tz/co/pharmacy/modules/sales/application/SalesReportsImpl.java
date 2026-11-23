@@ -89,8 +89,9 @@ class SalesReportsImpl implements SalesReports {
             + WHO
             + ", count(*) as returns,"
             + " coalesce(sum(s.refund_total + coalesce(s.fx_difference, 0)), 0) as refunded,"
-            + " coalesce(sum(case when s.refund_method = 'CASH'"
-            + " then s.refund_total + coalesce(s.fx_difference, 0) else 0 end), 0) as cash"
+            + " coalesce(sum("
+            + ReturnSql.cashPaidOut("s")
+            + "), 0) as cash"
             + " from sales.sale_returns s where s.created_at >= ? and s.created_at < ?"
             + branches
             + " group by 1, 2",

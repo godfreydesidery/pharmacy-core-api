@@ -74,7 +74,7 @@ class PostingsTest {
     assertThat(amount(receipt, "2000", false)).isEqualByComparingTo("4200.00");
 
     List<Postings.Line> rent =
-        Postings.expense(ExpenseCategory.RENT, new BigDecimal("1200.00"), "MOBILE_MONEY");
+        Postings.expense(ExpenseCategory.RENT, new BigDecimal("1200.00"), PaidFrom.MOBILE_MONEY);
     assertThat(amount(rent, "6000", true)).isEqualByComparingTo("1200.00");
     assertThat(amount(rent, "1020", false)).isEqualByComparingTo("1200.00");
   }

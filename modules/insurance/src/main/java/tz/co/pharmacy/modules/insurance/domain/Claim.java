@@ -45,6 +45,17 @@ public class Claim extends TenantEntity {
   @Column(precision = 14, scale = 2)
   private BigDecimal paid = Amounts.ZERO;
 
+  /**
+   * The rejected part as the books hold it: written off (6095) or charged to the patient (1100). A
+   * re-adjudication or a return posts only the change from these, so the claim and the ledger keep
+   * agreeing however often the claim is decided.
+   */
+  @Column(precision = 14, scale = 2)
+  private BigDecimal writtenOff = Amounts.ZERO;
+
+  @Column(precision = 14, scale = 2)
+  private BigDecimal chargedToPatient = Amounts.ZERO;
+
   @Enumerated(EnumType.STRING)
   private ClaimStatus status = ClaimStatus.DRAFT;
 

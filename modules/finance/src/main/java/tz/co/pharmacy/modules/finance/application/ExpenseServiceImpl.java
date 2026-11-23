@@ -56,9 +56,9 @@ class ExpenseServiceImpl implements ExpenseService {
     if (amount.signum() == 0) {
       throw Refusal.invalid("invalid_amount", "amount must be more than zero.", "amount");
     }
-    LocalDate date = command.expenseDate() == null ? calendar.today() : command.expenseDate();
-    String method = Checks.optionalText(command.paymentMethod(), "paymentMethod", 40);
-    method = method == null ? "CASH" : method.toUpperCase();
+    LocalDate date = notFuture(command.expenseDate(), calendar.today(), "expenseDate");
+    PaidFrom paidFrom = PaidFrom.parse(command.paymentMethod(), PaidFrom.CASH, "paymentMethod");
+    String method = paidFrom.name();
     String reference = Checks.optionalText(command.reference(), "reference", 120);
 
     Expense expense =
@@ -79,7 +79,7 @@ class ExpenseServiceImpl implements ExpenseService {
         "Expense " + expense.getNumber() + ": " + description,
         branchUid,
         date,
-        Postings.expense(category, amount, method));
+        Postings.expense(category, amount, paidFrom));
     events.publish(
         "expense.recorded",
         metadata ->
@@ -92,6 +92,21 @@ class ExpenseServiceImpl implements ExpenseService {
                 amount,
                 date));
     return toView(expense);
+  }
+
+  /**
+   * The date a payment was made: today in the pharmacy's time zone when not given, and never after
+   * it (422 future_date); money paid tomorrow is not in today's books.
+   */
+  static LocalDate notFuture(LocalDate date, LocalDate today, String field) {
+    if (date == null) {
+      return today;
+    }
+    if (date.isAfter(today)) {
+      throw Refusal.invalid(
+          "future_date", "The date " + date + " is after today (" + today + ").", field);
+    }
+    return date;
   }
 
   @Override
