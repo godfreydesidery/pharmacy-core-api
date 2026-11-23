@@ -62,7 +62,7 @@
         <archunit.version>1.5.1</archunit.version>
         <bouncycastle.version>1.86</bouncycastle.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
-        <embedded-postgres-binaries.version>17.6.0</embedded-postgres-binaries.version>
+        <embedded-postgres-binaries.version>19.0.0</embedded-postgres-binaries.version>
         <!-- AWS SDK for Java v2 (the files module's S3-compatible store), through its BOM. -->
         <awssdk.version>2.30.6</awssdk.version>
         <spotless.version>3.10.4</spotless.version>
