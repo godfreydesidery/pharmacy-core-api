@@ -27,9 +27,12 @@ COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/spring-boot-loade
 COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/snapshot-dependencies/ ./
 COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/application/ ./
 USER pharmacy
-# Out of memory, the JVM exits rather than limping on half-broken, so Railway restarts it.
+# Exports and Tomcat write to the system temp directory; declared so a read-only root filesystem
+# (ECS) can mount a writable volume here.
+VOLUME ["/tmp"]
+# Out of memory, the JVM exits rather than limping on half-broken, so the platform restarts it.
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health/liveness || exit 1
+  CMD wget -qO- http://localhost:8080/livez || exit 1
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
