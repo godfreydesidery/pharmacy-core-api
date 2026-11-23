@@ -49,7 +49,10 @@ import tz.co.pharmacy.platform.persistence.Specs;
 
 /**
  * Reads of stock. The aggregates are plain SQL over the module's own tables; row-level security
- * keeps them to the current tenant without a tenant predicate.
+ * keeps them to the current tenant without a tenant predicate. The stock list and the summary read
+ * {@code inventory.product_stock} (PERF-8): one row per branch and product, kept by triggers in the
+ * same transaction as every stock level and batch cost change, so a page reads its products' rows
+ * instead of adding up every batch of the branch.
  */
 @Service
 @Transactional(readOnly = true)
@@ -95,15 +98,10 @@ class StockQueriesImpl implements StockQueries {
                 + " coalesce(s.quantity, 0) as quantity, s.nearest_expiry,"
                 + " coalesce(s.batch_count, 0) as batch_count,"
                 + " coalesce(s.cost_value, 0) as cost_value"
-                + " from inventory.products p left join ("
-                + "   select sl.product_uid, sum(sl.quantity) as quantity,"
-                + "     min(b.expiry_date) filter (where sl.quantity > 0) as nearest_expiry,"
-                + "     count(*) filter (where sl.quantity > 0) as batch_count,"
-                + "     sum(sl.quantity * b.unit_cost) as cost_value"
-                + "   from inventory.stock_levels sl"
-                + "   join inventory.batches b on b.id = sl.batch_id"
-                + "   where sl.branch_uid = ? group by sl.product_uid"
-                + " ) s on s.product_uid = p.product_uid where p.active) x where true");
+                + " from inventory.products p left join inventory.product_stock s"
+                + "   on s.tenant_uid = p.tenant_uid and s.branch_uid = ?"
+                + "   and s.product_uid = p.product_uid"
+                + " where p.active) x where true");
     parameters.add(branch);
     if (filter != null && filter.q() != null && !filter.q().isBlank()) {
       String pattern = "%" + filter.q().trim().toLowerCase() + "%";
@@ -168,7 +166,7 @@ class StockQueriesImpl implements StockQueries {
   public StockSummaryView summary(Set<UUID> branchUids, int expiryAlertDays) {
     LocalDate today = today();
     List<Object> parameters = new ArrayList<>();
-    String branchCondition = branchCondition("sl.branch_uid", branchUids, parameters);
+    String branchCondition = branchCondition("s.branch_uid", branchUids, parameters);
     String products =
         "select count(*) as products,"
             + " count(*) filter (where q > reorder_level) as in_stock,"
@@ -177,12 +175,12 @@ class StockQueriesImpl implements StockQueries {
             + " coalesce(sum(cost_value), 0) as cost_value,"
             + " coalesce(sum(q * selling_price), 0) as retail_value"
             + " from (select p.product_uid, p.reorder_level, p.selling_price,"
-            + "   coalesce(sum(sl.quantity), 0) as q,"
-            + "   coalesce(sum(sl.quantity * b.unit_cost), 0) as cost_value"
+            + "   coalesce(sum(s.quantity), 0) as q,"
+            + "   coalesce(sum(s.cost_value), 0) as cost_value"
             + "   from inventory.products p"
-            + "   left join inventory.stock_levels sl on sl.product_uid = p.product_uid and "
+            + "   left join inventory.product_stock s on s.tenant_uid = p.tenant_uid"
+            + "   and s.product_uid = p.product_uid and "
             + branchCondition
-            + "   left join inventory.batches b on b.id = sl.batch_id"
             + "   where p.active group by p.product_uid, p.reorder_level, p.selling_price) x";
     Map<String, Object> figures = jdbc.queryForMap(products, parameters.toArray());
 

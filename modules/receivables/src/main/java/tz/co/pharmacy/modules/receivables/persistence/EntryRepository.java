@@ -35,11 +35,6 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
   List<Entry> openCredits(UUID customer);
 
   @Query(
-      "select e from Entry e where e.customerUid = :customer and e.entryDate >= :from"
-          + " and e.entryDate <= :to order by e.entryDate, e.id")
-  List<Entry> between(UUID customer, LocalDate from, LocalDate to);
-
-  @Query(
       "select coalesce(sum(e.amount), 0) from Entry e where e.customerUid = :customer"
           + " and e.entryDate < :before")
   BigDecimal balanceBefore(UUID customer, LocalDate before);

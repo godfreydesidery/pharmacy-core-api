@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -310,32 +311,75 @@ class CustomerCreditImpl implements CustomerCredit {
     return view(account);
   }
 
+  /**
+   * One page of the period's entries (PERF-17): the period's entries in date order are numbered in
+   * SQL, with each one's running sum from the period's start, and only the page's rows are loaded.
+   * The balance brought forward comes from the daily balances (one row per day with entries), not
+   * from every earlier entry. Without dates, the last 90 days up to today.
+   */
   @Override
   @Transactional(readOnly = true)
   public Page<EntryView> statement(
       UUID customerUid, LocalDate from, LocalDate to, PageQuery query) {
-    LocalDate start = from == null ? LocalDate.of(2000, 1, 1) : from;
-    LocalDate end = to == null ? LocalDate.of(9999, 12, 31) : to;
-    List<Entry> rows = entries.between(customerUid, start, end);
-    BigDecimal running = Amounts.money(entries.balanceBefore(customerUid, start));
+    LocalDate end = to == null ? today() : to;
+    LocalDate start = from == null ? end.minusDays(STATEMENT_DAYS - 1L) : from;
+    if (start.isAfter(end)) {
+      throw Refusal.invalid("invalid_period", "from must not be after to.", "from");
+    }
+    BigDecimal opening = openingBalance(customerUid, start);
+    Map<Long, BigDecimal> runningById = new LinkedHashMap<>();
+    jdbc.query(
+        "select id, sum(amount) over (order by entry_date, id) as running"
+            + " from receivables.entries"
+            + " where customer_uid = ? and entry_date >= ? and entry_date <= ?"
+            + " order by entry_date, id limit ? offset ?",
+        row -> {
+          runningById.put(row.getLong("id"), row.getBigDecimal("running"));
+        },
+        customerUid,
+        start,
+        end,
+        query.limit() + 1,
+        query.offset());
+    Map<Long, Entry> byId = new HashMap<>();
+    entries.findAllById(runningById.keySet()).forEach(entry -> byId.put(entry.getId(), entry));
+    List<Entry> rows = runningById.keySet().stream().map(byId::get).toList();
     Map<Long, List<Allocation>> touching = touching(rows);
     List<EntryView> views = new ArrayList<>();
     for (Entry entry : rows) {
-      running = running.add(entry.getAmount());
-      views.add(withRunning(view(entry, touching.getOrDefault(entry.getId(), List.of())), running));
+      views.add(
+          withRunning(
+              view(entry, touching.getOrDefault(entry.getId(), List.of())),
+              opening.add(runningById.get(entry.getId()))));
     }
-    int offset = query.offset();
-    List<EntryView> slice =
-        views.subList(
-            Math.min(offset, views.size()), Math.min(offset + query.limit() + 1, views.size()));
-    long total = views.size();
-    return Page.offset(slice, query, () -> total);
+    return Page.offset(
+        views,
+        query,
+        () -> {
+          Long total =
+              jdbc.queryForObject(
+                  "select count(*) from receivables.entries"
+                      + " where customer_uid = ? and entry_date >= ? and entry_date <= ?",
+                  Long.class,
+                  customerUid,
+                  start,
+                  end);
+          return total == null ? 0 : total;
+        });
   }
 
+  /** What the customer owed before {@code before}: the daily balances of the days before it. */
   @Override
   @Transactional(readOnly = true)
   public BigDecimal openingBalance(UUID customerUid, LocalDate before) {
-    return Amounts.money(entries.balanceBefore(customerUid, before));
+    BigDecimal balance =
+        jdbc.queryForObject(
+            "select coalesce(sum(amount), 0) from receivables.customer_daily_balances"
+                + " where customer_uid = ? and day < ?",
+            BigDecimal.class,
+            customerUid,
+            before);
+    return Amounts.money(balance == null ? BigDecimal.ZERO : balance);
   }
 
   @Override

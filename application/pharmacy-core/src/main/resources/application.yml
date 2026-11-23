@@ -90,6 +90,8 @@ pharmacy:
   retention:
     # platform.job_runs older than this are deleted by the nightly retention.
     job-runs-days: ${PHARMACY_JOB_RUNS_DAYS:30}
+    # reporting.processed_events markers (redelivery guards of the read models) older than this.
+    processed-events-days: ${PHARMACY_PROCESSED_EVENTS_DAYS:30}
   events:
     # Event publications whose listener failed (a ledger posting, a read model, a webhook) are
     # delivered again every 5 minutes once 5 minutes old, by one instance at a time.

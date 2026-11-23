@@ -70,7 +70,8 @@ class LedgerImpl implements Ledger {
 
   /**
    * Balances on each account's normal side: debit less credit for assets and expenses, credit less
-   * debit for liabilities, equity and revenue.
+   * debit for liabilities, equity and revenue. Read from the daily balances (PERF-4), which every
+   * journal line updates in its own transaction: a few rows per account and day, not every line.
    */
   @Override
   @Transactional
@@ -78,10 +79,11 @@ class LedgerImpl implements Ledger {
     chart.ensure();
     List<AccountView> accounts = new ArrayList<>();
     jdbc.query(
-        "select a.code, a.name, a.type, coalesce(sum(l.debit), 0) as debit,"
-            + " coalesce(sum(l.credit), 0) as credit"
+        "select a.code, a.name, a.type, coalesce(sum(b.debit), 0) as debit,"
+            + " coalesce(sum(b.credit), 0) as credit"
             + " from finance.accounts a"
-            + " left join finance.journal_lines l on l.account_code = a.code"
+            + " left join finance.account_daily_balances b"
+            + "   on b.tenant_uid = a.tenant_uid and b.account_code = a.code"
             + " group by a.code, a.name, a.type order by a.code",
         row -> {
           AccountType type = AccountType.valueOf(row.getString("type"));

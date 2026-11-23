@@ -16,7 +16,9 @@ import tz.co.pharmacy.platform.kernel.TenantCalendar;
 
 /**
  * Statements as plain SQL over the module's ledger; row-level security keeps them to the current
- * tenant without a tenant predicate.
+ * tenant without a tenant predicate. They read the daily account balances (PERF-4), which the
+ * journal updates in the same transaction as each line, so they agree with the journal exactly and
+ * cost a few rows per account and day instead of every line ever posted.
  */
 @Service
 class FinancialStatementsImpl implements FinancialStatements {
@@ -76,9 +78,9 @@ class FinancialStatementsImpl implements FinancialStatements {
     // 2100 Tax payable: credits are VAT charged on sales, debits VAT given back on returns.
     BigDecimal[] totals = {Amounts.ZERO, Amounts.ZERO};
     jdbc.query(
-        "select coalesce(sum(l.credit), 0) as credit, coalesce(sum(l.debit), 0) as debit"
-            + " from finance.journal_lines l join finance.journal_entries e on e.id = l.entry_id"
-            + " where l.account_code = '2100' and e.entry_date between ? and ?",
+        "select coalesce(sum(b.credit), 0) as credit, coalesce(sum(b.debit), 0) as debit"
+            + " from finance.account_daily_balances b"
+            + " where b.account_code = '2100' and b.day between ? and ?",
         row -> {
           totals[0] = row.getBigDecimal("credit");
           totals[1] = row.getBigDecimal("debit");
@@ -98,11 +100,10 @@ class FinancialStatementsImpl implements FinancialStatements {
     List<Line> lines = new ArrayList<>();
     jdbc.query(
         "select a.code, a.name, a.type,"
-            + " coalesce(sum(case when e.entry_date <= ? then l.debit end), 0) as debit,"
-            + " coalesce(sum(case when e.entry_date <= ? then l.credit end), 0) as credit"
+            + " coalesce(sum(b.debit), 0) as debit, coalesce(sum(b.credit), 0) as credit"
             + " from finance.accounts a"
-            + " left join finance.journal_lines l on l.account_code = a.code"
-            + " left join finance.journal_entries e on e.id = l.entry_id"
+            + " left join finance.account_daily_balances b"
+            + "   on b.tenant_uid = a.tenant_uid and b.account_code = a.code and b.day <= ?"
             + " group by a.code, a.name, a.type order by a.code",
         row -> {
           AccountType type = AccountType.valueOf(row.getString("type"));
@@ -121,7 +122,6 @@ class FinancialStatementsImpl implements FinancialStatements {
                   credit,
                   Amounts.money(balance)));
         },
-        asOf,
         asOf);
     return lines;
   }
