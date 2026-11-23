@@ -65,6 +65,7 @@
         <embedded-postgres-binaries.version>17.6.0</embedded-postgres-binaries.version>
         <spotless.version>3.10.4</spotless.version>
         <google-java-format.version>1.28.0</google-java-format.version>
+        <sentry.version>8.55.0</sentry.version>
         <!-- Only pharmacy-core is runnable: mvn -pl application/pharmacy-core -am spring-boot:run -->
         <spring-boot.run.skip>true</spring-boot.run.skip>
         <!-- The build folder. CI and scripts may pass -Dpharmacy.build.dir=target-mvn so an IDE's

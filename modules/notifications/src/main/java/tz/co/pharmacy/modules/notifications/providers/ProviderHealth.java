@@ -13,6 +13,12 @@ import org.springframework.stereotype.Component;
  * "tripped" for {@link #COOL_DOWN} and tried after the healthy ones, so one broken provider does
  * not slow every message; the first success closes it again. Kept in memory (each instance learns
  * for itself), which is enough: a tripped provider is still tried last, never skipped.
+ *
+ * <p>Per instance on purpose, also with several instances: it only orders the providers to try, it
+ * never decides whether a message is sent. Each instance learns of a broken provider after {@link
+ * #TRIP_AFTER} failures of its own (so with N instances at most N × 3 slow attempts before every
+ * instance tries it last), and what root sees of a provider's health (last success, last error) is
+ * on its row in the database, shared by all.
  */
 @Component
 public class ProviderHealth {

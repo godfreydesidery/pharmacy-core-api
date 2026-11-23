@@ -39,7 +39,10 @@ spring:
         schema: platform
         schema-initialization:
           enabled: false
-      republish-outstanding-events-on-restart: true
+      # Off: with several instances, one that starts would deliver again every event the others
+      # are still delivering. Undelivered events are delivered again by the event-resubmission job
+      # instead (one instance at a time, once they are pharmacy.events.resubmit-older-than old).
+      republish-outstanding-events-on-restart: ${PHARMACY_EVENTS_REPUBLISH_ON_START:false}
   mvc:
     problemdetails:
       enabled: false
@@ -54,6 +57,22 @@ server:
     min-response-size: 1KB
 
 pharmacy:
+  # This instance's name in platform.job_runs and in signals to the other instances (default: the
+  # host name and a random suffix).
+  instance-id: ${PHARMACY_INSTANCE_ID:}
+  log:
+    # PHARMACY_LOG_FORMAT -> Spring Boot's structured log format (anything else: plain text).
+    formats:
+      json: ecs
+      ecs: ecs
+      logstash: logstash
+      gelf: gelf
+  management:
+    # Prometheus on the API's own port: only where that port is not public (local, test).
+    metrics-on-api-port: false
+  retention:
+    # platform.job_runs older than this are deleted by the nightly retention.
+    job-runs-days: ${PHARMACY_JOB_RUNS_DAYS:30}
   events:
     # Event publications whose listener failed (a ledger posting, a read model, a webhook) are
     # delivered again every 5 minutes once 5 minutes old, by one instance at a time.
@@ -175,21 +194,32 @@ springdoc:
   swagger-ui:
     enabled: ${PHARMACY_SWAGGER_ENABLED:false}
 
+# Plain text by default. PHARMACY_LOG_FORMAT=json (or ecs) writes one JSON object per line to
+# stdout in Elastic Common Schema, Spring Boot's structured logging, with the correlationId from
+# the MDC (CloudWatch Logs and its metric filters read it as is); logstash and gelf also work.
 logging:
   structured:
     format:
-      console: ${PHARMACY_LOG_FORMAT:}
+      console: ${pharmacy.log.formats.${PHARMACY_LOG_FORMAT:plain}:}
 
 management:
+  server:
+    # Unset: actuator shares the API's port and serves only health. Set (8081 on ECS): actuator
+    # moves to that port, reachable only inside the VPC, with health and Prometheus metrics; the
+    # API's port keeps /livez and /readyz for the load balancer.
+    port: ${PHARMACY_MANAGEMENT_PORT:}
   endpoints:
     web:
       exposure:
-        # Only health (and its readiness/liveness probes) is public; metrics stay inside.
-        include: health
+        # Prometheus is published only on a separate management port (MetricsConfiguration), or on
+        # the API's port where pharmacy.management.metrics-on-api-port says so (local, test).
+        include: health,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+        # /livez and /readyz on the API's port too, for a load balancer when actuator has its own.
+        add-additional-paths: true
       # The probes check only that the API is up; "ledger" (stuck postings) is reported in
       # /actuator/health for monitoring and never holds back a deploy or restarts the API.
       group:
@@ -197,3 +227,13 @@ management:
           include: readinessState
         liveness:
           include: livenessState
+
+# The optional error tracker (Sentry): off unless SENTRY_DSN is set. No personal data is sent
+# (no user, IP address, cookies or request bodies); ERROR log lines (such as JOB_FAILED) and
+# unhandled exceptions become events. Set SENTRY_ENVIRONMENT to tell servers apart.
+sentry:
+  send-default-pii: false
+  max-request-body-size: none
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: info

@@ -1,8 +1,6 @@
 package tz.co.pharmacy.platform.composition;
 
 import java.time.Duration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,12 +14,12 @@ import tz.co.pharmacy.platform.persistence.SingleRunner;
  * {@code pharmacy.events.resubmit-older-than} (5 minutes) are handed to their listeners again with
  * Spring Modulith's {@link IncompleteEventPublications}. The listeners are idempotent per source
  * document (the journal posts each source once), so a second delivery adds nothing. Only one
- * instance runs it at a time ({@link SingleRunner}, a PostgreSQL advisory lock).
+ * instance runs it at a time ({@link SingleRunner}, a PostgreSQL advisory lock), which also records
+ * each run and its failure.
  */
 @Component
 class EventResubmissionSchedule {
 
-  private static final Logger log = LoggerFactory.getLogger(EventResubmissionSchedule.class);
   private static final String JOB = "event-resubmission";
 
   private final IncompleteEventPublications incomplete;
@@ -41,10 +39,6 @@ class EventResubmissionSchedule {
       fixedDelayString = "${pharmacy.events.resubmit-every:PT5M}",
       initialDelayString = "${pharmacy.events.resubmit-every:PT5M}")
   void resubmit() {
-    try {
-      runner.runAlone(JOB, () -> incomplete.resubmitIncompletePublicationsOlderThan(olderThan));
-    } catch (RuntimeException failure) {
-      log.warn("Resubmitting incomplete event publications failed: {}", failure.getMessage());
-    }
+    runner.runAlone(JOB, run -> incomplete.resubmitIncompletePublicationsOlderThan(olderThan));
   }
 }

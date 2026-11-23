@@ -35,7 +35,8 @@ architecture-tests/       Spring Modulith verify + ArchUnit rules
 - **Branches.** Requests name the tenant (`X-Tenant-Id`) and the branch (`X-Branch-Id`). The edge checks both against the user's membership (`allBranches` or a list of branches) before any handler runs. Branch-scoped data carries `branch_uid`.
 - **Root administrator.** A platform-scope user (`access.users.root_admin`) who manages tenants (`/api/v1/platform/*`) and may act in any tenant and branch with every permission. Every action is recorded under their own identity.
 - **Access control.** Every handler method declares `@Access(scope, permission)`. A method without one is refused (fail closed), and an ArchUnit rule checks this too.
-- **Events.** Modules publish through `DomainEventPublisher` inside their transaction. The Spring Modulith event publication registry (`platform.event_publication`) is the transactional outbox. Composition reactions (`@Async @TransactionalEventListener`) post to the ledger, update reporting read models and dispatch webhooks after commit, and are redelivered on restart.
+- **Events.** Modules publish through `DomainEventPublisher` inside their transaction. The Spring Modulith event publication registry (`platform.event_publication`) is the transactional outbox. Composition reactions (`@Async @TransactionalEventListener`) post to the ledger, update reporting read models and dispatch webhooks after commit; an undelivered one is delivered again by the `event-resubmission` job (every 5 minutes, one instance).
+- **Several instances.** Jobs run once across instances (PostgreSQL advisory locks, `SKIP LOCKED` claims) and record their runs in `platform.job_runs`; sign-in limits are shared in `platform.rate_windows`; live notifications reach any instance through `LISTEN/NOTIFY`. See [`docs/runbook/deployment.md`](docs/runbook/deployment.md).
 - **Errors.** Refusals (`Refusal`) become RFC 9457 problems with a stable `reason`. Successes use the envelope `{ success, code, message, timestamp, data }`.
 
 ### Modules
@@ -79,6 +80,8 @@ The `local` profile does the following:
 - API: `http://localhost:8080/api/v1`
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - Health: `/actuator/health`
+- Metrics: `/actuator/prometheus` (the `local` profile publishes it on the API port; on a server it is on `PHARMACY_MANAGEMENT_PORT` only)
+- Scheduled jobs and their last runs (root): `GET /api/v1/platform/jobs`
 - CORS allows `http://localhost:4200` (the Angular dev server).
 
 To reset the local database, stop the app and delete `application/pharmacy-core/target/local-postgres`. Use `PHARMACY_LOCAL_DB_PORT` and `PHARMACY_LOCAL_DATA` to change the port and the data directory.
@@ -126,8 +129,11 @@ Then set:
 | `PHARMACY_PAYMENTS_PROVIDER` | `manual` | Payment authorization adapter |
 | `PHARMACY_FISCAL_PROVIDER` | `none` | Fiscal receipt adapter |
 | `PHARMACY_SWAGGER_ENABLED` | `true` | Serve `/v3/api-docs` and Swagger UI |
-| `PHARMACY_LOG_FORMAT` | — | `ecs` or `logstash` for JSON logs |
+| `PHARMACY_LOG_FORMAT` | — | `json` (or `ecs`) for one JSON object per line on stdout, Elastic Common Schema; `logstash`, `gelf` also work; unset is plain text |
 | `PHARMACY_PORT` | `8080` | HTTP port |
+| `PHARMACY_MANAGEMENT_PORT` | — | A separate port for actuator (health and `/actuator/prometheus`), e.g. `8081` on ECS; the API port keeps `/livez` and `/readyz`. Unset: actuator shares the API port and serves health only |
+| `PHARMACY_INSTANCE_ID` | host name + random | This instance's name in job runs and cross-instance signals |
+| `SENTRY_DSN` | — | Optional error tracker (Sentry); off when unset, no personal data sent |
 
 Or use Docker: `docker compose up --build`. This starts PostgreSQL 17 with the roles from `deploy/postgres/init.sql`, then the API.
 

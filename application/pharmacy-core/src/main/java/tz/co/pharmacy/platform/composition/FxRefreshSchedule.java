@@ -16,12 +16,15 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
 import tz.co.pharmacy.platform.persistence.TenantContext;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 
 /**
  * Refreshes exchange rates from the rate provider every day at 06:00 UTC, for every active tenant
  * that accepts a foreign currency, each as a platform service in that tenant. One tenant's failure
- * does not stop the others. With no provider configured it records nothing.
+ * does not stop the others (it is recorded with the run). With no provider configured it records
+ * nothing. One instance runs it ({@link SingleRunner}).
  */
 @Component
 class FxRefreshSchedule {
@@ -32,8 +35,11 @@ class FxRefreshSchedule {
   private final TenantService tenants;
   private final SettingsService settings;
   private final ExchangeRates rates;
+  private final SingleRunner runner;
 
-  FxRefreshSchedule(TenantService tenants, SettingsService settings, ExchangeRates rates) {
+  FxRefreshSchedule(
+      TenantService tenants, SettingsService settings, ExchangeRates rates, SingleRunner runner) {
+    this.runner = runner;
     this.tenants = tenants;
     this.settings = settings;
     this.rates = rates;
@@ -41,16 +47,24 @@ class FxRefreshSchedule {
 
   @Scheduled(cron = "${pharmacy.integrations.fx.refresh-cron:0 0 6 * * *}", zone = "UTC")
   void refreshAll() {
+    runner.runAlone(SERVICE, this::refreshRound);
+  }
+
+  private void refreshRound(JobRun run) {
+    int pharmacies = 0;
     for (TenantView tenant : activeTenants()) {
       try {
         List<RateView> refreshed = inTenant(tenant.uid(), this::refreshIfForeign);
         if (!refreshed.isEmpty()) {
+          pharmacies++;
           LOG.info("Refreshed {} exchange rates for {}", refreshed.size(), tenant.code());
         }
       } catch (RuntimeException failure) {
         LOG.warn("Exchange rate refresh failed for {}: {}", tenant.code(), failure.getMessage());
+        run.failed(tenant.uid(), failure);
       }
     }
+    run.note("rates refreshed for " + pharmacies + " pharmacies");
   }
 
   private List<RateView> refreshIfForeign() {

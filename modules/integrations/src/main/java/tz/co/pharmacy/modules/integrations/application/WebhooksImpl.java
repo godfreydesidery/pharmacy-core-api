@@ -1,5 +1,7 @@
 package tz.co.pharmacy.modules.integrations.application;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -79,6 +81,7 @@ class WebhooksImpl implements Webhooks {
   private final JsonMapper json = JsonMapper.builder().build();
   private final Clock clock;
   private final Duration claimLease;
+  private final MeterRegistry meters;
 
   @SuppressWarnings("java:S107")
   WebhooksImpl(
@@ -89,7 +92,9 @@ class WebhooksImpl implements Webhooks {
       WebhookSecrets secrets,
       PlatformTransactionManager transactionManager,
       Clock clock,
-      @Value("${pharmacy.integrations.webhooks.claim-lease:PT10M}") Duration claimLease) {
+      @Value("${pharmacy.integrations.webhooks.claim-lease:PT10M}") Duration claimLease,
+      MeterRegistry meters) {
+    this.meters = meters;
     this.clock = clock;
     this.webhooks = webhooks;
     this.deliveries = deliveries;
@@ -341,6 +346,7 @@ class WebhooksImpl implements Webhooks {
       outcome = new WebhookSender.Outcome(false, 1, null, failure.toString());
     }
     WebhookSender.Outcome result = outcome;
+    counted(result.delivered());
     transactions.executeWithoutResult(
         status ->
             deliveries
@@ -353,6 +359,22 @@ class WebhooksImpl implements Webhooks {
                             result.error(),
                             result.delivered())));
     return result.delivered();
+  }
+
+  /** {@code pharmacy.webhooks.deliveries}: delivery attempts, by outcome (delivered, failed). */
+  private void counted(boolean delivered) {
+    if (meters == null) {
+      return;
+    }
+    try {
+      Counter.builder("pharmacy.webhooks.deliveries")
+          .description("Webhook delivery attempts, by outcome")
+          .tag("outcome", delivered ? "delivered" : "failed")
+          .register(meters)
+          .increment();
+    } catch (RuntimeException ignored) {
+      // Metrics are bookkeeping.
+    }
   }
 
   /** Claimed deliveries this run did not try are due again when they were. */

@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.notifications.domain.InboxItem;
 import tz.co.pharmacy.modules.notifications.persistence.InboxRepository;
 import tz.co.pharmacy.modules.notifications.ports.inbound.InAppInbox;
+import tz.co.pharmacy.modules.notifications.ports.inbound.InAppSnapshot;
 import tz.co.pharmacy.modules.notifications.ports.inbound.InAppView;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
@@ -57,6 +58,17 @@ class InAppInboxImpl implements InAppInbox {
   @Transactional
   public void markAllRead() {
     inbox.markAllRead(me(), clock.instant());
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public InAppSnapshot snapshot(UUID userUid) {
+    if (userUid == null) {
+      return new InAppSnapshot(null, 0);
+    }
+    return new InAppSnapshot(
+        inbox.findFirstByUserUidOrderByUidDesc(userUid).map(Dispatcher::view).orElse(null),
+        inbox.countByUserUidAndReadAtIsNull(userUid));
   }
 
   private static UUID me() {

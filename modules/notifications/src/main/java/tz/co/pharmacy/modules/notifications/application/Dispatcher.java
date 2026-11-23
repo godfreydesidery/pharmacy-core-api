@@ -50,6 +50,7 @@ class Dispatcher {
   private final ExecutorService senders;
   private final TransactionTemplate transactions;
   private final SmsCap smsCap;
+  private final NotificationMetrics metrics;
 
   @SuppressWarnings("java:S107")
   private final Clock clock;
@@ -71,7 +72,9 @@ class Dispatcher {
               "${pharmacy.notifications.keep-account-messages:false}")
           boolean keepAccountMessages,
       SmsCap smsCap,
+      NotificationMetrics metrics,
       Clock clock) {
+    this.metrics = metrics;
     this.smsCap = smsCap;
     this.keepAccountMessages = keepAccountMessages;
     this.clock = clock;
@@ -189,11 +192,13 @@ class Dispatcher {
                 .ifPresent(
                     row -> {
                       if (outcome == null) {
+                        metrics.sent(row.getChannel());
                         row.sent(used);
                         if (row.carriesSecrets() && !keepAccountMessages) {
                           row.forgetText();
                         }
                       } else {
+                        metrics.failed(row.getChannel());
                         row.failed(
                             used,
                             outcome,

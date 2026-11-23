@@ -1,4 +1,7 @@
 pharmacy:
+  management:
+    # The tests read /actuator/prometheus on the API's (random) port.
+    metrics-on-api-port: true
   access:
     require-2fa-for-root: false
     lockout:

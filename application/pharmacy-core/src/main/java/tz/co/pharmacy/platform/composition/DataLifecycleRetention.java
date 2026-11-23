@@ -12,6 +12,7 @@ import tz.co.pharmacy.modules.files.ports.inbound.FileDeletions;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 import tz.co.pharmacy.platform.persistence.exports.DataExportJobs;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 import tz.co.pharmacy.platform.persistence.retention.RetentionTask;
 
 /**
@@ -39,6 +40,11 @@ class DataLifecycleRetention implements RetentionTask {
 
   @Override
   public Map<String, Long> run(Instant now) {
+    return run(now, new JobRun(SERVICE));
+  }
+
+  @Override
+  public Map<String, Long> run(Instant now, JobRun run) {
     long expired = 0;
     for (int round = 0; round < MAX_ROUNDS; round++) {
       List<DataExportJobs.Expiring> due = jobs.expiring(BATCH);
@@ -62,6 +68,7 @@ class DataLifecycleRetention implements RetentionTask {
           expired++;
         } catch (RuntimeException failure) {
           LOG.warn("Could not expire export {}: {}", job.uid(), failure.toString());
+          run.failed(job.tenantUid(), "expiring export " + job.uid() + ": " + failure);
           return counts(expired, deletions.retryDue(BATCH * 5));
         }
       }
