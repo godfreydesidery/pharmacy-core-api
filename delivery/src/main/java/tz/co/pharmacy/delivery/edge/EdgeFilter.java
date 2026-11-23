@@ -334,15 +334,18 @@ public class EdgeFilter extends OncePerRequestFilter {
 
   /**
    * A suspended pharmacy. Unpaid: its admins may still read (GET), to pay and take their data out
-   * (data portability); every change and everyone else is refused. Any other kind (a dispute's
-   * legal hold, abuse): nobody works in it.
+   * (data portability, including starting an export); every change and everyone else is refused.
+   * Any other kind (a dispute's legal hold, abuse): nobody works in it.
    */
   private static void suspended(
       TenantView tenant, MembershipGrant grant, HttpServletRequest request) {
     boolean admin =
         grant.permissions().contains("settings.manage")
             || grant.permissions().contains("users.manage");
-    boolean reading = "GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod());
+    boolean reading =
+        "GET".equals(request.getMethod())
+            || "HEAD".equals(request.getMethod())
+            || startsDataExport(request);
     if (tenant.status() == TenantStatus.ERASED) {
       throw Refusal.forbidden("tenant_erased", "This pharmacy was closed and its data erased.");
     }
@@ -369,6 +372,15 @@ public class EdgeFilter extends OncePerRequestFilter {
               : "This pharmacy's subscription is unpaid; its admin can renew it.");
     }
     throw Refusal.forbidden("tenant_suspended", "This pharmacy's account is suspended.");
+  }
+
+  /**
+   * Starting the full export ({@code POST /api/v1/data-export}) is taking data out, not changing
+   * it: allowed wherever reading is.
+   */
+  private static boolean startsDataExport(HttpServletRequest request) {
+    return "POST".equals(request.getMethod())
+        && (request.getContextPath() + "/api/v1/data-export").equals(request.getRequestURI());
   }
 
   /** The client of a request (behind our proxies too), for sign-in records and device notices. */

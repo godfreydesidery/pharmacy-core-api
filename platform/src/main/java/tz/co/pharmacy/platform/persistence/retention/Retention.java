@@ -11,6 +11,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,6 +20,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
 
 /**
  * Deletes what is no longer needed, every night (Tanzania's Personal Data Protection Act 2022,
@@ -27,6 +29,12 @@ import tools.jackson.databind.json.JsonMapper;
  * retention period. Each period is configurable under {@code pharmacy.retention}. The deleting is
  * done by {@code platform.purge_expired} and {@code audit.drop_partitions_before}, which the
  * application role may call but whose tables it may not delete from itself.
+ *
+ * <p>The functions count every period back from the database's {@code now()} at the latest, keep
+ * the audit trail at least {@code audit.minimum_retention()} (2 years) whatever is configured, and
+ * leave a pharmacy under a legal hold alone. After them, each {@link RetentionTask} runs (expired
+ * export files, file deletes to retry). The nightly run happens on one instance only ({@link
+ * SingleRunner}).
  */
 @Component
 public class Retention {
@@ -41,11 +49,15 @@ public class Retention {
   private final Map<String, Integer> days = new LinkedHashMap<>();
   private final int auditYears;
   private final int batch;
+  private final SingleRunner runner;
+  private final ObjectProvider<RetentionTask> tasks;
 
   public Retention(
       DataSource dataSource,
       PlatformTransactionManager transactions,
       Clock clock,
+      SingleRunner runner,
+      ObjectProvider<RetentionTask> tasks,
       @Value("${pharmacy.retention.sessions-days:30}") int sessions,
       @Value("${pharmacy.retention.codes-days:7}") int codes,
       @Value("${pharmacy.retention.invitations-days:90}") int invitations,
@@ -53,6 +65,7 @@ public class Retention {
       @Value("${pharmacy.retention.inbox-days:180}") int inbox,
       @Value("${pharmacy.retention.deliveries-days:90}") int deliveries,
       @Value("${pharmacy.retention.events-days:7}") int events,
+      @Value("${pharmacy.retention.exports-days:30}") int exports,
       @Value("${pharmacy.retention.audit-years:7}") int auditYears,
       @Value("${pharmacy.retention.batch:5000}") int batch) {
     this.jdbc = new JdbcTemplate(dataSource);
@@ -65,14 +78,17 @@ public class Retention {
     days.put("inbox", inbox);
     days.put("deliveries", deliveries);
     days.put("events", events);
+    days.put("exports", exports);
     this.auditYears = auditYears;
     this.batch = batch;
+    this.runner = runner;
+    this.tasks = tasks;
   }
 
   @Scheduled(cron = "${pharmacy.retention.cron:0 40 1 * * *}", zone = "UTC")
   public void nightly() {
     try {
-      run();
+      runner.runAlone("retention", this::run);
     } catch (RuntimeException failure) {
       log.warn("Retention run failed: {}", failure.getMessage());
     }
@@ -113,6 +129,16 @@ public class Retention {
                     Integer.class,
                     Date.valueOf(keepFrom)));
     totals.put("audit months dropped", months == null ? 0L : months.longValue());
+    tasks
+        .orderedStream()
+        .forEach(
+            task -> {
+              try {
+                task.run(now).forEach((name, n) -> totals.merge(name, n, Long::sum));
+              } catch (RuntimeException failure) {
+                log.warn("Retention task {} failed: {}", task.getClass().getSimpleName(), failure);
+              }
+            });
     log.info("Retention run (as of {}): {}", now, totals);
     return totals;
   }

@@ -20,6 +20,11 @@ pharmacy:
   edge:
     # Every test signs in from 127.0.0.1; the production default (20 a minute) would throttle them.
     auth-requests-per-minute: 1000
+  exports:
+    # The export worker looks for new jobs this often (production: every 5 s).
+    poll-every-ms: 200
+    # Small pages, so every export in the tests is read over several transactions.
+    page-rows: 25
   integrations:
     webhooks:
       # WebhookRetryTest's receiver: a loopback address the SSRF test does not use, allowed only here.

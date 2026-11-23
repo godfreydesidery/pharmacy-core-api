@@ -704,3 +704,27 @@ SMTP providers (INT-2): host public (the webhook targets' rules), port 25/465/58
 `smtp_port_not_allowed`), checked on save, on "Send test" and before every send; implicit TLS on 465, STARTTLS required
 elsewhere; a changed host or port drops the stored secrets. SMS on the platform's account (INT-5) stop at the plan's
 `sms_per_month`, counted from the delivery log in the pharmacy's calendar month: FAILED, reason `sms_cap_reached`.
+## files (`tz.co.pharmacy.modules.files`)
+
+```java
+interface Files { /* the current tenant's files: beginUpload, completeUpload, uploadDirect, downloadUrl,
+                     downloadLink, find, attachments, delete. Never sees an archive (below). */ }
+/** Archives the platform makes for the current tenant (the full data export), in the same store under
+    tenants/{tenantUid}/exports/{fileUid}/{name}; files.files rows with owner_type DATA_EXPORT. */
+interface Archives {
+  String OWNER_TYPE = "DATA_EXPORT";
+  FileView store(String name, String contentType, UUID ownerUid, Path content, long size);
+  DownloadLink link(UUID fileUid, Duration ttl);   // presigned GET; 404 file_not_found
+  void delete(UUID fileUid);                       // marks DELETED; bytes deleted or queued (FileDeletions)
+}
+/** Platform scope: deletes from the store, queueing what fails in files.pending_deletes. */
+interface FileDeletions {
+  boolean delete(String storageKey, String reason);   // true: gone now; false: queued for a retry
+  RetryOutcome retryDue(int limit);                    // FOR UPDATE SKIP LOCKED; backoff 1 h doubling, max 1 day
+  record RetryOutcome(long deleted, long failed) {}
+}
+```
+
+Platform (not a module port, `tz.co.pharmacy.platform.persistence`): `exports.DataExportJobs` (the
+`platform.data_exports` jobs: start, find, claim, heartbeat, ready, retry, fail, expiring, expired)
+and `retention.RetentionTask` (a part of the nightly retention bound in composition).

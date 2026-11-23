@@ -106,4 +106,16 @@ public final class FileRules {
     return "tenants/%s/%04d/%02d/%s"
         .formatted(tenantUid, date.getYear(), date.getMonthValue(), fileUid);
   }
+
+  /**
+   * {@code tenants/{tenantUid}/exports/{fileUid}/{name}}: an archive's key ends in its file name,
+   * so a browser following the link saves it under that name.
+   */
+  public static String archiveKey(UUID tenantUid, UUID fileUid, String name) {
+    String safe = name == null ? "" : name.replaceAll("[^A-Za-z0-9._-]", "_");
+    if (safe.isBlank() || safe.startsWith(".")) {
+      safe = "archive" + safe;
+    }
+    return "tenants/%s/exports/%s/%s".formatted(tenantUid, fileUid, safe);
+  }
 }

@@ -98,6 +98,18 @@ pharmacy:
     # A new pharmacy starts with "require an open shift to sell" on (owner's decision, 23 Nov 2026);
     # its admin can turn it off in Settings. Existing pharmacies keep theirs.
     require-open-shift-by-default: ${PHARMACY_REQUIRE_OPEN_SHIFT_BY_DEFAULT:true}
+  exports:
+    # The full export (POST /data-export) is built by a background worker on any instance: it
+    # looks for jobs this often, sends a heartbeat while it builds, and a job whose heartbeat is
+    # older than stale-after is taken over by another instance (max-attempts in all). The ZIP is
+    # kept in the file store for keep, its signed link lasts link-ttl, and each table is read in
+    # pages of page-rows rows, each page its own short transaction.
+    poll-every-ms: ${PHARMACY_EXPORTS_POLL_MS:5000}
+    stale-after: ${PHARMACY_EXPORTS_STALE_AFTER:PT10M}
+    max-attempts: ${PHARMACY_EXPORTS_MAX_ATTEMPTS:3}
+    keep: ${PHARMACY_EXPORTS_KEEP:P7D}
+    link-ttl: ${PHARMACY_EXPORTS_LINK_TTL:PT15M}
+    page-rows: ${PHARMACY_EXPORTS_PAGE_ROWS:5000}
   files:
     # local (a directory; presigned URLs served by the API) or s3 (AWS S3, MinIO, Cloudflare R2).
     storage: ${PHARMACY_FILES_STORAGE:local}

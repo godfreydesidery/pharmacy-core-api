@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.files.domain.StoredFile;
 import tz.co.pharmacy.modules.files.persistence.StoredFileRepository;
+import tz.co.pharmacy.modules.files.ports.inbound.Archives;
 import tz.co.pharmacy.modules.files.ports.inbound.DownloadLink;
 import tz.co.pharmacy.modules.files.ports.inbound.FileRules;
 import tz.co.pharmacy.modules.files.ports.inbound.FileView;
@@ -125,6 +126,7 @@ class FilesService implements Files {
     return files
         .findByUid(fileUid)
         .filter(file -> file.getStatus() == StoredFile.Status.COMPLETE)
+        .filter(FilesService::ordinary)
         .map(FilesService::view);
   }
 
@@ -169,7 +171,13 @@ class FilesService implements Files {
   private StoredFile load(UUID fileUid) {
     return files
         .findByUid(fileUid)
+        .filter(FilesService::ordinary)
         .orElseThrow(() -> Refusal.notFound("file_not_found", "No such file."));
+  }
+
+  /** An archive (such as the full data export) is never reached through the file routes. */
+  private static boolean ordinary(StoredFile file) {
+    return !Archives.OWNER_TYPE.equals(file.getOwnerType());
   }
 
   private StoredFile completed(UUID fileUid) {
