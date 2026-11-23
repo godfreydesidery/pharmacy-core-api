@@ -27,9 +27,8 @@ COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/spring-boot-loade
 COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/snapshot-dependencies/ ./
 COPY --from=layers --chown=pharmacy:pharmacy /layers/extracted/application/ ./
 USER pharmacy
-# Exports and Tomcat write to the system temp directory; declared so a read-only root filesystem
-# (ECS) can mount a writable volume here.
-VOLUME ["/tmp"]
+# Exports and Tomcat write to the system temp directory (/tmp). No VOLUME here: Railway refuses
+# images that declare one. On ECS the API runs without a read-only root filesystem for now.
 # Out of memory, the JVM exits rather than limping on half-broken, so the platform restarts it.
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"
 EXPOSE 8080
