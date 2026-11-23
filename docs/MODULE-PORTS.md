@@ -507,6 +507,16 @@ The default chart of accounts:
 
 Payment methods map to accounts: `CASH` → 1000, `CARD` → 1010, `MOBILE_MONEY` → 1020, `INSURANCE` → 1110, `CREDIT` → 1100.
 
+Expenses and supplier payments are paid only from money accounts: `CASH` → 1000, `BANK_TRANSFER`, `CARD`, `CHEQUE` → 1010, `MOBILE_MONEY` → 1020; any other method is 422 `invalid_payment_method`. Their dates default to today in the pharmacy's time zone and may not be later (422 `future_date`). A supplier payment naming goods receipts settles each up to what is still open of it (`finance.supplier_payment_allocations`), else 422 `overpayment`.
+
+```java
+// reconciliation (MON-13)
+record UnpostedDocument(String sourceType, UUID sourceUid, String number, UUID branchUid, Instant recordedAt) {}
+interface LedgerReconciliation { List<UnpostedDocument> unposted(int days); }   // GET /finance/reconciliation; 422 invalid_days outside 1-92
+// ports.outbound, implemented in composition (LedgerSourcesAdapter)
+interface LedgerSources { List<UnpostedDocument> recorded(Instant from, Instant before); }
+```
+
 ## reporting (`tz.co.pharmacy.modules.reporting`)
 
 Read models via `JdbcTemplate` or `JdbcClient` upserts, all with RLS:

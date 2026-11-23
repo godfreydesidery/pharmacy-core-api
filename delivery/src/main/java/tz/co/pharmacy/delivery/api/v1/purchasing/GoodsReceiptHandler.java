@@ -18,6 +18,7 @@ import tz.co.pharmacy.application.receiving.ports.inbound.Receiving;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptService;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptView;
@@ -56,6 +57,7 @@ public class GoodsReceiptHandler {
         "Goods receipt retrieved");
   }
 
+  @Idempotent
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.BRANCH, permission = "purchasing.receive")

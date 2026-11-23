@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.receivables.ports.inbound.AccountView;
 import tz.co.pharmacy.modules.receivables.ports.inbound.AgeingRow;
@@ -77,6 +78,7 @@ public class ReceivablesHandler {
   }
 
   /** A payment on account, settling open charges FIFO or as chosen; the rest stays as credit. */
+  @Idempotent
   @PostMapping("/payments")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")
@@ -104,6 +106,7 @@ public class ReceivablesHandler {
         Boolean.TRUE.equals(body.onHold()) ? "Account put on hold" : "Account released");
   }
 
+  @Idempotent
   @PostMapping("/write-offs")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.write_off")

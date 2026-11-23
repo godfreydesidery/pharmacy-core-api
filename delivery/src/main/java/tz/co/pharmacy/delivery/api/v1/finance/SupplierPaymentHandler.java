@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.finance.ports.inbound.SupplierPaymentCommand;
 import tz.co.pharmacy.modules.finance.ports.inbound.SupplierPaymentView;
@@ -43,6 +44,7 @@ public class SupplierPaymentHandler {
         payments.list(supplierUid, Pages.of(cursor, limit)), "Supplier payments retrieved");
   }
 
+  @Idempotent
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.manage")

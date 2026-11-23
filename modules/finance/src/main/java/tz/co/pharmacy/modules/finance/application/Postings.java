@@ -128,14 +128,14 @@ final class Postings {
   static List<Line> supplierPayment(
       BigDecimal bookedBase,
       BigDecimal settledBase,
-      String paymentMethod,
+      PaidFrom paidFrom,
       String currency,
       BigDecimal foreignAmount) {
     String noted = currency;
     BigDecimal foreign = foreignAmount;
     List<Line> lines = new ArrayList<>();
     debit(lines, PAYABLE, bookedBase);
-    credit(lines, paymentAccount(paymentMethod), settledBase);
+    credit(lines, paidFrom.accountCode(), settledBase);
     List<Line> notedLines = new ArrayList<>();
     for (Line line : lines) {
       notedLines.add(line.noting(noted, foreign));
@@ -206,11 +206,14 @@ final class Postings {
     return balanced(lines);
   }
 
-  /** Dr the expense account / Cr the account it was paid from. */
-  static List<Line> expense(ExpenseCategory category, BigDecimal amount, String paymentMethod) {
+  /**
+   * Dr the expense account / Cr the money account it was paid from (cash, bank or mobile money:
+   * never a receivable).
+   */
+  static List<Line> expense(ExpenseCategory category, BigDecimal amount, PaidFrom paidFrom) {
     List<Line> lines = new ArrayList<>();
     debit(lines, expenseAccount(category), amount);
-    credit(lines, paymentAccount(paymentMethod), amount);
+    credit(lines, paidFrom.accountCode(), amount);
     return balanced(lines);
   }
 
