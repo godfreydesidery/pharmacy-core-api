@@ -25,7 +25,7 @@ class CodeRulesTest {
   void platformIsIndependent() {
     noClasses()
         .that()
-        .resideInAPackage("tz.co.pharmacy.platform.(kernel|persistence|bus|config)..")
+        .resideInAPackage("tz.co.pharmacy.platform.(kernel|persistence|bus|config|crypto)..")
         .should()
         .dependOnClassesThat()
         .resideInAnyPackage(

@@ -5,9 +5,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 import tz.co.pharmacy.modules.integrations.domain.Webhook;
 import tz.co.pharmacy.modules.integrations.ports.outbound.SecretSealing;
+import tz.co.pharmacy.platform.crypto.Purpose;
+import tz.co.pharmacy.platform.crypto.SealedColumn;
 
 /**
  * Webhook signing secrets: made in the Standard Webhooks format ({@code whsec_} + base64 of 32
@@ -15,7 +19,8 @@ import tz.co.pharmacy.modules.integrations.ports.outbound.SecretSealing;
  *
  * <p>Webhooks saved before secrets were sealed still hold {@code whsec_<hex>} in plain text. They
  * are sealed lazily, the first time the webhook is used or the minute job passes by ({@link
- * #sealInPlace}): a SQL migration cannot seal, since the key is not in the database.
+ * #sealInPlace}), or by the key re-seal: a SQL migration cannot seal, since the key is not in the
+ * database.
  */
 @Component
 class WebhookSecrets {
@@ -77,5 +82,22 @@ class WebhookSecrets {
       }
     }
     return secrets;
+  }
+
+  /** The integrations module's sealed columns, for the key re-seal and its status. */
+  @Configuration(proxyBeanMethods = false)
+  static class SealedColumns {
+
+    @Bean
+    SealedColumn sealedWebhookSecrets() {
+      return new SealedColumn(
+          "integrations.webhooks", "secret", Purpose.WEBHOOKS, true, Webhook.PLAIN_PREFIX);
+    }
+
+    @Bean
+    SealedColumn sealedPreviousWebhookSecrets() {
+      return new SealedColumn(
+          "integrations.webhooks", "previous_secret", Purpose.WEBHOOKS, true, Webhook.PLAIN_PREFIX);
+    }
   }
 }

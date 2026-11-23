@@ -120,7 +120,11 @@ Then set:
 | `PHARMACY_DB_URL` | `jdbc:postgresql://localhost:5432/pharmacy` | JDBC URL |
 | `PHARMACY_DB_USER` / `PHARMACY_DB_PASSWORD` | `pharmacy_app` / — | Application role (no RLS bypass) |
 | `PHARMACY_DB_OWNER_USER` / `PHARMACY_DB_OWNER_PASSWORD` | `pharmacy_owner` / — | Owner role, used only to run migrations |
-| `PHARMACY_DB_MIGRATIONS_ENABLED` | `true` | `false` when migrations run as a separate step (the API then holds no owner password) |
+| `PHARMACY_MIGRATIONS_MODE` | `migrate-and-run` | `migrate-only` (migrate and exit 0: the one-off task before a deploy) or `run-only` (never migrate, hold no owner password, refuse to start while a migration is pending). See `docs/runbook/migrations.md` |
+| `PHARMACY_MIGRATIONS_LOCK_TIMEOUT` / `PHARMACY_MIGRATIONS_STATEMENT_TIMEOUT` | `5s` / `5min` | A migration that waits longer for a lock fails and is rolled back |
+| `PHARMACY_DB_MIGRATIONS_ENABLED` | `true` | Older switch: `false` means `run-only` |
+| `PHARMACY_ACCESS_ENCRYPTIONKEY` | — | The legacy sealing key (id `legacy`), at least 32 characters |
+| `PHARMACY_KEYS_<ID>` | — | Named keys of the keyring; `PHARMACY_SEALING_TOTP` / `_PROVIDERS` / `_WEBHOOKS` name each purpose's active key. See `docs/runbook/rotating-keys.md` |
 | `PHARMACY_DB_POOL_SIZE` | `20` | Hikari pool size |
 | `PHARMACY_ROOT_EMAIL` / `PHARMACY_ROOT_PASSWORD` / `PHARMACY_ROOT_NAME` | — | First root administrator, created at start if none exists |
 | `PHARMACY_CORS_ORIGINS` | — | Comma-separated allowed origins for the web app |
