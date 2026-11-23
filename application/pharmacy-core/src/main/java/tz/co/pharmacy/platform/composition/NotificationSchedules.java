@@ -32,12 +32,16 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.TenantView;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
 import tz.co.pharmacy.platform.persistence.TenantContext;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 
 /**
  * The daily digests, at each pharmacy's own local time: at 07:00 the batches expiring within its
  * alert window, to the people who manage stock; at 18:00 the day's sales, to those who read
- * reports. The job wakes every 15 minutes; a digest's dedup key (its local date) sends it once.
+ * reports. The job wakes every 15 minutes, on one instance ({@link SingleRunner}: two instances
+ * checking the dedup key at once could both send); a digest's dedup key (its local date) sends it
+ * once. A pharmacy whose digest fails is recorded with the run.
  */
 @Component
 class NotificationSchedules {
@@ -53,6 +57,7 @@ class NotificationSchedules {
   private final Reports reports;
   private final NotificationDirectory directory;
   private final Notifier notifier;
+  private final SingleRunner runner;
 
   NotificationSchedules(
       TenantService tenants,
@@ -60,7 +65,9 @@ class NotificationSchedules {
       StockQueries stock,
       Reports reports,
       NotificationDirectory directory,
-      Notifier notifier) {
+      Notifier notifier,
+      SingleRunner runner) {
+    this.runner = runner;
     this.tenants = tenants;
     this.settings = settings;
     this.stock = stock;
@@ -71,6 +78,10 @@ class NotificationSchedules {
 
   @Scheduled(cron = "${pharmacy.notifications.digests.cron:0 */15 * * * *}")
   void digests() {
+    runner.runAlone(SERVICE, this::digestRound);
+  }
+
+  private void digestRound(JobRun run) {
     for (TenantView tenant : activeTenants()) {
       ZonedDateTime local = ZonedDateTime.now(zone(tenant));
       try {
@@ -81,6 +92,7 @@ class NotificationSchedules {
         }
       } catch (RuntimeException failure) {
         log.warn("Digest for tenant {} failed: {}", tenant.code(), failure.getMessage());
+        run.failed(tenant.uid(), failure);
       }
     }
   }

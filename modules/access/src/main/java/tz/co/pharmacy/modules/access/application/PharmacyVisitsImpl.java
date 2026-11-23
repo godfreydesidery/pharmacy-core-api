@@ -39,7 +39,13 @@ class PharmacyVisitsImpl implements PharmacyVisits {
   private final TransactionTemplate writes;
   private final Clock clock;
 
-  /** When each session last noted work in each pharmacy, so most requests write nothing. */
+  /**
+   * When each session last noted work in each pharmacy, so most requests write nothing. A write
+   * throttle per instance, kept on purpose with several instances: what it saves is writes, and
+   * what must happen once is decided in the database ({@code access.enter_pharmacy} returns 1 to
+   * one caller only, so the SIGN_IN entry is audited once whichever instance serves the session).
+   * With N instances a session's last activity is written at most N times per {@link #EVERY}.
+   */
   private final Map<String, Instant> noted = new ConcurrentHashMap<>();
 
   PharmacyVisitsImpl(

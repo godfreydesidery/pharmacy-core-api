@@ -40,5 +40,16 @@
             <groupId>org.springframework.modulith</groupId>
             <artifactId>spring-modulith-events-api</artifactId>
         </dependency>
+        <!-- Metrics (job runs, sign-in failures, notifications, webhooks, exports): Micrometer's API;
+             the Prometheus registry is added by the deployable. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+        <!-- LISTEN/NOTIFY between instances (PostgresSignals) uses the driver's PGConnection. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
     </dependencies>
 </project>

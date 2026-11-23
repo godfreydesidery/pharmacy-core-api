@@ -1,0 +1,93 @@
+name: deploy
+
+# Deploys only from CI, only from main (OPS-14), to ECS in af-south-1:
+#   1. build the image once, tagged with the commit SHA, and push it to ECR;
+#   2. run the one-off migrate task (PHARMACY_MIGRATIONS_MODE=migrate-only, the owner secret) with
+#      that image and wait for exit code 0, so the API service never holds the owner password;
+#   3. roll the API service to the new image and wait until it is stable (the deployment circuit
+#      breaker rolls back a failed start).
+# AWS is reached through GitHub OIDC (no stored AWS keys); names come from the `production`
+# environment's variables once pharmacy-core-infra is applied. Until AWS_ROLE_ARN is set the job is
+# skipped.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_API }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE_API }}
+      MIGRATE_TASK_FAMILY: ${{ vars.ECS_MIGRATE_TASK_FAMILY }}
+      SUBNETS: ${{ vars.ECS_PRIVATE_SUBNETS }}
+      SECURITY_GROUP: ${{ vars.ECS_API_SECURITY_GROUP }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build and push the image tagged with the commit
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          provenance: true
+          sbom: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+      - name: Register task definitions with the new image
+        id: td
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          strip='del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                     .compatibilities, .registeredAt, .registeredBy)'
+          register() {
+            aws ecs describe-task-definition --task-definition "$1" --query taskDefinition \
+              | jq --arg image "$IMAGE" ".containerDefinitions[0].image = \$image | $strip" \
+              > td.json
+            aws ecs register-task-definition --cli-input-json file://td.json \
+              --query 'taskDefinition.taskDefinitionArn' --output text
+          }
+          service_td=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+          echo "api=$(register "$service_td")" >> "$GITHUB_OUTPUT"
+          echo "migrate=$(register "$MIGRATE_TASK_FAMILY")" >> "$GITHUB_OUTPUT"
+      - name: Run the migrations (one-off task) and require exit code 0
+        run: |
+          set -euo pipefail
+          task=$(aws ecs run-task --cluster "$ECS_CLUSTER" --launch-type FARGATE \
+            --task-definition "${{ steps.td.outputs.migrate }}" \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "Migrate task: $task"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$task"
+          code=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          echo "Migrations exit code: $code"
+          test "$code" = "0"
+      - name: Roll out the API and wait until stable
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "${{ steps.td.outputs.api }}" > /dev/null
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          echo "Deployed ${{ github.sha }}"

@@ -697,14 +697,14 @@ interface PublicAddresses { Optional<String> problem(String host); }
 // verify(): a push request pays only a tender of its own method at its own branch: 422 payment_mismatch.
 
 // ports.outbound (adapters in composition)
-interface SecretSealing { String seal(String plain); String open(String sealed); }  // → notifications Sealing
+interface SecretSealing { String seal(String plain); String open(String sealed); }  // → platform Keyring, purpose webhooks (IntegrationsSealingAdapter)
 ```
 
 ## notifications (`tz.co.pharmacy.modules.notifications`): ports added for the outside-connection hardening
 
 ```java
 // ports.inbound
-interface Sealing { String seal(String plain); String open(String sealed); }   // provider-secret sealing (AES-256-GCM, pharmacy.access.encryption-key), reused by integrations
+// (Sealing was removed with OPS-5: provider and webhook secrets seal through the platform Keyring)
 interface NotificationUsage { /* … */ long platformSmsThisMonth(UUID tenantUid, ZoneId zone); }  // SMS on the platform's account, the pharmacy's month
 record DeliveryView(/* … */ Instant sentAt, String reason) {}   // reason: sms_cap_reached when the platform refused the message
 record DeliveryDetail(/* … */ Instant sentAt, String reason) {}
@@ -722,13 +722,22 @@ elsewhere; a changed host or port drops the stored secrets. SMS on the platform'
 
 ```java
 interface Files { /* the current tenant's files: beginUpload, completeUpload, uploadDirect, downloadUrl,
-                     downloadLink, find, attachments, delete. Never sees an archive (below). */ }
+                     downloadLink, find, findUpload, attachments, delete. Never sees an archive (below). */ }
+// beginUpload signs a PUT of the API's blob route whatever the store (size and type checked there, bytes
+// streamed on); findUpload also sees a PENDING file (the complete step's permission check); delete marks
+// DELETED and deletes the bytes after the commit, or queues them (FileDeletions).
+/** The blob routes: PUT (uploads, every store; Content-Length over 10 MB is 413) and GET (local store only). */
+interface SignedBlobs {
+  void put(String key, long expires, String signature, String contentType, long size, InputStream content);
+  Blob get(String key, long expires, String signature, String contentType, String disposition);
+  record Blob(String contentType, String disposition, long size, InputStream content) {}
+}
 /** Archives the platform makes for the current tenant (the full data export), in the same store under
     tenants/{tenantUid}/exports/{fileUid}/{name}; files.files rows with owner_type DATA_EXPORT. */
 interface Archives {
   String OWNER_TYPE = "DATA_EXPORT";
   FileView store(String name, String contentType, UUID ownerUid, Path content, long size);
-  DownloadLink link(UUID fileUid, Duration ttl);   // presigned GET; 404 file_not_found
+  DownloadLink link(UUID fileUid, Duration ttl);   // presigned GET, Content-Disposition attachment; 404 file_not_found
   void delete(UUID fileUid);                       // marks DELETED; bytes deleted or queued (FileDeletions)
 }
 /** Platform scope: deletes from the store, queueing what fails in files.pending_deletes. */
@@ -737,8 +746,40 @@ interface FileDeletions {
   RetryOutcome retryDue(int limit);                    // FOR UPDATE SKIP LOCKED; backoff 1 h doubling, max 1 day
   record RetryOutcome(long deleted, long failed) {}
 }
+// ports.outbound (implemented in the module: storage.LocalObjectStorage, storage.S3ObjectStorage)
+interface ObjectStorage {
+  String name();                                                          // "local" or "s3"
+  String presignGet(String key, String contentType, String disposition, Duration ttl);
+  void put(String key, String contentType, InputStream content, long size);  // size -1: unknown; streams
+  boolean exists(String key);
+  long size(String key);                                                  // 404 file_not_found
+  InputStream get(String key);                                            // 404 file_not_found
+  void delete(String key);                                                // idempotent
+}
 ```
+
+Stores: `pharmacy.files.storage=local|s3`; S3 settings `pharmacy.files.s3.{bucket,region,endpoint,path-style,
+prefix,server-side-encryption,kms-key-id}`, credentials from the AWS default chain (the ECS task role). The
+one-off copy of a local directory to S3 is `--pharmacy.files.copy-local-to-s3=true`
+(docs/runbook/files-on-s3.md).
 
 Platform (not a module port, `tz.co.pharmacy.platform.persistence`): `exports.DataExportJobs` (the
 `platform.data_exports` jobs: start, find, claim, heartbeat, ready, retry, fail, expiring, expired)
 and `retention.RetentionTask` (a part of the nightly retention bound in composition).
+
+Platform (not a module port, `tz.co.pharmacy.platform.crypto`, OPS-5):
+
+```java
+enum Purpose { TOTP, PROVIDERS, WEBHOOKS }        // each purpose's active key: pharmacy.sealing.<purpose>
+class Keyring {                                    // named AES-256-GCM keys pharmacy.keys.<id>; legacy = pharmacy.access.encryption-key
+  String seal(Purpose p, byte[] plain);            // v2:<keyId>:<base64>, purpose as associated data; unversioned while the purpose is on legacy
+  String seal(Purpose p, String plain);
+  byte[] open(Purpose p, String sealed);           // with the key the value names; IllegalStateException when none opens it
+  String openText(Purpose p, String sealed);
+  static String keyIdOf(String sealed);            // "legacy" for an unversioned value
+}
+record SealedColumn(String table, String column, Purpose purpose, boolean tenantScoped, String plainPrefix) {}
+                                                   // a bean per sealed column, declared by its module (access, notifications, integrations)
+class SealedValues { Map<String, Long> count(SealedColumn c); Batch reseal(SealedColumn c, long afterId, int limit); }
+interface KeyRotation { Status status(); boolean start(); }   // bound in composition (KeyResealJob): GET /api/v1/platform/keys, POST .../reseal
+```

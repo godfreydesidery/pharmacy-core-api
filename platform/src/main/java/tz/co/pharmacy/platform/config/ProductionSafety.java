@@ -4,26 +4,34 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
+import tz.co.pharmacy.platform.crypto.KeyringSettings;
+import tz.co.pharmacy.platform.persistence.MigrationMode;
 
 /**
  * Refuses to start a server that would run on a development default (OWASP ASVS V13.3,
- * Twelve-Factor III): a published encryption key or file-signing secret, reset and invitation links
- * that point to localhost, or uploaded files kept inside the container. It runs before any bean is
- * created, so a misconfigured deployment stops before it migrates or serves anything, and the
- * platform keeps the old deployment (readiness never turns green).
+ * Twelve-Factor III): a published or short encryption key (the legacy key, or any key of the
+ * keyring) or file-signing secret, reset and invitation links that point to localhost, or uploaded
+ * files kept inside the container. It warns when the API migrates at start (it then holds the
+ * database owner password). It runs before any bean is created, so a misconfigured deployment stops
+ * before it migrates or serves anything, and the platform keeps the old deployment (readiness never
+ * turns green).
  *
  * <p>The {@code local} and {@code test} profiles (a laptop, the embedded database, the test suite)
  * are exempt: their defaults are there so nothing needs configuring.
  */
 final class ProductionSafety implements BeanFactoryPostProcessor, EnvironmentAware {
 
+  private static final Logger LOG = LoggerFactory.getLogger(ProductionSafety.class);
+
   static final int MIN_SECRET_LENGTH = 32;
-  static final String LOCAL_ENCRYPTION_KEY = "local-development-only-encryption-key";
+  static final String LOCAL_ENCRYPTION_KEY = KeyringSettings.LOCAL_KEY;
   static final String LOCAL_FILE_SECRET = "local-development-file-signing-secret";
 
   private Environment environment;
@@ -43,6 +51,7 @@ final class ProductionSafety implements BeanFactoryPostProcessor, EnvironmentAwa
     if (environment.acceptsProfiles(Profiles.of("local", "test"))) {
       return;
     }
+    warnings(environment).forEach(warning -> LOG.warn("Production safety: {}", warning));
     List<String> problems = problems(environment);
     if (!problems.isEmpty()) {
       throw new IllegalStateException(
@@ -51,22 +60,47 @@ final class ProductionSafety implements BeanFactoryPostProcessor, EnvironmentAwa
     }
   }
 
+  /**
+   * What a server should not do but may for now (OPS-11): migrating at start keeps the owner
+   * password, which can turn row-level security off, in every API instance. Railway still does it,
+   * so it is a warning, not a refusal.
+   */
+  static List<String> warnings(Environment environment) {
+    List<String> warnings = new ArrayList<>();
+    MigrationMode mode = MigrationMode.of(environment);
+    if (mode == MigrationMode.MIGRATE_AND_RUN) {
+      warnings.add(
+          "pharmacy.migrations.mode (PHARMACY_MIGRATIONS_MODE) is migrate-and-run: this API holds"
+              + " the database owner password. Run migrations as a separate migrate-only task and"
+              + " the API with run-only.");
+    } else if (mode == MigrationMode.RUN_ONLY
+        && !environment.getProperty("pharmacy.database.owner-password", "").isBlank()) {
+      warnings.add(
+          "pharmacy.database.owner-password (PHARMACY_DB_OWNER_PASSWORD) is set, but run-only never"
+              + " uses it: remove the owner secret from this service.");
+    }
+    return warnings;
+  }
+
   static List<String> problems(Environment environment) {
-    List<String> problems = new ArrayList<>();
+    // The keyring (OPS-5): the legacy key while a purpose still seals with it, each named key.
+    List<String> problems =
+        new ArrayList<>(KeyringSettings.read(environment).productionProblems(MIN_SECRET_LENGTH));
+    // Uploads come through the API's signed links with either store.
     secret(
         environment,
-        "pharmacy.access.encryption-key",
-        "PHARMACY_ACCESS_ENCRYPTIONKEY",
-        LOCAL_ENCRYPTION_KEY,
+        "pharmacy.files.signing-secret",
+        "PHARMACY_FILES_SIGNING_SECRET",
+        LOCAL_FILE_SECRET,
         problems);
     String storage = environment.getProperty("pharmacy.files.storage", "local");
+    if ("s3".equalsIgnoreCase(storage.trim())
+        && environment.getProperty("pharmacy.files.s3.bucket", "").isBlank()) {
+      problems.add(
+          "pharmacy.files.s3.bucket (PHARMACY_FILES_S3_BUCKET) is not set, with"
+              + " PHARMACY_FILES_STORAGE=s3.");
+    }
     if ("local".equalsIgnoreCase(storage.trim())) {
-      secret(
-          environment,
-          "pharmacy.files.signing-secret",
-          "PHARMACY_FILES_SIGNING_SECRET",
-          LOCAL_FILE_SECRET,
-          problems);
       String root = environment.getProperty("pharmacy.files.local.root", "target/files");
       // A container path (/data/files) is absolute on the Linux server even when checked on
       // Windows.

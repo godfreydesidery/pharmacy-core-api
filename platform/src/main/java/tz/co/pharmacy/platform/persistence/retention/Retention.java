@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 import tz.co.pharmacy.platform.persistence.SingleRunner;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 
 /**
  * Deletes what is no longer needed, every night (Tanzania's Personal Data Protection Act 2022,
@@ -33,8 +34,9 @@ import tz.co.pharmacy.platform.persistence.SingleRunner;
  * <p>The functions count every period back from the database's {@code now()} at the latest, keep
  * the audit trail at least {@code audit.minimum_retention()} (2 years) whatever is configured, and
  * leave a pharmacy under a legal hold alone. After them, each {@link RetentionTask} runs (expired
- * export files, file deletes to retry). The nightly run happens on one instance only ({@link
- * SingleRunner}).
+ * export files, file deletes to retry, job runs and rate windows past their time). The nightly run
+ * happens on one instance only ({@link SingleRunner}), and a task that fails (or a pharmacy a task
+ * failed for) is recorded with the run in {@code platform.job_runs}.
  */
 @Component
 public class Retention {
@@ -87,11 +89,12 @@ public class Retention {
 
   @Scheduled(cron = "${pharmacy.retention.cron:0 40 1 * * *}", zone = "UTC")
   public void nightly() {
-    try {
-      runner.runAlone("retention", this::run);
-    } catch (RuntimeException failure) {
-      log.warn("Retention run failed: {}", failure.getMessage());
-    }
+    runner.runAlone(
+        "retention",
+        run -> {
+          Map<String, Long> totals = run(run);
+          run.note("deleted " + totals);
+        });
   }
 
   /**
@@ -99,6 +102,11 @@ public class Retention {
    * nothing is locked for long. The periods count back from the application clock.
    */
   public Map<String, Long> run() {
+    return run(new JobRun("retention"));
+  }
+
+  /** The same, recording each task that fails in {@code run} instead of dropping it. */
+  public Map<String, Long> run(JobRun run) {
     Instant now = clock.instant();
     String periods = json.writeValueAsString(days);
     Map<String, Long> totals = new LinkedHashMap<>();
@@ -134,9 +142,10 @@ public class Retention {
         .forEach(
             task -> {
               try {
-                task.run(now).forEach((name, n) -> totals.merge(name, n, Long::sum));
+                task.run(now, run).forEach((name, n) -> totals.merge(name, n, Long::sum));
               } catch (RuntimeException failure) {
                 log.warn("Retention task {} failed: {}", task.getClass().getSimpleName(), failure);
+                run.failed(null, task.getClass().getSimpleName() + ": " + failure);
               }
             });
     log.info("Retention run (as of {}): {}", now, totals);

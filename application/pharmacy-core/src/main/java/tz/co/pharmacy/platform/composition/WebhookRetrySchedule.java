@@ -16,6 +16,7 @@ import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.persistence.SingleRunner;
 import tz.co.pharmacy.platform.persistence.TenantContext;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 
 /**
  * Every minute, each active pharmacy's failed webhook deliveries that are due are sent again, so a
@@ -42,14 +43,10 @@ class WebhookRetrySchedule {
 
   @Scheduled(fixedDelayString = "${pharmacy.integrations.webhooks.retry-every-ms:60000}")
   void retry() {
-    try {
-      runner.runAlone(SERVICE, this::retryAll);
-    } catch (RuntimeException failure) {
-      log.warn("Webhook retries failed: {}", failure.getMessage());
-    }
+    runner.runAlone(SERVICE, this::retryAll);
   }
 
-  private void retryAll() {
+  private void retryAll(JobRun run) {
     int tried = 0;
     for (UUID tenant : activeTenants()) {
       try {
@@ -59,10 +56,12 @@ class WebhookRetrySchedule {
                 () -> TenantContext.callAs(tenant, webhooks::retryDue));
       } catch (RuntimeException failure) {
         log.warn("Webhook retries for tenant {} failed: {}", tenant, failure.getMessage());
+        run.failed(tenant, failure);
       }
     }
     if (tried > 0) {
       log.info("Webhook retries: {} deliveries tried again", tried);
+      run.note(tried + " deliveries tried again");
     }
   }
 

@@ -50,22 +50,6 @@ class LockoutTest {
   }
 
   @Test
-  @DisplayName("the in-memory window locks a key and forgets it after the lock")
-  void failureWindow() {
-    FailureWindow window = new FailureWindow(3, WINDOW, LOCK);
-    assertThat(window.fail("ip:10.0.0.1", T0)).isFalse();
-    assertThat(window.fail("ip:10.0.0.1", T0.plusSeconds(1))).isFalse();
-    assertThat(window.lockedFor("ip:10.0.0.1", T0.plusSeconds(2))).isEmpty();
-    assertThat(window.fail("ip:10.0.0.1", T0.plusSeconds(2))).isTrue();
-    assertThat(window.lockedFor("ip:10.0.0.1", T0.plusSeconds(3))).isPresent();
-    assertThat(window.lockedFor("ip:10.0.0.2", T0.plusSeconds(3))).isEmpty();
-    assertThat(window.lockedFor("ip:10.0.0.1", T0.plusSeconds(2).plus(LOCK).plusSeconds(1)))
-        .isEmpty();
-    window.prune(T0.plus(Duration.ofHours(2)));
-    assertThat(window.fail("ip:10.0.0.1", T0.plus(Duration.ofHours(2)))).isFalse();
-  }
-
-  @Test
   @DisplayName("recovery codes are 10, distinct, and match whatever their case or dashes")
   void recoveryCodes() {
     var codes = RecoveryCodes.generate();

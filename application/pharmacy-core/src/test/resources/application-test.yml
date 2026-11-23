@@ -1,4 +1,13 @@
 pharmacy:
+  management:
+    # The tests read /actuator/prometheus on the API's (random) port.
+    metrics-on-api-port: true
+  # KeyringTest rotates every purpose to these keys in a context of its own. Every context holds
+  # them (none active here), so what it re-seals stays readable to the rest of the suite.
+  keys:
+    testtotp: test-only-totp-key-0123456789abcdef
+    testproviders: test-only-providers-key-0123456789abcdef
+    testwebhooks: test-only-webhooks-key-0123456789abcdef
   access:
     require-2fa-for-root: false
     lockout:

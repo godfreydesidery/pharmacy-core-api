@@ -43,6 +43,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
 
   static final Duration CHALLENGE_LENGTH = Duration.ofMinutes(5);
   private static final Duration SEEN_EVERY = Duration.ofMinutes(5);
+  private static final String VERSIONED = "v2:";
 
   private final UserRepository users;
   private final SessionRepository sessions;
@@ -148,6 +149,8 @@ class AuthenticationServiceImpl implements AuthenticationService {
       audit.record("SIGN_IN_FAILED", "User", null, null, details);
       return locked;
     }
+    // The client's count first, on a connection of its own, so the transaction below holds one.
+    guard.clientFailed(from.ip(), at);
     Boolean locked =
         ExecutionContext.callAs(
             SessionIssuer.userFrame(user),
@@ -155,7 +158,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 writes.execute(
                     status -> {
                       User row = users.findByUid(user.getUid()).orElse(user);
-                      boolean lockedNow = guard.failed(row, email, from.ip(), at);
+                      boolean lockedNow = guard.accountFailed(row, at);
                       audit.record("SIGN_IN_FAILED", "User", user.getUid(), null, details);
                       if (lockedNow) {
                         audit.record(
@@ -238,10 +241,15 @@ class AuthenticationServiceImpl implements AuthenticationService {
       throw Refusal.unauthenticated("unauthenticated", "Sign in to open the stream.");
     }
     String plain = sessionUid + "|" + clock.instant().plus(STREAM_TICKET).getEpochSecond();
-    byte[] sealed =
-        java.util.Base64.getDecoder()
-            .decode(secrets.seal(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-    return "pst_" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(sealed);
+    // URL-safe (an EventSource cannot send headers). A value under a named key travels as its
+    // text, which names the key; one under the legacy key as its raw bytes, as before, so either
+    // release reads the other's tickets during a rolling deploy.
+    String sealed = secrets.seal(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    byte[] body =
+        sealed.startsWith(VERSIONED)
+            ? sealed.getBytes(java.nio.charset.StandardCharsets.US_ASCII)
+            : java.util.Base64.getDecoder().decode(sealed);
+    return "pst_" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(body);
   }
 
   @Override
@@ -251,12 +259,12 @@ class AuthenticationServiceImpl implements AuthenticationService {
     }
     String[] parts;
     try {
-      byte[] sealed = java.util.Base64.getUrlDecoder().decode(ticket.substring(4));
+      byte[] decoded = java.util.Base64.getUrlDecoder().decode(ticket.substring(4));
+      String text = new String(decoded, java.nio.charset.StandardCharsets.US_ASCII);
+      String sealed =
+          text.startsWith(VERSIONED) ? text : java.util.Base64.getEncoder().encodeToString(decoded);
       parts =
-          new String(
-                  secrets.open(java.util.Base64.getEncoder().encodeToString(sealed)),
-                  java.nio.charset.StandardCharsets.UTF_8)
-              .split("\\|");
+          new String(secrets.open(sealed), java.nio.charset.StandardCharsets.UTF_8).split("\\|");
     } catch (RuntimeException forged) {
       return Optional.empty();
     }

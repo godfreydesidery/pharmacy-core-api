@@ -48,6 +48,7 @@ class NotifierImpl implements Notifier {
   private final NotificationDirectory directory;
   private final PendingScopes pending;
   private final Dispatcher dispatcher;
+  private final NotificationMetrics metrics;
   private final String defaultCountryCode;
 
   @SuppressWarnings("java:S107")
@@ -61,8 +62,10 @@ class NotifierImpl implements Notifier {
       NotificationDirectory directory,
       PendingScopes pending,
       Dispatcher dispatcher,
+      NotificationMetrics metrics,
       @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode,
       Clock clock) {
+    this.metrics = metrics;
     this.clock = clock;
     this.messages = messages;
     this.inbox = inbox;
@@ -96,6 +99,7 @@ class NotifierImpl implements Notifier {
     Instant now = clock.instant();
 
     List<UUID> queued = new ArrayList<>();
+    List<Channel> counted = new ArrayList<>();
     Set<UUID> inboxUsers = new LinkedHashSet<>();
     for (Channel channel : channels(request.channels(), recipient, category, tenantUid)) {
       String address = address(channel, recipient);
@@ -139,6 +143,7 @@ class NotifierImpl implements Notifier {
         messages.save(message);
         queued.add(message.getUid());
       }
+      counted.add(channel);
     }
     if (queued.isEmpty() && inboxUsers.isEmpty()) {
       return;
@@ -146,7 +151,11 @@ class NotifierImpl implements Notifier {
     if (!queued.isEmpty()) {
       pending.due(PendingScopes.scopeOf(tenantUid), now.plus(SAFETY_NET));
     }
-    afterCommit(() -> dispatcher.dispatchAsync(tenantUid, queued, inboxUsers));
+    afterCommit(
+        () -> {
+          counted.forEach(metrics::queued);
+          dispatcher.dispatchAsync(tenantUid, queued, inboxUsers);
+        });
   }
 
   private Recipient complete(Recipient given) {

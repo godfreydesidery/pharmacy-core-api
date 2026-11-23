@@ -83,7 +83,11 @@ interface InAppInbox {                    // the current user in the current ten
   long unreadCount();
   void markRead(UUID uid);
   void markAllRead();
+  /** userUid's latest message and unread count in the current tenant, for a service (the live stream
+      of another instance, after a signal). */
+  InAppSnapshot snapshot(UUID userUid);
 }
+record InAppSnapshot(InAppView latest, long unreadCount) {}
 record TemplateView(String key, Channel channel, String locale, String subject, String body, boolean custom) {}
 record TemplateCommand(String subject, String body) {}
 interface Templates {                     // defaults built in (en + sw) for every key; a tenant may override
@@ -129,7 +133,7 @@ The outbox:
 
 In-app delivery:
 - `notifications.inbox` (RLS) holds the in-app messages.
-- `GET /api/v1/notifications/stream` is a Server-Sent Events stream (`SseEmitter`) for the current user: it pushes `{unreadCount, latest}` when a new in-app message arrives. Send a heartbeat every 25 s.
+- `GET /api/v1/notifications/stream` is a Server-Sent Events stream (`SseEmitter`) for the current user: it pushes `{unreadCount, latest}` when a new in-app message arrives. Send a heartbeat every 25 s. With several instances, each new message is signalled on PostgreSQL `NOTIFY pharmacy_inapp` (payload: instance, tenant and user ids only); the instance holding the user's stream reads `InAppInbox.snapshot` and pushes it.
 - Because `EventSource` cannot send headers, the stream accepts `?token=&tenant=` query parameters. Add that to `EdgeFilter` with small edits, for this one path only.
 
 Reactions, in composition:

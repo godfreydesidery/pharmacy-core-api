@@ -18,6 +18,12 @@ import tz.co.pharmacy.platform.kernel.Refusal;
  * waits up to {@code pharmacy.edge.tenant-wait-ms} for a slot, then is refused 429 with a retry
  * time. The chaos run's flood (24 tills selling flat out) made a neighbour six times slower before
  * this.
+ *
+ * <p>Per instance on purpose, also with several instances: what it shares out is this instance's
+ * own database pool ({@code PHARMACY_DB_POOL_SIZE} connections each), so the limit is "requests at
+ * once on this instance". With N instances a pharmacy may have up to N × the limit in progress in
+ * all, which is what N pools can serve; a count shared across instances would refuse requests an
+ * idle instance could serve, and would cost a database round trip on every request.
  */
 @Component
 public class TenantConcurrency {

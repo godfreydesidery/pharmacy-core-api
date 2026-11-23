@@ -52,7 +52,8 @@ class ModuleStructureTest {
             "platform-kernel",
             "platform-persistence",
             "platform-bus",
-            "platform-config");
+            "platform-config",
+            "platform-crypto");
   }
 
   @Test

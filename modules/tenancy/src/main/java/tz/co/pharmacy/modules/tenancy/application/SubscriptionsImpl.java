@@ -39,6 +39,8 @@ import tz.co.pharmacy.modules.tenancy.ports.outbound.TenantUsage;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.SingleRunner;
+import tz.co.pharmacy.platform.persistence.jobs.JobRun;
 
 /**
  * Plans, subscriptions and their invoices. Writes run in short transactions of their own; usage is
@@ -51,6 +53,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
   static final String UNPAID = "Subscription unpaid";
 
   static final String DUE_TEMPLATE = "tenant.subscription_due";
+  static final String LIFECYCLE_JOB = "subscription-lifecycle";
   static final String PAST_DUE_TEMPLATE = "tenant.subscription_past_due";
 
   private final PlanRepository plans;
@@ -60,6 +63,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
   private final TenantUsage usage;
   private final SubscriptionNotices notices;
   private final TransactionTemplate tx;
+  private final SingleRunner runner;
   private final Clock clock;
   private final String trialPlan;
   private final int graceDays;
@@ -73,6 +77,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
       TenantUsage usage,
       SubscriptionNotices notices,
       PlatformTransactionManager transactions,
+      SingleRunner runner,
       Clock clock,
       @Value("${pharmacy.subscriptions.trial-plan:PRO}") String trialPlan,
       @Value("${pharmacy.subscriptions.grace-days:7}") int graceDays,
@@ -84,6 +89,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
     this.usage = usage;
     this.notices = notices;
     this.tx = new TransactionTemplate(transactions);
+    this.runner = runner;
     this.clock = clock;
     this.trialPlan = trialPlan;
     this.graceDays = graceDays;
@@ -388,12 +394,23 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
 
   // --------------------------------------------------------------- lifecycle
 
+  /**
+   * Every night, on one instance ({@link SingleRunner}): invoices, reminders, past due and
+   * suspensions. A pharmacy whose step or notice fails is recorded with the run (and the run is
+   * FAILED), instead of the error being dropped.
+   */
   @Scheduled(cron = "${pharmacy.subscriptions.lifecycle-cron:0 15 2 * * *}")
   void daily() {
-    ExecutionContext.callAs(
-        ExecutionContext.Frame.service(
-            "subscription-lifecycle", UUID.randomUUID().toString(), null),
-        () -> runLifecycle(today()));
+    runner.runAlone(
+        LIFECYCLE_JOB,
+        run ->
+            ExecutionContext.callAs(
+                ExecutionContext.Frame.service(LIFECYCLE_JOB, UUID.randomUUID().toString(), null),
+                () -> {
+                  List<String> done = lifecycle(today(), null, run);
+                  run.note(done.size() + " subscription steps");
+                  return null;
+                }));
   }
 
   @Override
@@ -403,6 +420,10 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
 
   @Override
   public List<String> runLifecycle(LocalDate today, UUID tenantUid) {
+    return lifecycle(today, tenantUid, new JobRun(LIFECYCLE_JOB));
+  }
+
+  private List<String> lifecycle(LocalDate today, UUID tenantUid, JobRun run) {
     LocalDate day = today == null ? today() : today;
     List<String> log = new ArrayList<>();
     List<Subscription> live =
@@ -419,6 +440,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
         tx.executeWithoutResult(status -> step(tenant, day, log, toSend));
       } catch (RuntimeException failure) {
         log.add(tenant + ": failed (" + failure.getMessage() + ")");
+        run.failed(tenant, "subscription step: " + failure);
         continue;
       }
       for (Notice n : toSend) {
@@ -426,6 +448,7 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
           notices.notifyAdmins(tenant, n.template(), n.params(), n.dedupKey());
         } catch (RuntimeException failure) {
           log.add(tenant + ": notice not sent (" + failure.getMessage() + ")");
+          run.failed(tenant, "notice " + n.template() + " not sent: " + failure);
         }
       }
     }

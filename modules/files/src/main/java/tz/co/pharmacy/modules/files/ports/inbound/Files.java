@@ -30,6 +30,12 @@ public interface Files {
   /** A completed file of the tenant. */
   Optional<FileView> find(UUID fileUid);
 
+  /**
+   * A file of the tenant that is being uploaded or is complete (not deleted, not an archive): what
+   * the complete step checks the caller's permission on, before the file is visible.
+   */
+  Optional<FileView> findUpload(UUID fileUid);
+
   /** The completed files attached to an owner, newest first. */
   List<FileView> attachments(String ownerType, UUID ownerUid);
 

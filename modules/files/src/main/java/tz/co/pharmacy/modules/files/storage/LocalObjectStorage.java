@@ -3,8 +3,6 @@ package tz.co.pharmacy.modules.files.storage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -13,20 +11,21 @@ import tz.co.pharmacy.modules.files.ports.outbound.ObjectStorage;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /**
- * Files on a local directory, for development and single-node installs. Its "presigned" URLs are
- * API URLs, {@code /api/v1/files/blob/{key}?exp=&ct=&sig=}, signed with HMAC by {@link UrlSigner}
- * and served by {@code SignedBlobs}, so the browser flow is the same as with S3.
+ * Files on a local directory, for development and single-node installs (one instance only: the
+ * directory is not shared). Its "presigned" GET URLs are API URLs, {@code
+ * /api/v1/files/blob/{key}?exp=&ct=&cd=&sig=}, signed by {@link BlobUrls} and served by {@code
+ * SignedBlobs}, so the browser flow is the same as with S3.
  */
 public class LocalObjectStorage implements ObjectStorage {
 
-  public static final String BLOB_PATH = "/api/v1/files/blob/";
+  public static final String BLOB_PATH = BlobUrls.PATH;
 
   private final Path root;
-  private final UrlSigner signer;
+  private final BlobUrls urls;
 
-  public LocalObjectStorage(Path root, UrlSigner signer) {
+  public LocalObjectStorage(Path root, BlobUrls urls) {
     this.root = root.toAbsolutePath().normalize();
-    this.signer = signer;
+    this.urls = urls;
   }
 
   @Override
@@ -35,29 +34,13 @@ public class LocalObjectStorage implements ObjectStorage {
   }
 
   @Override
-  public String presignPut(String key, String contentType, Duration ttl) {
-    return url("PUT", key, contentType, ttl);
+  public String presignGet(String key, String contentType, String disposition, Duration ttl) {
+    return urls.get(key, contentType, disposition, ttl);
   }
 
-  @Override
-  public String presignGet(String key, String contentType, Duration ttl) {
-    return url("GET", key, contentType, ttl);
-  }
-
-  private String url(String method, String key, String contentType, Duration ttl) {
-    long expires = signer.expiresIn(ttl);
-    return BLOB_PATH
-        + key
-        + "?exp="
-        + expires
-        + "&ct="
-        + URLEncoder.encode(contentType, StandardCharsets.UTF_8)
-        + "&sig="
-        + signer.sign(method, key, expires, contentType);
-  }
-
-  public UrlSigner signer() {
-    return signer;
+  /** The directory the files are in. */
+  public Path root() {
+    return root;
   }
 
   @Override
@@ -85,8 +68,12 @@ public class LocalObjectStorage implements ObjectStorage {
 
   @Override
   public long size(String key) {
+    Path path = path(key);
+    if (!Files.isRegularFile(path)) {
+      throw Refusal.notFound("file_not_found", "No such file.");
+    }
     try {
-      return Files.size(path(key));
+      return Files.size(path);
     } catch (IOException exception) {
       throw new UncheckedIOException(exception);
     }

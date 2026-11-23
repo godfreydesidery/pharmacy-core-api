@@ -16,4 +16,11 @@ public interface InAppInbox {
   void markRead(UUID uid);
 
   void markAllRead();
+
+  /**
+   * {@code userUid}'s latest message and unread count in the current tenant (or at platform scope),
+   * read for the live stream of another instance: a signal names the user, the stream reads the
+   * rest here. For a service in that scope, not for a request.
+   */
+  InAppSnapshot snapshot(UUID userUid);
 }
