@@ -24,6 +24,14 @@ public interface Shifts {
   Page<ShiftView> list(PageQuery query);
 
   /**
+   * The cash counted when the branch's last shift closed, to suggest the next float; empty before
+   * the first close.
+   */
+  Optional<LastCount> lastCount();
+
+  record LastCount(BigDecimal countedCash, Instant closedAt, String cashierName) {}
+
+  /**
    * {@code tenders} are the shift's takings by method in the base currency; {@code expectedCash} =
    * float + cash taken − change − cash refunds; {@code variance} = counted − expected.
    */

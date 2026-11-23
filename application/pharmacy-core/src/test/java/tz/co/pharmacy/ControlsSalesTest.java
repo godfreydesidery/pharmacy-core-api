@@ -242,6 +242,9 @@ class ControlsSalesTest extends IntegrationTest {
                 approve("SHIFT_VARIANCE", 60_000))
             .expect(200);
     assertThat(money(closed, "$.data.variance")).isEqualTo(60_000.0);
+    // The till suggests the next float from what was counted at the last close.
+    assertThat(money(clerk.get("/api/v1/shifts/last-count").expect(200), "$.data.countedCash"))
+        .isEqualTo(60_000.0);
 
     admin.put("/api/v1/settings", "{\"requireOpenShift\":false}").expect(200);
     sell(clerk, product, 1, null);

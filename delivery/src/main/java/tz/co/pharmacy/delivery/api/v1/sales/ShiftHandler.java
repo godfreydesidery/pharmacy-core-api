@@ -32,6 +32,13 @@ public class ShiftHandler {
     return ApiResponse.ok(shifts.current().orElse(null), "Current shift retrieved");
   }
 
+  /** The cash counted at the branch's last close, to suggest the float; null before any. */
+  @GetMapping("/last-count")
+  @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
+  public ApiResponse<Shifts.LastCount> lastCount() {
+    return ApiResponse.ok(shifts.lastCount().orElse(null), "Last count retrieved");
+  }
+
   public record OpenRequest(BigDecimal openingFloat) {}
 
   @PostMapping("/open")

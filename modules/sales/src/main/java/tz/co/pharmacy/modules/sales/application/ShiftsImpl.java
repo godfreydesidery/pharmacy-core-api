@@ -134,6 +134,16 @@ class ShiftsImpl implements Shifts {
         s -> view(s, figures(s, s.getClosedAt() == null ? clock.instant() : s.getClosedAt())));
   }
 
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<LastCount> lastCount() {
+    return shifts
+        .findFirstByBranchUidAndStatusOrderByClosedAtDesc(
+            ExecutionContext.requireBranch(), "CLOSED")
+        .filter(s -> s.getCountedCash() != null)
+        .map(s -> new LastCount(s.getCountedCash(), s.getClosedAt(), s.getCashierName()));
+  }
+
   private Optional<Shift> open() {
     return shifts.findByBranchUidAndCreatedByUidAndStatus(
         ExecutionContext.requireBranch(), ExecutionContext.actor().uid(), "OPEN");

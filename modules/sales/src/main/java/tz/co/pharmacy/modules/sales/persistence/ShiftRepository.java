@@ -37,4 +37,7 @@ public interface ShiftRepository
   Optional<Shift> lockOpen(@Param("branch") UUID branchUid, @Param("cashier") UUID cashierUid);
 
   List<Shift> findTop100ByBranchUidOrderByIdDesc(UUID branchUid);
+
+  /** The branch's most recently closed shift: its count suggests the next float. */
+  Optional<Shift> findFirstByBranchUidAndStatusOrderByClosedAtDesc(UUID branchUid, String status);
 }
