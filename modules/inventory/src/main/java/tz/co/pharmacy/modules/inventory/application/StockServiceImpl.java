@@ -38,6 +38,7 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.MovementView;
 import tz.co.pharmacy.modules.inventory.ports.inbound.ProductSnapshot;
 import tz.co.pharmacy.modules.inventory.ports.inbound.ProductSnapshots;
 import tz.co.pharmacy.modules.inventory.ports.inbound.ReceiveStockCommand;
+import tz.co.pharmacy.modules.inventory.ports.inbound.ReceiveTransferCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.SerialStatus;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferCommand;
@@ -45,7 +46,9 @@ import tz.co.pharmacy.modules.inventory.ports.inbound.TransferLineCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferStatus;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferView;
 import tz.co.pharmacy.modules.inventory.ports.outbound.ProductCatalogue;
+import tz.co.pharmacy.platform.approval.ApprovalActions;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
+import tz.co.pharmacy.platform.kernel.Actor;
 import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
@@ -79,6 +82,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   private final InventoryViews views;
   private final Clock clock;
   private final TenantCalendar calendar;
+  private final StockControls controls;
 
   @Override
   @Transactional
@@ -99,6 +103,21 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   @Override
   @Transactional
   public MovementView openingStock(ReceiveStockCommand command) {
+    UUID branch = ExecutionContext.requireBranch();
+    // FRD-11: opening stock belongs to setting a branch up. Once it has sold, received goods or
+    // taken a transfer in, a balance added from nowhere needs a manager (an import of opening
+    // stock is approved once for the file).
+    if (movements.tradedAt(branch)) {
+      int units = Math.max(command.quantity(), 0);
+      BigDecimal value =
+          command.unitCost() == null
+              ? BigDecimal.ZERO
+              : command.unitCost().multiply(BigDecimal.valueOf(units));
+      controls.requireOnce(
+          ApprovalActions.LATE_OPENING_STOCK,
+          value,
+          "Opening stock " + (command.reference() == null ? "OPENING" : command.reference()));
+    }
     return views.movement(
         stockIn(
             new ReceiveStockCommand(
@@ -274,7 +293,13 @@ class StockServiceImpl implements StockService, ProductSnapshots {
       throw Refusal.invalid(
           "invalid_quantity_change", "quantityChange must not be zero.", "quantityChange");
     }
-    String note = Checks.optionalText(command.note(), "note", 500);
+    // FRD-5: stock written off says why, and a manager approves a controlled medicine always and
+    // other stock above the pharmacy's limit, at the batch's cost. A destruction, stock-take or
+    // transfer shortfall is approved once for its total and writes its lines off covered.
+    String note =
+        change < 0
+            ? StockControls.requireNote(command.note(), "note")
+            : Checks.optionalText(command.note(), "note", 500);
     ProductRecord product = product(productUid);
     int before = (int) levels.quantityAt(branch, productUid);
     StockLevel level =
@@ -290,6 +315,13 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                   + batch.getBatchNumber()
                   + " are in stock at this branch.")
           .about("quantityChange");
+    }
+    // Asked only of a write-off that can be made.
+    if (change < 0 && !controls.isCovered()) {
+      controls.approveWriteOff(
+          controls.controlled(productUid),
+          batch.getUnitCost().multiply(BigDecimal.valueOf(-change)),
+          product.getName() + " batch " + batch.getBatchNumber() + " (" + reason.name() + ")");
     }
     List<String> serials = SerialRules.normalise(command.serialNumbers(), "serialNumbers");
     if (product.serialTracked()) {
@@ -443,7 +475,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
 
   @Override
   @Transactional
-  public TransferView receiveTransfer(UUID transferUid) {
+  public TransferView receiveTransfer(UUID transferUid, ReceiveTransferCommand command) {
     UUID branch = ExecutionContext.requireBranch();
     Transfer transfer =
         transfers
@@ -456,6 +488,44 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     if (transfer.getStatus() != TransferStatus.IN_TRANSIT) {
       throw Refusal.conflict("already_received", "The transfer has been received already.");
     }
+    // FRD-15: the person who sent the stock does not confirm its arrival.
+    Actor actor = ExecutionContext.actor();
+    boolean sender =
+        transfer.getCreatedByUid() != null
+            ? transfer.getCreatedByUid().equals(actor.uid())
+            : transfer.getCreatedBy() != null && transfer.getCreatedBy().equals(actor.reference());
+    if (sender && !ExecutionContext.rootAdmin()) {
+      throw Refusal.invalid(
+          "receiver_is_sender",
+          "You dispatched this transfer; someone else at the receiving branch confirms it.");
+    }
+    Map<TransferLine, Integer> received = receivedQuantities(transfer, command);
+    Map<TransferLine, List<String>> arrivedSerials = new LinkedHashMap<>();
+    BigDecimal shortValue = BigDecimal.ZERO;
+    boolean anyShort = false;
+    boolean controlledShort = false;
+    for (TransferLine line : transfer.getLines()) {
+      int arrived = received.get(line);
+      arrivedSerials.put(line, arrivedSerials(line, arrived, command));
+      int shortUnits = line.getQuantity() - arrived;
+      if (shortUnits > 0) {
+        anyShort = true;
+        shortValue =
+            shortValue.add(
+                batch(line.getBatchUid()).getUnitCost().multiply(BigDecimal.valueOf(shortUnits)));
+        controlledShort |= controls.controlled(line.getProductUid());
+      }
+    }
+    String note = command == null ? null : command.note();
+    if (anyShort) {
+      note = StockControls.requireNote(note, "note");
+      controls.approve(
+          controlledShort
+              ? ApprovalActions.CONTROLLED_WRITE_OFF
+              : ApprovalActions.TRANSFER_SHORTFALL,
+          shortValue,
+          transfer.getNumber());
+    }
     // The units leave transit and reach a shelf together; a receipt averaging the same batch waits,
     // so it never counts them twice or not at all. Products in a fixed order, as two transfers may
     // share some.
@@ -464,30 +534,198 @@ class StockServiceImpl implements StockService, ProductSnapshots {
         .distinct()
         .sorted()
         .forEach(products::lockSnapshot);
+    List<TransferLine> shortLines = new ArrayList<>();
     for (TransferLine line : transfer.getLines()) {
+      int arrived = received.get(line);
+      List<String> serials = arrivedSerials.get(line);
+      line.received(arrived);
+      if (arrived < line.getQuantity()) {
+        shortLines.add(line);
+      }
+      if (arrived == 0) {
+        continue;
+      }
       Batch batch = batch(line.getBatchUid());
-      if (!line.getSerialNumbers().isEmpty()) {
-        units
-            .lockNamed(line.getProductUid(), line.getSerialNumbers())
-            .forEach(unit -> unit.arriveAt(branch));
+      if (!serials.isEmpty()) {
+        units.lockNamed(line.getProductUid(), serials).forEach(unit -> unit.arriveAt(branch));
       }
       int before = (int) levels.quantityAt(branch, line.getProductUid());
-      levelFor(branch, batch).change(line.getQuantity());
+      levelFor(branch, batch).change(arrived);
       movements.save(
           new Movement(
               branch,
               line.getProductName(),
               batch,
               MovementType.TRANSFER_IN,
-              line.getQuantity(),
-              before + line.getQuantity(),
+              arrived,
+              before + arrived,
               transfer.getNumber(),
               null,
               null,
-              line.getSerialNumbers()));
+              serials));
     }
-    transfer.markReceived();
+    transfer.markReceived(actor.reference(), actor.uid());
+    if (!shortLines.isEmpty()) {
+      writeOffShortfall(transfer, shortLines, arrivedSerials, note);
+    }
     return views.transfer(transfer);
+  }
+
+  /**
+   * The units of a transfer that never arrived are the sending branch's loss: the part of the
+   * dispatch they were comes back on its books (a TRANSFER_OUT reversal, reference "TRF-… SHORT")
+   * and is written off there at the batch's cost (THEFT_LOSS) through the ordinary adjustment,
+   * which the books post as a stock loss of the sending branch; stock at cost and the ledger keep
+   * matching. The transfer's own approval, taken before, covers the lines.
+   */
+  private void writeOffShortfall(
+      Transfer transfer,
+      List<TransferLine> shortLines,
+      Map<TransferLine, List<String>> arrivedSerials,
+      String note) {
+    UUID from = transfer.getFromBranchUid();
+    ExecutionContext.Frame here =
+        ExecutionContext.current().orElseThrow(() -> new IllegalStateException("No context"));
+    ExecutionContext.callAs(
+        here.withTenant(here.tenantUid(), from),
+        () ->
+            controls.covered(
+                () -> {
+                  for (TransferLine line : shortLines) {
+                    returnShortToSender(transfer, line, arrivedSerials.get(line), from, note);
+                  }
+                  return null;
+                }));
+  }
+
+  private void returnShortToSender(
+      Transfer transfer, TransferLine line, List<String> arrived, UUID from, String note) {
+    int shortUnits = line.getQuantity() - line.getReceivedQuantity();
+    Batch batch = batch(line.getBatchUid());
+    List<String> missing =
+        line.getSerialNumbers().stream().filter(serial -> !arrived.contains(serial)).toList();
+    if (!missing.isEmpty()) {
+      units.lockNamed(line.getProductUid(), missing).forEach(unit -> unit.arriveAt(from));
+    }
+    int before = (int) levels.quantityAt(from, line.getProductUid());
+    levelFor(from, batch).change(shortUnits);
+    movements.save(
+        new Movement(
+            from,
+            line.getProductName(),
+            batch,
+            MovementType.TRANSFER_OUT,
+            shortUnits,
+            before + shortUnits,
+            transfer.getNumber() + " SHORT",
+            null,
+            "Did not arrive",
+            missing));
+    adjust(
+        new AdjustStockCommand(
+            line.getProductUid(),
+            line.getBatchUid(),
+            -shortUnits,
+            AdjustmentReason.THEFT_LOSS,
+            clip("Short on transfer " + transfer.getNumber() + ": " + note),
+            missing));
+  }
+
+  private static String clip(String text) {
+    return text.length() <= 500 ? text : text.substring(0, 500);
+  }
+
+  /** Units received per line: as named in the command, else in full. */
+  private Map<TransferLine, Integer> receivedQuantities(
+      Transfer transfer, ReceiveTransferCommand command) {
+    Map<TransferLine, Integer> received = new LinkedHashMap<>();
+    transfer.getLines().forEach(line -> received.put(line, line.getQuantity()));
+    if (command == null || command.lines() == null) {
+      return received;
+    }
+    Set<TransferLine> named = new HashSet<>();
+    for (int i = 0; i < command.lines().size(); i++) {
+      ReceiveTransferCommand.ReceivedLine given = command.lines().get(i);
+      String field = "lines[" + i + "]";
+      if (given == null || (given.batchUid() == null && given.productUid() == null)) {
+        throw Refusal.invalid("line_not_found", "Name the line's batch.", field + ".batchUid");
+      }
+      TransferLine line = lineOf(transfer, given, field);
+      if (!named.add(line)) {
+        throw Refusal.invalid("duplicate_line", "Each line appears once.", field + ".batchUid");
+      }
+      Integer quantity = given.receivedQuantity();
+      if (quantity == null || quantity < 0 || quantity > line.getQuantity()) {
+        throw Refusal.invalid(
+            "invalid_received_quantity",
+            "Between 0 and the "
+                + line.getQuantity()
+                + " dispatched of "
+                + line.getProductName()
+                + " can be received.",
+            field + ".receivedQuantity");
+      }
+      received.put(line, quantity);
+    }
+    return received;
+  }
+
+  /** The transfer line a received line names: by batch, or by product when it came in one. */
+  private static TransferLine lineOf(
+      Transfer transfer, ReceiveTransferCommand.ReceivedLine given, String field) {
+    List<TransferLine> matching =
+        transfer.getLines().stream().filter(line -> names(given, line)).toList();
+    if (matching.isEmpty()) {
+      throw Refusal.invalid(
+          "line_not_found", "That batch or product is not on this transfer.", field + ".batchUid");
+    }
+    if (matching.size() > 1) {
+      throw Refusal.invalid(
+          "batch_required",
+          "The product came in several batches; name the batch of each line.",
+          field + ".batchUid");
+    }
+    return matching.getFirst();
+  }
+
+  private static boolean names(ReceiveTransferCommand.ReceivedLine given, TransferLine line) {
+    if (given == null) {
+      return false;
+    }
+    if (given.batchUid() != null) {
+      return line.getBatchUid().equals(given.batchUid())
+          && (given.productUid() == null || line.getProductUid().equals(given.productUid()));
+    }
+    return line.getProductUid().equals(given.productUid());
+  }
+
+  /** The serial numbers of a line that arrived: as named, else the first dispatched. */
+  private static List<String> arrivedSerials(
+      TransferLine line, int arrived, ReceiveTransferCommand command) {
+    if (line.getSerialNumbers().isEmpty()) {
+      return List.of();
+    }
+    List<String> named = null;
+    if (command != null && command.lines() != null) {
+      named =
+          command.lines().stream()
+              .filter(given -> names(given, line))
+              .map(ReceiveTransferCommand.ReceivedLine::serialNumbers)
+              .filter(java.util.Objects::nonNull)
+              .findFirst()
+              .orElse(null);
+    }
+    if (named == null || named.isEmpty()) {
+      return List.copyOf(line.getSerialNumbers().subList(0, arrived));
+    }
+    List<String> serials = SerialRules.normalise(named, "serialNumbers");
+    if (serials.size() != arrived || !line.getSerialNumbers().containsAll(serials)) {
+      throw Refusal.invalid(
+          "serials_mismatch",
+          "Name the " + arrived + " serial numbers of " + line.getProductName() + " that arrived.",
+          "serialNumbers");
+    }
+    return serials;
   }
 
   /**
@@ -552,6 +790,24 @@ class StockServiceImpl implements StockService, ProductSnapshots {
     // every unit of it the pharmacy holds, those in transit included, so the stock is valued at
     // what was paid for it, as the books record the receipt. A cost to more than cents (a foreign
     // price at the receipt's rate) is kept to the cent and the difference posted (MON-9).
+    // FRD-11: opening stock never re-costs a batch already held. Its units come at the batch's
+    // cost or not at all: a different cost is refused rather than silently averaged in (stock at
+    // another cost is another batch, or a goods receipt).
+    if (type == MovementType.OPENING
+        && existing.isPresent()
+        && batch.getUnitCost().compareTo(Amounts.money(unitCost)) != 0) {
+      throw Refusal.invalid(
+              "batch_cost_differs",
+              "Batch "
+                  + batchNumber
+                  + " of "
+                  + product.getName()
+                  + " is held at "
+                  + batch.getUnitCost().toPlainString()
+                  + " a unit; opening stock of it comes at that cost.",
+              "unitCost")
+          .with("batchUnitCost", batch.getUnitCost());
+    }
     BigDecimal previousCost = existing.isPresent() ? batch.getUnitCost() : null;
     BigDecimal rounding = batch.receive(existing.isPresent() ? held(batch) : 0, quantity, unitCost);
     serials.forEach(serial -> units.save(new SerialUnit(batch, serial, branch)));

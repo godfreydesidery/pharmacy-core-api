@@ -16,7 +16,10 @@ public interface Destructions {
 
   /**
    * Records the destruction (DST-000001) and writes off its lines; 422 insufficient_stock,
-   * duplicate_batch, batch_not_found, invalid reason (EXPIRED or DAMAGED).
+   * duplicate_batch, batch_not_found, invalid reason (EXPIRED or DAMAGED), note_required. A manager
+   * approves it (403 approval_required) when a line is a controlled medicine (CONTROLLED_WRITE_OFF,
+   * always) or its total at cost is above the pharmacy's limit (STOCK_WRITE_OFF); that manager is
+   * then its witness, and a typed witness name becomes optional.
    */
   DestructionView record(DestructionCommand command);
 
@@ -37,6 +40,10 @@ public interface Destructions {
 
   record LineCommand(UUID batchUid, Integer quantity, String reason) {}
 
+  /**
+   * {@code witnessName} is the approving manager when an approval was used ({@code
+   * witnessApproved}), else the name typed; {@code typedWitnessName} keeps what was typed.
+   */
   record DestructionView(
       UUID uid,
       String number,
@@ -45,6 +52,9 @@ public interface Destructions {
       LocalDate destroyedOn,
       String method,
       String witnessName,
+      boolean witnessApproved,
+      UUID approvedByUid,
+      String typedWitnessName,
       String witnessTitle,
       String certificateNumber,
       String note,

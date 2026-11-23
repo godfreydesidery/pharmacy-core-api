@@ -2,8 +2,10 @@ package tz.co.pharmacy.modules.inventory.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +18,7 @@ import tz.co.pharmacy.modules.inventory.domain.ProductRecord;
 import tz.co.pharmacy.modules.inventory.persistence.BatchRepository;
 import tz.co.pharmacy.modules.inventory.persistence.DestructionRepository;
 import tz.co.pharmacy.modules.inventory.persistence.ProductRecordRepository;
+import tz.co.pharmacy.modules.inventory.persistence.StockLevelRepository;
 import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustStockCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.AdjustmentReason;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Destructions;
@@ -44,6 +47,8 @@ class DestructionsImpl implements Destructions {
   private final InventoryViews views;
   private final DocumentNumbers documentNumbers;
   private final TenantCalendar calendar;
+  private final StockControls controls;
+  private final StockLevelRepository levels;
 
   @Override
   @Transactional
@@ -57,18 +62,13 @@ class DestructionsImpl implements Destructions {
           "invalid_date", "A destruction cannot be dated in the future.", "destroyedOn");
     }
     List<LineCommand> lines = Checks.notEmpty(command.lines(), "lines");
-    Destruction destruction =
-        new Destruction(
-            documentNumbers.format("DST", 6),
-            branch,
-            on,
-            Checks.text(command.method(), "method", 200),
-            Checks.text(command.witnessName(), "witnessName", 200),
-            Checks.optionalText(command.witnessTitle(), "witnessTitle", 200),
-            Checks.optionalText(command.certificateNumber(), "certificateNumber", 100),
-            Checks.optionalText(command.note(), "note", 500));
-    destruction.recordedBy(ExecutionContext.actor().name());
+    String note = StockControls.requireNote(command.note(), "note");
+    String number = documentNumbers.format("DST", 6);
+    // Each line is checked before anything is written off: its batch, reason and value at cost.
+    List<Planned> planned = new ArrayList<>();
     Set<UUID> seen = new HashSet<>();
+    BigDecimal total = BigDecimal.ZERO;
+    boolean controlled = false;
     for (int i = 0; i < lines.size(); i++) {
       LineCommand line = lines.get(i);
       String field = "lines[" + i + "]";
@@ -105,31 +105,74 @@ class DestructionsImpl implements Destructions {
                 + "; destroy it as DAMAGED, or wait until it has expired.",
             field + ".reason");
       }
-      try {
-        stock.adjust(
-            new AdjustStockCommand(
-                batch.getProductUid(),
-                batchUid,
-                -quantity,
-                "EXPIRED".equals(reason)
-                    ? AdjustmentReason.EXPIRED_WRITE_OFF
-                    : AdjustmentReason.DAMAGE,
-                "Destruction " + destruction.getNumber(),
-                null));
-      } catch (Refusal refusal) {
-        throw refusal.about(field + ".quantity");
+      // Short stock is refused before a manager is asked to approve it.
+      int held = (int) levels.quantityOfBatchAt(branch, batch);
+      if (held < quantity) {
+        throw Refusal.invalid(
+                "insufficient_stock",
+                "Only "
+                    + held
+                    + " of "
+                    + name
+                    + " batch "
+                    + batch.getBatchNumber()
+                    + " are in stock at this branch.")
+            .about(field + ".quantity");
       }
-      destruction.addLine(
-          new DestructionLine(
-              batch.getProductUid(),
-              name,
-              batchUid,
-              batch.getBatchNumber(),
-              batch.getExpiryDate(),
-              reason,
-              quantity,
-              batch.getUnitCost()));
+      planned.add(new Planned(field, batch, name, reason, quantity));
+      total = total.add(batch.getUnitCost().multiply(BigDecimal.valueOf(quantity)));
+      controlled |= controls.controlled(batch.getProductUid());
     }
+    // FRD-5: a controlled medicine always, other stock above the limit, needs a manager; the
+    // manager who approves is the destruction's witness.
+    Optional<StockControls.Approver> approver = controls.approveWriteOff(controlled, total, number);
+    String typedWitness =
+        approver.isPresent()
+            ? Checks.optionalText(command.witnessName(), "witnessName", 200)
+            : Checks.text(command.witnessName(), "witnessName", 200);
+    Destruction destruction =
+        new Destruction(
+            number,
+            branch,
+            on,
+            Checks.text(command.method(), "method", 200),
+            typedWitness,
+            Checks.optionalText(command.witnessTitle(), "witnessTitle", 200),
+            Checks.optionalText(command.certificateNumber(), "certificateNumber", 100),
+            note);
+    destruction.recordedBy(ExecutionContext.actor().name());
+    approver.ifPresent(a -> destruction.approvedBy(a.name(), a.uid()));
+    controls.covered(
+        () -> {
+          for (Planned line : planned) {
+            Batch batch = line.batch();
+            try {
+              stock.adjust(
+                  new AdjustStockCommand(
+                      batch.getProductUid(),
+                      batch.getUid(),
+                      -line.quantity(),
+                      "EXPIRED".equals(line.reason())
+                          ? AdjustmentReason.EXPIRED_WRITE_OFF
+                          : AdjustmentReason.DAMAGE,
+                      "Destruction " + destruction.getNumber(),
+                      null));
+            } catch (Refusal refusal) {
+              throw refusal.about(line.field() + ".quantity");
+            }
+            destruction.addLine(
+                new DestructionLine(
+                    batch.getProductUid(),
+                    line.productName(),
+                    batch.getUid(),
+                    batch.getBatchNumber(),
+                    batch.getExpiryDate(),
+                    line.reason(),
+                    line.quantity(),
+                    batch.getUnitCost()));
+          }
+          return null;
+        });
     return view(destructions.save(destruction));
   }
 
@@ -154,6 +197,9 @@ class DestructionsImpl implements Destructions {
     return view(destruction);
   }
 
+  private record Planned(
+      String field, Batch batch, String productName, String reason, int quantity) {}
+
   private DestructionView view(Destruction d) {
     return new DestructionView(
         d.getUid(),
@@ -162,6 +208,9 @@ class DestructionsImpl implements Destructions {
         views.branchName(d.getBranchUid()),
         d.getDestroyedOn(),
         d.getMethod(),
+        d.getApprovedByName() != null ? d.getApprovedByName() : d.getWitnessName(),
+        d.getApprovedByName() != null,
+        d.getApprovedByUid(),
         d.getWitnessName(),
         d.getWitnessTitle(),
         d.getCertificateNumber(),

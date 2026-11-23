@@ -75,7 +75,7 @@ public final class Api {
       request.header(headers[i], headers[i + 1]);
     }
     request.header("Content-Type", "application/json");
-    request.PUT(HttpRequest.BodyPublishers.ofString(json));
+    request.PUT(HttpRequest.BodyPublishers.ofString(json == null ? "" : json));
     return call(request);
   }
 

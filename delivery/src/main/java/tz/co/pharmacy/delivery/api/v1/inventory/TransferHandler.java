@@ -17,6 +17,7 @@ import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.modules.inventory.ports.inbound.ReceiveTransferCommand;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockQueries;
 import tz.co.pharmacy.modules.inventory.ports.inbound.StockService;
 import tz.co.pharmacy.modules.inventory.ports.inbound.TransferCommand;
@@ -37,11 +38,22 @@ public class TransferHandler {
   @Access(scope = AccessScope.BRANCH, permission = "inventory.view")
   public ApiResponse<Page<TransferView>> list(
       @RequestParam(required = false) String direction,
+      @RequestParam(required = false) Boolean overdue,
+      @RequestParam(required = false) Integer days,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
+    if (Boolean.TRUE.equals(overdue)) {
+      return ApiResponse.ok(
+          stockQueries.overdueTransfers(
+              direction, days == null ? DEFAULT_OVERDUE_DAYS : days, Pages.of(cursor, limit)),
+          "Overdue transfers retrieved");
+    }
     return ApiResponse.ok(
         stockQueries.transfers(direction, Pages.of(cursor, limit)), "Transfers retrieved");
   }
+
+  /** In transit longer than this many days, a transfer is overdue (unless the request says). */
+  static final int DEFAULT_OVERDUE_DAYS = 7;
 
   @Idempotent
   @PostMapping
@@ -67,9 +79,37 @@ public class TransferHandler {
   @Idempotent
   @PostMapping("/{transferUid}/receive")
   @Access(scope = AccessScope.BRANCH, permission = "inventory.transfer")
-  public ApiResponse<TransferView> receive(@PathVariable UUID transferUid) {
-    return ApiResponse.ok(stockService.receiveTransfer(transferUid), "Transfer received");
+  public ApiResponse<TransferView> receive(
+      @PathVariable UUID transferUid, @RequestBody(required = false) ReceiveRequest body) {
+    ReceiveTransferCommand command =
+        body == null
+            ? null
+            : new ReceiveTransferCommand(
+                body.note(),
+                body.lines() == null
+                    ? null
+                    : body.lines().stream()
+                        .map(
+                            line ->
+                                line == null
+                                    ? null
+                                    : new ReceiveTransferCommand.ReceivedLine(
+                                        line.batchUid(),
+                                        line.productUid(),
+                                        line.receivedQuantity(),
+                                        line.serialNumbers()))
+                        .toList());
+    return ApiResponse.ok(stockService.receiveTransfer(transferUid, command), "Transfer received");
   }
+
+  /**
+   * What arrived: each line by its batch (or product), with the units received; lines not named
+   * arrived in full. A note is required when anything is short.
+   */
+  public record ReceiveRequest(String note, List<ReceivedLineRequest> lines) {}
+
+  public record ReceivedLineRequest(
+      UUID batchUid, UUID productUid, Integer receivedQuantity, List<String> serialNumbers) {}
 
   public record TransferRequest(UUID toBranchUid, String note, List<TransferLineRequest> lines) {}
 

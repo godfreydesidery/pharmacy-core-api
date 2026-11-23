@@ -37,4 +37,12 @@ class InventoryCatalogueAdapter implements ProductCatalogue {
                     product.trackingMode() == null ? null : product.trackingMode().name(),
                     product.unitOfMeasure() == null ? null : product.unitOfMeasure().name()));
   }
+
+  @Override
+  public String schedule(UUID productUid) {
+    return catalogueService
+        .product(productUid)
+        .map(product -> product.schedule() == null ? null : product.schedule().name())
+        .orElse(null);
+  }
 }

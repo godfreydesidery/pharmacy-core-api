@@ -19,7 +19,17 @@ public interface StockCounts {
 
   Page<StockCountView> list(PageQuery query);
 
+  /**
+   * The count as the counter sees it. While it is OPEN the count is blind (FRD-12): no line shows
+   * its expected quantity or variance, nor the count its variance or loss.
+   */
   StockCountView get(UUID uid);
+
+  /**
+   * The count with expected quantities, variances and the loss at cost, for whoever reviews it
+   * before posting (the route needs inventory.adjust).
+   */
+  StockCountView review(UUID uid);
 
   /** Records counted quantities; a null count leaves the line uncounted. 422 count_posted. */
   StockCountView record(UUID uid, List<CountEntry> entries);
@@ -28,7 +38,9 @@ public interface StockCounts {
    * Posts every counted line whose count differs from the book quantity as a COUNT_CORRECTION
    * adjustment: counted − (expected + what the batch's stock moved at the branch since the sheet),
    * so sales and receipts during the count are not taken for losses or gains. Uncounted lines are
-   * left alone. A view's variance is reckoned the same way. 422 count_posted.
+   * left alone. A view's variance is reckoned the same way. 422 count_posted. A loss in total at
+   * cost above the pharmacy's limit needs a manager (STOCK_WRITE_OFF); any loss of a controlled
+   * medicine always does (CONTROLLED_WRITE_OFF), for the count's whole loss.
    */
   StockCountView post(UUID uid);
 
@@ -40,11 +52,15 @@ public interface StockCounts {
       String productName,
       String batchNumber,
       LocalDate expiryDate,
-      int expected,
+      Integer expected,
       Integer counted,
       Integer variance,
       BigDecimal varianceValue) {}
 
+  /**
+   * {@code blind}: the expected quantities, variances, {@code varianceValue} (net, at cost) and
+   * {@code lossValue} (the shortages alone, at cost) are hidden (null).
+   */
   record StockCountView(
       UUID uid,
       String number,
@@ -53,6 +69,8 @@ public interface StockCounts {
       int lines,
       int counted,
       BigDecimal varianceValue,
+      BigDecimal lossValue,
+      boolean blind,
       Instant createdAt,
       String createdBy,
       Instant postedAt,

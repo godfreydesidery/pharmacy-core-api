@@ -62,6 +62,26 @@ class PharmacyFlowTest extends IntegrationTest {
 
     LocalDate soon = LocalDate.now().plusDays(60);
     LocalDate later = LocalDate.now().plusDays(400);
+    // A prescription-only product, its opening stock recorded while the branch is set up (FRD-11:
+    // once it trades, opening stock needs a manager).
+    String antibiotic =
+        admin
+            .post(
+                "/api/v1/products",
+                """
+                {"name":"Amoxicillin 250mg","genericName":"Amoxicillin","dosageForm":"CAPSULE",
+                 "schedule":"PRESCRIPTION","sellingPrice":3800.00,"costPrice":2100.00,
+                 "storage":"ROOM_TEMPERATURE"}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+    hq.post(
+            "/api/v1/stock/opening",
+            """
+            {"productUid":"%s","batchNumber":"AMX-1","expiryDate":"%s","quantity":5,"unitCost":2100.00}
+            """
+                .formatted(antibiotic, later))
+        .expect(201);
     hq.post(
             "/api/v1/goods-receipts",
             """
@@ -90,24 +110,6 @@ class PharmacyFlowTest extends IntegrationTest {
     assertThat(batches.json().read("$.data[*].quantity", List.class)).containsExactly(8);
 
     // A prescription-only product cannot be sold without prescription details.
-    String antibiotic =
-        admin
-            .post(
-                "/api/v1/products",
-                """
-                {"name":"Amoxicillin 250mg","genericName":"Amoxicillin","dosageForm":"CAPSULE",
-                 "schedule":"PRESCRIPTION","sellingPrice":3800.00,"costPrice":2100.00,
-                 "storage":"ROOM_TEMPERATURE"}
-                """)
-            .expect(201)
-            .string("$.data.uid");
-    hq.post(
-            "/api/v1/stock/opening",
-            """
-            {"productUid":"%s","batchNumber":"AMX-1","expiryDate":"%s","quantity":5,"unitCost":2100.00}
-            """
-                .formatted(antibiotic, later))
-        .expect(201);
     Response refused =
         hq.post(
             "/api/v1/sales",

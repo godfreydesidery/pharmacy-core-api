@@ -50,6 +50,13 @@ public class Product extends TenantEntity {
   @Enumerated(EnumType.STRING)
   private Schedule schedule;
 
+  /**
+   * Whether the product has ever been CONTROLLED (FRD-6): the controlled-drugs register keeps
+   * listing it after its class changes. Set when it is made or becomes CONTROLLED, and when it
+   * stops being so; never cleared.
+   */
+  private boolean everControlled;
+
   @Column(precision = 14, scale = 2)
   private BigDecimal sellingPrice;
 
@@ -100,6 +107,9 @@ public class Product extends TenantEntity {
     this.dosageForm = details.dosageForm();
     this.strength = details.strength();
     this.packSize = details.packSize();
+    if (this.schedule == Schedule.CONTROLLED || details.schedule() == Schedule.CONTROLLED) {
+      this.everControlled = true;
+    }
     this.schedule = details.schedule();
     this.sellingPrice = details.sellingPrice();
     this.costPrice = details.costPrice();

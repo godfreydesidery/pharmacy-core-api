@@ -45,6 +45,7 @@ class StockCountsImpl implements StockCounts {
   private final BatchRepository batches;
   private final DocumentNumbers documentNumbers;
   private final Clock clock;
+  private final StockControls controls;
 
   @Override
   @Transactional
@@ -85,7 +86,7 @@ class StockCountsImpl implements StockCounts {
               level.getBatch().getUnitCost(),
               level.getQuantity()));
     }
-    return view(counts.save(count), true);
+    return view(counts.save(count), true, true);
   }
 
   @Override
@@ -97,13 +98,20 @@ class StockCountsImpl implements StockCounts {
         counts,
         Specs.equal("branchUid", branch),
         query,
-        c -> view(c, false, "OPEN".equals(c.getStatus()) ? now : null));
+        c -> view(c, false, "OPEN".equals(c.getStatus()) ? now : null, blind(c, false)));
   }
 
   @Override
   @Transactional(readOnly = true)
   public StockCountView get(UUID uid) {
-    return view(count(uid), true);
+    StockCount count = count(uid);
+    return view(count, true, blind(count, false));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public StockCountView review(UUID uid) {
+    return view(count(uid), true, false);
   }
 
   @Override
@@ -126,7 +134,7 @@ class StockCountsImpl implements StockCounts {
       }
       line.counted(entry.counted());
     }
-    return view(count, true);
+    return view(count, true, true);
   }
 
   /**
@@ -148,28 +156,47 @@ class StockCountsImpl implements StockCounts {
                 java.util.Comparator.comparing(StockCountLine::getProductUid)
                     .thenComparing(StockCountLine::getBatchUid))
             .toList();
+    Map<StockCountLine, Batch> batchOf = new java.util.HashMap<>();
+    BigDecimal loss = BigDecimal.ZERO;
+    boolean controlledLoss = false;
     for (StockCountLine line : counted) {
       products.lockSnapshot(line.getProductUid());
       Batch batch =
           batches
               .findByUid(line.getBatchUid())
               .orElseThrow(() -> Refusal.invalid("batch_not_found", "No such batch."));
+      batchOf.put(line, batch);
       int now = levels.lockAt(branch, batch).map(StockLevel::getQuantity).orElse(0);
       line.moved(now - line.getExpected());
       int difference = line.getCounted() - now;
-      if (difference != 0) {
-        stock.adjust(
-            new AdjustStockCommand(
-                line.getProductUid(),
-                line.getBatchUid(),
-                difference,
-                AdjustmentReason.COUNT_CORRECTION,
-                "Stock-take " + count.getNumber(),
-                null));
+      if (difference < 0) {
+        loss = loss.add(batch.getUnitCost().multiply(BigDecimal.valueOf(-difference)));
+        controlledLoss |= controls.controlled(line.getProductUid());
       }
     }
+    // FRD-12: the count's loss, at cost, approved once for the whole count.
+    if (loss.signum() > 0) {
+      controls.approveWriteOff(controlledLoss, loss, count.getNumber());
+    }
+    controls.covered(
+        () -> {
+          for (StockCountLine line : counted) {
+            int difference = line.getCounted() - (line.getExpected() + line.getMoved());
+            if (difference != 0) {
+              stock.adjust(
+                  new AdjustStockCommand(
+                      line.getProductUid(),
+                      batchOf.get(line).getUid(),
+                      difference,
+                      AdjustmentReason.COUNT_CORRECTION,
+                      "Stock-take " + count.getNumber(),
+                      null));
+            }
+          }
+          return null;
+        });
     count.posted(clock.instant(), ExecutionContext.actor().reference());
-    return view(count, true);
+    return view(count, true, false);
   }
 
   private StockCount open(UUID uid) {
@@ -199,8 +226,17 @@ class StockCountsImpl implements StockCounts {
               java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
           .thenComparing(StockCountLine::getBatchNumber);
 
-  private StockCountView view(StockCount c, boolean withLines) {
-    return view(c, withLines, "OPEN".equals(c.getStatus()) ? levelsNow(c.getBranchUid()) : null);
+  /** An OPEN count is blind unless it is being reviewed for posting. */
+  private static boolean blind(StockCount c, boolean reviewing) {
+    return !reviewing && "OPEN".equals(c.getStatus());
+  }
+
+  private StockCountView view(StockCount c, boolean withLines, boolean blind) {
+    return view(
+        c,
+        withLines,
+        "OPEN".equals(c.getStatus()) ? levelsNow(c.getBranchUid()) : null,
+        blind && "OPEN".equals(c.getStatus()));
   }
 
   /** The branch's stock per batch now, to show an open count's variance as posting would. */
@@ -223,8 +259,10 @@ class StockCountsImpl implements StockCounts {
     return now.getOrDefault(l.getBatchUid(), 0) - l.getExpected();
   }
 
-  private static StockCountView view(StockCount c, boolean withLines, Map<UUID, Integer> now) {
+  private static StockCountView view(
+      StockCount c, boolean withLines, Map<UUID, Integer> now, boolean blind) {
     BigDecimal value = BigDecimal.ZERO;
+    BigDecimal loss = BigDecimal.ZERO;
     int counted = 0;
     List<LineView> items = new ArrayList<>();
     List<StockCountLine> ordered = new ArrayList<>(c.getLines());
@@ -239,6 +277,9 @@ class StockCountsImpl implements StockCounts {
       if (variance != null) {
         counted++;
         value = value.add(lineValue);
+        if (variance < 0) {
+          loss = loss.subtract(lineValue);
+        }
       }
       if (withLines) {
         items.add(
@@ -248,10 +289,10 @@ class StockCountsImpl implements StockCounts {
                 l.getProductName(),
                 l.getBatchNumber(),
                 l.getExpiryDate(),
-                l.getExpected(),
+                blind ? null : l.getExpected(),
                 l.getCounted(),
-                variance,
-                lineValue));
+                blind ? null : variance,
+                blind ? null : lineValue));
       }
     }
     return new StockCountView(
@@ -261,7 +302,9 @@ class StockCountsImpl implements StockCounts {
         c.getNote(),
         c.getLines().size(),
         counted,
-        Amounts.money(value),
+        blind ? null : Amounts.money(value),
+        blind ? null : Amounts.money(loss),
+        blind,
         c.getCreatedAt(),
         c.getCreatedBy(),
         c.getPostedAt(),

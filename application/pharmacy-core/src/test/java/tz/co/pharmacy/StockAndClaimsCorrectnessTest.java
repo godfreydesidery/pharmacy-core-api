@@ -298,7 +298,8 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
             "[{\"lineUid\":\"%s\",\"counted\":90},{\"lineUid\":\"%s\",\"counted\":0}]"
                 .formatted(amoxLine, zincLine))
         .expect(200);
-    Response before = hq.get("/api/v1/stock-counts/" + count).expect(200);
+    // The count is blind to the counter (FRD-12); its reviewer sees the variance.
+    Response before = hq.get("/api/v1/stock-counts/" + count + "/review").expect(200);
     assertThat(money(before, "$.data.varianceValue")).isEqualTo(0.0);
 
     // Before: 90 − 100 posted 10 lost, and 0 − 5 on an empty batch was refused (insufficient).
@@ -379,16 +380,27 @@ class StockAndClaimsCorrectnessTest extends IntegrationTest {
     receive(metformin, "MET-2", LocalDate.now().plusMonths(20), 7, "0.37", "2650.1234");
     booksMatch("a dollar receipt");
 
-    // Repacked twice into the same own-pack batch: 631.98 / 7 → 90.28, then 421.32 more over 7.
-    repack(metformin, 3, packs, 7, firstExpiry);
-    repack(metformin, 2, packs, 7, firstExpiry);
-    assertThat(batchCost(packs, "PK-1")).isEqualTo(75.23);
+    // Repacked twice into the same own-pack batch, three tablets a pack as its pack link says
+    // (FRD-2: a repack follows its recipe exactly): 3 × 210.66 = 631.98 a pack.
+    admin
+        .put(
+            "/api/v1/pack-links",
+            "{\"packProductUid\":\"%s\",\"unitProductUid\":\"%s\",\"unitsPerPack\":3}"
+                .formatted(packs, metformin))
+        .expect(200);
+    repack(metformin, 3, packs, 1, firstExpiry);
+    repack(metformin, 6, packs, 2, firstExpiry);
+    assertThat(batchCost(packs, "PK-1")).isEqualTo(631.98);
     booksMatch("two repacks into one batch");
 
     // A stock-take with a sale in the middle and one tablet really missing.
     Response sheet = hq.post("/api/v1/stock-counts", "{}").expect(201);
     String line = lineOf(sheet, "MET-1");
-    int expected = expectedOf(sheet, "MET-1");
+    // The sheet is blind (FRD-12); the reviewer sees what is expected.
+    int expected =
+        expectedOf(
+            hq.get("/api/v1/stock-counts/" + sheet.string("$.data.uid") + "/review").expect(200),
+            "MET-1");
     sell(metformin, 1, 500);
     hq.put(
             "/api/v1/stock-counts/" + sheet.string("$.data.uid") + "/counts",
