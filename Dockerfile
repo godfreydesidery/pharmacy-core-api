@@ -12,13 +12,13 @@ RUN --mount=type=cache,id=s/7cfd8ac3-f354-4387-8431-f16d28f68c5e-/root/.m2,targe
  && cp application/pharmacy-core/target/pharmacy-core-*-exec.jar /src/app.jar
 
 # ---- extract layers (Spring Boot 4 jar tools) ----
-FROM eclipse-temurin:21-jre-alpine@sha256:5d7689f47d670aca766b9503a70bccc2d73b4eb9221ae8f714ae958313c4ce70 AS layers
+FROM eclipse-temurin:25-jre-alpine@sha256:69c2a26e9894016e274c880fa542956d005b3755f84db765145185e87405bd89 AS layers
 WORKDIR /layers
 COPY --from=build /src/app.jar app.jar
 RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # ---- runtime ----
-FROM eclipse-temurin:21-jre-alpine@sha256:5d7689f47d670aca766b9503a70bccc2d73b4eb9221ae8f714ae958313c4ce70
+FROM eclipse-temurin:25-jre-alpine@sha256:69c2a26e9894016e274c880fa542956d005b3755f84db765145185e87405bd89
 RUN addgroup -S pharmacy && adduser -S pharmacy -G pharmacy \
  && apk add --no-cache wget
 WORKDIR /app
