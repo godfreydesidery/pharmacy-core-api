@@ -28,6 +28,7 @@ import tz.co.pharmacy.platform.bus.DomainEventPublisher;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
+import tz.co.pharmacy.platform.kernel.PhoneNumbers;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -92,7 +93,7 @@ class TenantServiceImpl implements TenantService {
     String branchCode = Checks.code(head.code(), "headOffice.code");
     String branchName = Checks.text(head.name(), "headOffice.name", 120);
     String address = Checks.optionalText(head.address(), "headOffice.address", 300);
-    String phone = Checks.optionalText(head.phone(), "headOffice.phone", 40);
+    String phone = PhoneNumbers.forStorage(head.phone(), null, country, "headOffice.phone");
     String licence = Checks.optionalText(head.licenceNumber(), "headOffice.licenceNumber", 60);
     if (tenants.existsByCode(code)) {
       throw Refusal.conflict("duplicate_code", "A tenant with code " + code + " exists.");
@@ -153,7 +154,9 @@ class TenantServiceImpl implements TenantService {
         command.contactEmail() == null || command.contactEmail().isBlank()
             ? null
             : Checks.email(command.contactEmail(), "contactEmail");
-    String contactPhone = Checks.optionalText(command.contactPhone(), "contactPhone", 40);
+    String contactPhone =
+        PhoneNumbers.forStorage(
+            command.contactPhone(), tenant.getContactPhone(), country, "contactPhone");
     String address = Checks.optionalText(command.address(), "address", 300);
     if (command.currency() != null && !command.currency().isBlank()) {
       String currency = currency(command.currency());

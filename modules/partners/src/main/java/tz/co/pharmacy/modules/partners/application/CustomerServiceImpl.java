@@ -17,6 +17,7 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantLocale;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
 import tz.co.pharmacy.platform.persistence.Specs;
@@ -28,13 +29,14 @@ class CustomerServiceImpl implements CustomerService {
 
   private final CustomerRepository customers;
   private final DocumentNumbers numbers;
+  private final TenantLocale locale;
 
   @Override
   @Transactional(readOnly = true)
   public Page<CustomerView> search(String q, CustomerType type, PageQuery query) {
     return Keyset.page(
         customers,
-        Specs.<Customer>containsAny(q, "name", "phone", "email", "code")
+        PartnerPhones.<Customer>search(q, "name", "phone", "email", "code")
             .and(Specs.equal("type", type)),
         query,
         CustomerServiceImpl::view);
@@ -49,7 +51,7 @@ class CustomerServiceImpl implements CustomerService {
   @Override
   @Transactional
   public CustomerView create(CustomerCommand c) {
-    Customer.Details details = details(c, true);
+    Customer.Details details = details(c, true, null);
     return view(customers.save(new Customer(numbers.format("CUS", 6), details)));
   }
 
@@ -63,7 +65,7 @@ class CustomerServiceImpl implements CustomerService {
     if (customer.isAnonymised()) {
       throw anonymised();
     }
-    customer.change(details(c, customer.isActive()));
+    customer.change(details(c, customer.isActive(), customer.getPhone()));
     // Flushed, so the view carries the version this change gave the row (its new ETag).
     customers.flush();
     return view(customer);
@@ -75,11 +77,12 @@ class CustomerServiceImpl implements CustomerService {
     return customers.count();
   }
 
-  private static Customer.Details details(CustomerCommand c, boolean currentlyActive) {
+  private Customer.Details details(
+      CustomerCommand c, boolean currentlyActive, String currentPhone) {
     BigDecimal creditLimit = c.creditLimit() == null ? BigDecimal.ZERO : c.creditLimit();
     return new Customer.Details(
         Checks.text(c.name(), "name", 200),
-        Checks.optionalText(c.phone(), "phone", 40),
+        PartnerPhones.phone(c.phone(), currentPhone, locale.country()),
         optionalEmail(c.email()),
         c.type() == null ? CustomerType.RETAIL : c.type(),
         Checks.optionalText(c.insuranceProvider(), "insuranceProvider", 200),
