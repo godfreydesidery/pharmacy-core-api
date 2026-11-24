@@ -9,9 +9,11 @@ import java.util.UUID;
 import tz.co.pharmacy.platform.kernel.StatementKey;
 
 /**
- * What each supplier delivered and took back, in the base currency: goods receipts raise what is
- * owed to them, credited returns (the supplier's credit note recorded, FRD-16) lower it. Finance
- * adds payments and opening balances. A return still awaiting its credit note changes nothing yet.
+ * What each supplier delivered and took back, in the base currency: goods receipts and the
+ * supplier's debit notes (type DEBIT_NOTE, STD-2) raise what is owed to them, credited returns (the
+ * supplier's credit note recorded, FRD-16) lower it. Finance adds payments and opening balances. A
+ * return still awaiting its credit note changes nothing yet. {@code received} counts receipts and
+ * debit notes.
  */
 public interface SupplierActivity {
 

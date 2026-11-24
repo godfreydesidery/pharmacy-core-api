@@ -40,12 +40,12 @@ class AdminDataTest extends IntegrationTest {
                 {"code":"%s","name":"Admin %s","legalName":"Admin %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
@@ -95,18 +95,18 @@ class AdminDataTest extends IntegrationTest {
     String uid =
         root.post(
                 "/api/v1/platform/root-admins",
-                "{\"name\":\"Second Root\",\"email\":\"%s\",\"password\":\"Root2#Test2026\"}"
+                "{\"name\":\"Second Root\",\"email\":\"%s\",\"password\":\"Root2#Test2026-strong\"}"
                     .formatted(email))
             .expect(201)
             .string("$.data.uid");
-    String second = anonymous.signIn(email, "Root2#Test2026");
+    String second = anonymous.signIn(email, "Root2#Test2026-strong");
 
     root.post("/api/v1/platform/root-admins/" + uid + "/deactivate", null).expect(200);
     assertThat(anonymous.as(second).get("/api/v1/platform/tenants").status()).isEqualTo(401);
     Response refused =
         anonymous.post(
             "/api/v1/auth/sign-in",
-            "{\"email\":\"%s\",\"password\":\"Root2#Test2026\"}".formatted(email));
+            "{\"email\":\"%s\",\"password\":\"Root2#Test2026-strong\"}".formatted(email));
     assertThat(refused.status()).isIn(401, 403, 423);
 
     List<Boolean> active =

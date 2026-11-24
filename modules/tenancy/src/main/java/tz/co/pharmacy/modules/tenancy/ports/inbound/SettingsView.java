@@ -36,6 +36,18 @@ public record SettingsView(
     String vrn,
     /* FRD-19: the owners' and admins' daily digest of sensitive actions is sent. */
     boolean sensitiveDigest,
+    /* Shared counter PCs (WEB-5): sessions end with the browser; parked sales end with the day. */
+    boolean sharedCounterPcs,
+    /* The monthly expiry write-down (STD-3) is on, and its bands, days ascending. */
+    boolean expiryProvisionEnabled,
+    java.util.List<ProvisionBand> expiryProvisionBands,
+    /* How mixed input VAT is split (STD-2): AUTOMATIC or FIXED, and the FIXED percentage. */
+    VatApportionmentMethod vatApportionmentMethod,
+    BigDecimal vatFixedRecoverablePercent,
+    /* The month the financial year ends (1-12): its run trues up the year's automatic ratio. */
+    int vatYearEndMonth,
+    /* The automatic ratio is rounded up to the next whole percent. */
+    boolean vatRatioRoundUp,
     /* The row's version: the ETag of the resource and what If-Match names. */
     long version)
     implements tz.co.pharmacy.platform.kernel.Versioned {}

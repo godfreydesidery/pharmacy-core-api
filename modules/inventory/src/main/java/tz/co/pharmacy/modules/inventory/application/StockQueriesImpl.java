@@ -430,4 +430,18 @@ class StockQueriesImpl implements StockQueries {
         jdbc.queryForObject("select count(*) from (" + sql + ") counted", Long.class, parameters);
     return total == null ? 0 : total;
   }
+
+  @Override
+  public List<ExpiryExposure> stockByExpiry() {
+    return jdbc.query(
+        "select sl.branch_uid, b.expiry_date, sum(sl.quantity * b.unit_cost) as cost"
+            + " from inventory.stock_levels sl join inventory.batches b on b.id = sl.batch_id"
+            + " where sl.quantity > 0 group by sl.branch_uid, b.expiry_date"
+            + " order by sl.branch_uid, b.expiry_date nulls last",
+        (rs, i) ->
+            new ExpiryExposure(
+                rs.getObject("branch_uid", UUID.class),
+                rs.getDate("expiry_date") == null ? null : rs.getDate("expiry_date").toLocalDate(),
+                tz.co.pharmacy.platform.kernel.Amounts.money(rs.getBigDecimal("cost"))));
+  }
 }

@@ -56,6 +56,8 @@ needed.
 | `notification-retries` | every minute | one instance; each message claimed once |
 | `webhook-retries` | every minute | one instance; each delivery claimed once |
 | `event-resubmission` | every 5 min | one instance |
+| `expiry-provision` | hourly at :10; measures a pharmacy on days 1–7 of its local month, for the month before (STD-3) | one instance; one run per pharmacy and month |
+| `vat-apportionment` | hourly at :20; same days, plus the year-end true-up (STD-2) | one instance; one run per pharmacy, month and kind |
 | `data-export` | each export built | the instance that claimed it |
 | stream heartbeats | every 25 s | every instance (its own streams; not recorded) |
 

@@ -99,7 +99,14 @@ public class SettingsHandler {
                 body.vatRegistered(),
                 body.tin(),
                 body.vrn(),
-                body.sensitiveDigest())),
+                body.sensitiveDigest(),
+                body.sharedCounterPcs(),
+                body.expiryProvisionEnabled(),
+                body.expiryProvisionBands(),
+                body.vatApportionmentMethod(),
+                body.vatFixedRecoverablePercent(),
+                body.vatYearEndMonth(),
+                body.vatRatioRoundUp())),
         "Settings changed");
   }
 
@@ -164,5 +171,13 @@ public class SettingsHandler {
       Boolean vatRegistered,
       String tin,
       String vrn,
-      Boolean sensitiveDigest) {}
+      Boolean sensitiveDigest,
+      Boolean sharedCounterPcs,
+      Boolean expiryProvisionEnabled,
+      java.util.List<tz.co.pharmacy.modules.tenancy.ports.inbound.ProvisionBand>
+          expiryProvisionBands,
+      String vatApportionmentMethod,
+      java.math.BigDecimal vatFixedRecoverablePercent,
+      Integer vatYearEndMonth,
+      Boolean vatRatioRoundUp) {}
 }

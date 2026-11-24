@@ -35,8 +35,8 @@ import tz.co.pharmacy.support.Outbox;
  */
 class IsolationHardeningTest extends IntegrationTest {
 
-  private static final String ADMIN_PASSWORD = "Admin#2026x";
-  private static final String STAFF_PASSWORD = "Staff#2026x";
+  private static final String ADMIN_PASSWORD = "Admin#2026x-strong";
+  private static final String STAFF_PASSWORD = "Staff#2026x-strong";
 
   @Value("${spring.datasource.url}")
   String url;
@@ -277,7 +277,7 @@ class IsolationHardeningTest extends IntegrationTest {
     anonymous()
         .post(
             "/api/v1/auth/invitations/accept",
-            "{\"token\":\"%s\",\"name\":\"E\",\"password\":\"Mine#2026xx\"}"
+            "{\"token\":\"%s\",\"name\":\"E\",\"password\":\"Mine#2026xx-strong\"}"
                 .formatted(outbox.invitationToken(p.uid(), e)))
         .expect(201);
     // The members now fill the plan: an invitation sent earlier is not admitted over it.
@@ -285,11 +285,12 @@ class IsolationHardeningTest extends IntegrationTest {
         anonymous()
             .post(
                 "/api/v1/auth/invitations/accept",
-                "{\"token\":\"%s\",\"name\":\"A\",\"password\":\"Mine#2026xx\"}"
+                "{\"token\":\"%s\",\"name\":\"A\",\"password\":\"Mine#2026xx-strong\"}"
                     .formatted(outbox.invitationToken(p.uid(), a)));
     assertThat(admitted.expect(422).string("$.reason")).isEqualTo("plan_limit_reached");
     anonymous()
-        .post("/api/v1/auth/sign-in", "{\"email\":\"" + a + "\",\"password\":\"Mine#2026xx\"}")
+        .post(
+            "/api/v1/auth/sign-in", "{\"email\":\"" + a + "\",\"password\":\"Mine#2026xx-strong\"}")
         .expect(401);
   }
 
@@ -465,7 +466,8 @@ class IsolationHardeningTest extends IntegrationTest {
     // ISO-6: his account's lock is his current pharmacy's to see, not his former one's.
     for (int i = 0; i < 6; i++) {
       anonymous.post(
-          "/api/v1/auth/sign-in", "{\"email\":\"" + juma + "\",\"password\":\"Wrong#2026x\"}");
+          "/api/v1/auth/sign-in",
+          "{\"email\":\"" + juma + "\",\"password\":\"Wrong#2026x-strong\"}");
     }
     String inQ = membershipOf(q.admin(), juma);
     assertThat(q.admin().get("/api/v1/users/locked").expect(200).body()).contains(inQ);

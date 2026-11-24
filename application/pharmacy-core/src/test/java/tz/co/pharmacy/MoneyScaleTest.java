@@ -38,7 +38,7 @@ class MoneyScaleTest extends IntegrationTest {
         root.post("/api/v1/platform/tenants", registration(code, email, "UG", "UGX"))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
@@ -162,7 +162,7 @@ class MoneyScaleTest extends IntegrationTest {
         {"code":"%s","name":"Scale %s","legalName":"Scale %s Ltd","country":"%s",
          "currency":"%s","timezone":"Africa/Kampala",
          "headOffice":{"code":"HQ","name":"Head Office"},
-         "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+         "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
         """
         .formatted(code, code, code, country, currency, email);
   }

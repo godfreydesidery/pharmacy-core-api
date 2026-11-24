@@ -1,0 +1,11 @@
+-- STD-21 (NIST SP 800-63B-4 §3.1.1.2, owner's decision of 24 Nov 2026): a password must have 15
+-- characters when it is the account's only factor, and 8 when the account has a second factor (an
+-- authenticator app or a passkey). Existing passwords keep working; the rule applies whenever a
+-- password is set or changed.
+-- password_long_enough_alone: whether the current password has 15 characters or more, so it may be
+--   the only factor. Null when not known: existing passwords, until the next sign-in notes it (the
+--   password is only ever seen at sign-in or when it is set; its length is kept, never the
+--   password). Turning two-factor off is refused unless it is true, so an account never ends up
+--   with a short password as its only factor.
+-- A nullable column without a default: nothing is rewritten or updated.
+alter table access.users add column password_long_enough_alone boolean;

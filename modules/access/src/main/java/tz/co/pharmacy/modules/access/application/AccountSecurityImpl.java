@@ -221,6 +221,7 @@ class AccountSecurityImpl implements AccountSecurity {
                 resets.closeOpen(target.getUid(), now);
                 if (row.isRecovery()) {
                   target.changePassword(hash);
+                  target.notePasswordLength(Passwords.longEnoughAlone(newPassword));
                   target.unlock();
                   if (row.isResetTwoFactor()) {
                     target.disableTwoFactor();
@@ -528,7 +529,7 @@ class AccountSecurityImpl implements AccountSecurity {
             .filter(found -> recentlyVerifiedPhone(found, now))
             .orElseThrow(AccountSecurityImpl::invalidCode);
     // The rule is checked now; the costly hash only once the code is right (AUTH-6).
-    Passwords.acceptable(newPassword, "newPassword", user.getEmail());
+    Passwords.acceptable(newPassword, "newPassword", user.getEmail(), user.isTwoFactorEnabled());
     boolean[] ok = {false};
     ExecutionContext.callAs(
         SessionIssuer.userFrame(user),
@@ -545,7 +546,10 @@ class AccountSecurityImpl implements AccountSecurity {
                   return;
                 }
                 User target = users.findByUid(user.getUid()).orElseThrow();
-                target.changePassword(passwords.hash(newPassword, "newPassword", user.getEmail()));
+                target.changePassword(
+                    passwords.hash(
+                        newPassword, "newPassword", user.getEmail(), user.isTwoFactorEnabled()));
+                target.notePasswordLength(Passwords.longEnoughAlone(newPassword));
                 target.unlock();
                 resets.closeOpen(target.getUid(), now);
                 int revoked = sessions.revokeAll(target.getUid(), now, null);

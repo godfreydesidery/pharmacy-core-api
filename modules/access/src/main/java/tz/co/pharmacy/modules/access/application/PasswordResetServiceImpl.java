@@ -145,7 +145,9 @@ class PasswordResetServiceImpl implements PasswordResetService {
             .orElseThrow(PasswordResetServiceImpl::invalidToken);
     User user =
         users.findByUid(reset.getUserUid()).orElseThrow(PasswordResetServiceImpl::invalidToken);
-    String hash = passwords.hash(newPassword, "newPassword", user.getEmail());
+    // A reset removes the passkeys (below); an authenticator app stays, so it sets the minimum.
+    String hash =
+        passwords.hash(newPassword, "newPassword", user.getEmail(), user.isTwoFactorEnabled());
     ExecutionContext.callAs(
         SessionIssuer.userFrame(user),
         () -> {
@@ -162,6 +164,7 @@ class PasswordResetServiceImpl implements PasswordResetService {
                         .findByUid(user.getUid())
                         .orElseThrow(PasswordResetServiceImpl::invalidToken);
                 target.changePassword(hash);
+                target.notePasswordLength(Passwords.longEnoughAlone(newPassword));
                 target.unlock();
                 resets.closeOpen(user.getUid(), now);
                 int revoked = sessions.revokeAll(user.getUid(), now, null);

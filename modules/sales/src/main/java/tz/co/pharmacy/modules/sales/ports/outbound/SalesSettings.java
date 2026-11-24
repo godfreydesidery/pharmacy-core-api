@@ -28,5 +28,10 @@ public interface SalesSettings {
     return new Seller(null, true, null, null);
   }
 
+  /** The standard VAT rate in percent: what a STANDARD supply is charged while registered. */
+  default java.math.BigDecimal standardVatRatePercent() {
+    return new java.math.BigDecimal("18.00");
+  }
+
   record Seller(String legalName, boolean vatRegistered, String tin, String vrn) {}
 }

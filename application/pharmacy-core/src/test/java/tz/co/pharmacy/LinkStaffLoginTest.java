@@ -46,7 +46,7 @@ class LinkStaffLoginTest extends IntegrationTest {
             {"code":"%s","name":"Link %s","legalName":"Link %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Juma Ali","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Juma Ali","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, adminEmail))
         .expect(201)
@@ -60,12 +60,13 @@ class LinkStaffLoginTest extends IntegrationTest {
     // Juma owns a weekday pharmacy (his personal account)...
     personEmail = "juma." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
     weekday = pharmacy("WD", personEmail);
-    person = anonymous.as(anonymous.signIn(personEmail, "Admin#2026x"));
+    person = anonymous.as(anonymous.signIn(personEmail, "Admin#2026x-strong"));
     weekdayAdmin = person.in(weekday, null);
     // ...and has a staff login at a weekend pharmacy that does not know him otherwise.
     String weekendOwner = "owner." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
     weekend = pharmacy("WE", weekendOwner);
-    weekendAdmin = anonymous.as(anonymous.signIn(weekendOwner, "Admin#2026x")).in(weekend, null);
+    weekendAdmin =
+        anonymous.as(anonymous.signIn(weekendOwner, "Admin#2026x-strong")).in(weekend, null);
   }
 
   private String link(Api who, String signIn, String loginPassword, String password) {
@@ -82,24 +83,25 @@ class LinkStaffLoginTest extends IntegrationTest {
   @DisplayName(
       "the person links the login with both passwords; the membership moves, the login stops")
   void linking() {
-    Staff.Login login = Staff.login(weekendAdmin, anonymous, "Juma Ali", "CASHIER", "Juma#2026xyz");
-    Api staffSession = anonymous.as(anonymous.signIn(login.signIn(), "Juma#2026xyz"));
+    Staff.Login login =
+        Staff.login(weekendAdmin, anonymous, "Juma Ali", "CASHIER", "Juma#2026xyz-strong");
+    Api staffSession = anonymous.as(anonymous.signIn(login.signIn(), "Juma#2026xyz-strong"));
 
-    assertThat(link(person, login.signIn(), "wrong-password", "Admin#2026x"))
+    assertThat(link(person, login.signIn(), "wrong-password", "Admin#2026x-strong"))
         .contains("invalid_login");
-    assertThat(link(person, "nobody@" + login.signIn().split("@")[1], "x", "Admin#2026x"))
+    assertThat(link(person, "nobody@" + login.signIn().split("@")[1], "x", "Admin#2026x-strong"))
         .contains("invalid_login");
-    assertThat(link(person, login.signIn(), "Juma#2026xyz", "not-mine"))
+    assertThat(link(person, login.signIn(), "Juma#2026xyz-strong", "not-mine"))
         .contains("invalid_password");
     // A staff login cannot link itself (or anything) to anything.
-    assertThat(link(staffSession, login.signIn(), "Juma#2026xyz", "Juma#2026xyz"))
+    assertThat(link(staffSession, login.signIn(), "Juma#2026xyz-strong", "Juma#2026xyz-strong"))
         .contains("managed_login");
 
     person
         .post(
             "/api/v1/auth/link-login",
             """
-            {"signIn":"%s","loginPassword":"Juma#2026xyz","password":"Admin#2026x"}
+            {"signIn":"%s","loginPassword":"Juma#2026xyz-strong","password":"Admin#2026x-strong"}
             """
                 .formatted(login.signIn().toUpperCase()))
         .expect(200);
@@ -121,7 +123,8 @@ class LinkStaffLoginTest extends IntegrationTest {
             anonymous
                 .post(
                     "/api/v1/auth/sign-in",
-                    "{\"email\":\"%s\",\"password\":\"Juma#2026xyz\"}".formatted(login.signIn()))
+                    "{\"email\":\"%s\",\"password\":\"Juma#2026xyz-strong\"}"
+                        .formatted(login.signIn()))
                 .expect(401)
                 .string("$.reason"))
         .isEqualTo("login_linked");
@@ -160,10 +163,11 @@ class LinkStaffLoginTest extends IntegrationTest {
   @Test
   @DisplayName("a pharmacy the account is already in cannot have a second membership by linking")
   void alreadyAMember() {
-    Staff.Login own = Staff.login(weekdayAdmin, anonymous, "Juma Two", "CASHIER", "Juma#2026xyz");
-    assertThat(link(person, own.signIn(), "Juma#2026xyz", "Admin#2026x"))
+    Staff.Login own =
+        Staff.login(weekdayAdmin, anonymous, "Juma Two", "CASHIER", "Juma#2026xyz-strong");
+    assertThat(link(person, own.signIn(), "Juma#2026xyz-strong", "Admin#2026x-strong"))
         .contains("already_a_member");
     // Nothing moved: the login still signs in.
-    anonymous.signIn(own.signIn(), "Juma#2026xyz");
+    anonymous.signIn(own.signIn(), "Juma#2026xyz-strong");
   }
 }

@@ -201,6 +201,42 @@ public class LedgerReactions {
 
   @Async
   @TransactionalEventListener
+  public void on(tz.co.pharmacy.modules.sales.events.SaleDebitNoteIssued event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSaleDebitNote(
+                        event.debitNoteUid(),
+                        event.number(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.net(),
+                        event.tax())));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(tz.co.pharmacy.modules.purchasing.events.SupplierDebitNoteRecorded event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSupplierDebitNote(
+                        event.debitNoteUid(),
+                        event.number(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.net(),
+                        event.vat())));
+  }
+
+  @Async
+  @TransactionalEventListener
   public void on(SupplierReturned event) {
     EventScopes.run(
         event.metadata(),

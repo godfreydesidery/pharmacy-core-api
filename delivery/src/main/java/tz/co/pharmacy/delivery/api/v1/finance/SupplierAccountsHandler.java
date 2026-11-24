@@ -61,8 +61,8 @@ public class SupplierAccountsHandler {
       BigDecimal awaitingCredit) {}
 
   /**
-   * A statement line: OPENING, RECEIPT, PAYMENT or RETURN. {@code amount} raises what is owed when
-   * positive (opening, receipt) and lowers it when negative (payment, return).
+   * A statement line: OPENING, RECEIPT, DEBIT_NOTE, PAYMENT or RETURN. {@code amount} raises what
+   * is owed when positive (opening, receipt) and lowers it when negative (payment, return).
    */
   public record StatementLine(
       LocalDate date,

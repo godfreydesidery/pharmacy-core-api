@@ -28,9 +28,21 @@ public class FiscalReactions {
   private final SaleService sales;
   private final FiscalDocuments documents;
 
-  public FiscalReactions(SaleService sales, FiscalDocuments documents) {
+  private final tz.co.pharmacy.modules.sales.ports.inbound.SaleDebitNotes debitNotes;
+
+  public FiscalReactions(
+      SaleService sales,
+      FiscalDocuments documents,
+      tz.co.pharmacy.modules.sales.ports.inbound.SaleDebitNotes debitNotes) {
     this.sales = sales;
     this.documents = documents;
+    this.debitNotes = debitNotes;
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(tz.co.pharmacy.modules.sales.events.SaleDebitNoteIssued event) {
+    EventScopes.run(event.metadata(), SERVICE, () -> debitNotes.fiscalise(event.debitNoteUid()));
   }
 
   @Async

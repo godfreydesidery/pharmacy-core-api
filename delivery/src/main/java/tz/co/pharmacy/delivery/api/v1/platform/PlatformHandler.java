@@ -213,10 +213,23 @@ public class PlatformHandler {
         "Legal hold placed");
   }
 
+  /**
+   * Lifting a legal hold needs a second root administrator (FRD-18): ask through {@code POST
+   * /platform/approvals} with action LIFT_LEGAL_HOLD; it is lifted when another approves. 403
+   * root_approval_required here.
+   */
   @DeleteMapping("/tenants/{tenantUid}/legal-hold")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> liftLegalHold(@PathVariable UUID tenantUid) {
-    return ApiResponse.ok(forget(tenantUid, tenants.liftLegalHold(tenantUid)), "Legal hold lifted");
+    throw secondRootAdmin(tz.co.pharmacy.platform.approval.RootApprovals.LIFT_LEGAL_HOLD);
+  }
+
+  private static Refusal secondRootAdmin(String action) {
+    return Refusal.forbidden(
+            "root_approval_required",
+            "This needs a second root administrator: ask for approval (POST /platform/approvals)"
+                + " and it runs once another root administrator approves.")
+        .with("action", action);
   }
 
   @GetMapping("/tenants/{tenantUid}/export")
@@ -226,16 +239,16 @@ public class PlatformHandler {
         data, tenants, clock, tenantUid, response);
   }
 
-  /** Erases a closed pharmacy's data for good. The body names its code, to confirm. */
+  /**
+   * Erasing a pharmacy needs a second root administrator (FRD-18): ask through {@code POST
+   * /platform/approvals} with action ERASE_TENANT and the pharmacy's code; it is erased when
+   * another approves. 403 root_approval_required here.
+   */
   @PostMapping("/tenants/{tenantUid}/erase")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<ErasedResponse> erase(
       @PathVariable UUID tenantUid, @RequestBody(required = false) EraseRequest body) {
-    java.util.Map<String, Long> rows =
-        data.erase(tenantUid, body == null ? null : body.confirmCode());
-    accessCache.forgetTenant(tenantUid);
-    return ApiResponse.ok(
-        new ErasedResponse(tenants.find(tenantUid).orElseThrow(), rows), "Tenant erased");
+    throw secondRootAdmin(tz.co.pharmacy.platform.approval.RootApprovals.ERASE_TENANT);
   }
 
   @GetMapping("/root-admins")

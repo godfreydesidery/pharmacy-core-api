@@ -50,7 +50,7 @@ class StaffRulesTest extends IntegrationTest {
             {"code":"%s","name":"Rules %s","legalName":"Rules %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, adminEmail))
         .expect(201)
@@ -63,10 +63,10 @@ class StaffRulesTest extends IntegrationTest {
     root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
     personEmail = "neema." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
     own = pharmacy("OW", personEmail);
-    person = anonymous.as(anonymous.signIn(personEmail, "Admin#2026x"));
+    person = anonymous.as(anonymous.signIn(personEmail, "Admin#2026x-strong"));
     String otherOwner = "owner." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
     other = pharmacy("OT", otherOwner);
-    otherAdmin = anonymous.as(anonymous.signIn(otherOwner, "Admin#2026x")).in(other, null);
+    otherAdmin = anonymous.as(anonymous.signIn(otherOwner, "Admin#2026x-strong")).in(other, null);
     // The other pharmacy invites Neema as a pharmacist; she joins with her own account.
     List<String> roles =
         otherAdmin
@@ -98,7 +98,9 @@ class StaffRulesTest extends IntegrationTest {
   void leaving() {
     assertThat(
             person
-                .post("/api/v1/auth/pharmacies/" + own + "/leave", "{\"password\":\"Admin#2026x\"}")
+                .post(
+                    "/api/v1/auth/pharmacies/" + own + "/leave",
+                    "{\"password\":\"Admin#2026x-strong\"}")
                 .expect(409)
                 .string("$.reason"))
         .isEqualTo("last_admin");
@@ -109,7 +111,8 @@ class StaffRulesTest extends IntegrationTest {
                 .string("$.reason"))
         .isEqualTo("invalid_password");
     person
-        .post("/api/v1/auth/pharmacies/" + other + "/leave", "{\"password\":\"Admin#2026x\"}")
+        .post(
+            "/api/v1/auth/pharmacies/" + other + "/leave", "{\"password\":\"Admin#2026x-strong\"}")
         .expect(200);
     person.in(other, null).get("/api/v1/products").expect(403);
     assertThat(
@@ -122,12 +125,14 @@ class StaffRulesTest extends IntegrationTest {
     assertThat(otherAdmin.get("/api/v1/audit?action=MEMBER_LEFT").expect(200).body())
         .contains(membershipOwner());
     // A staff login is switched off by its pharmacy instead.
-    Staff.Login login = Staff.login(otherAdmin, anonymous, "Baraka", "CASHIER", "Staff#2026x");
+    Staff.Login login =
+        Staff.login(otherAdmin, anonymous, "Baraka", "CASHIER", "Staff#2026x-strong");
     assertThat(
             anonymous
-                .as(anonymous.signIn(login.signIn(), "Staff#2026x"))
+                .as(anonymous.signIn(login.signIn(), "Staff#2026x-strong"))
                 .post(
-                    "/api/v1/auth/pharmacies/" + other + "/leave", "{\"password\":\"Staff#2026x\"}")
+                    "/api/v1/auth/pharmacies/" + other + "/leave",
+                    "{\"password\":\"Staff#2026x-strong\"}")
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("managed_login");
@@ -155,7 +160,7 @@ class StaffRulesTest extends IntegrationTest {
     assertThat(found.string("$.data.items[0].staff.jobTitle")).isEqualTo("Dispenser");
 
     // Unique in the pharmacy, any case.
-    Staff.Login login = Staff.login(otherAdmin, anonymous, "Asha", "CASHIER", "Staff#2026x");
+    Staff.Login login = Staff.login(otherAdmin, anonymous, "Asha", "CASHIER", "Staff#2026x-strong");
     assertThat(
             otherAdmin
                 .put(

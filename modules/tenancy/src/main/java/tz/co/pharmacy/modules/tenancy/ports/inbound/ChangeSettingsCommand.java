@@ -34,9 +34,25 @@ public record ChangeSettingsCommand(
     /* The VRN; blank clears it, null keeps it. */
     String vrn,
     /* FRD-19: send the daily digest of sensitive actions; null keeps it. */
-    Boolean sensitiveDigest) {
+    Boolean sensitiveDigest,
+    /* Shared counter PCs (WEB-5); null keeps it. */
+    Boolean sharedCounterPcs,
+    /* The expiry write-down on or off, and its bands (1 to 5, days ascending); null keeps each. */
+    Boolean expiryProvisionEnabled,
+    java.util.List<ProvisionBand> expiryProvisionBands,
+    /* AUTOMATIC or FIXED; null keeps it. */
+    String vatApportionmentMethod,
+    /* The FIXED recoverable percentage, 0 to 100; null keeps it. */
+    BigDecimal vatFixedRecoverablePercent,
+    /* The financial year's last month, 1 to 12; null keeps it. */
+    Integer vatYearEndMonth,
+    /* Round the automatic ratio up to a whole percent; null keeps it. */
+    Boolean vatRatioRoundUp) {
 
-  /** The command of the eighteen settings that came before the digest of sensitive actions. */
+  /**
+   * The command of the eighteen settings that came before the digest of sensitive actions and the
+   * owner's decisions of 24 Nov.
+   */
   public ChangeSettingsCommand(
       BigDecimal defaultTaxRatePercent,
       String invoicePrefix,
@@ -75,6 +91,13 @@ public record ChangeSettingsCommand(
         vatRegistered,
         tin,
         vrn,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -111,6 +134,14 @@ public record ChangeSettingsCommand(
         approvalLimit,
         returnWindowDays,
         requireOpenShift,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
         null,
         null);

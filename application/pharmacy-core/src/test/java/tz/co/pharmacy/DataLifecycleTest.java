@@ -41,6 +41,7 @@ import tz.co.pharmacy.delivery.api.Spreadsheet;
 import tz.co.pharmacy.modules.files.ports.outbound.ObjectStorage;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Roots;
 import tz.co.pharmacy.support.Staff;
 
 /**
@@ -82,12 +83,12 @@ class DataLifecycleTest extends IntegrationTest {
                 {"code":"%s","name":"Life %s","legalName":"Life %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     return new Pharmacy(tenant, code, admin, anonymous);
   }
 
@@ -246,8 +247,8 @@ class DataLifecycleTest extends IntegrationTest {
 
     // Only someone who may manage the pharmacy's settings takes its data out.
     Staff.Login cashier =
-        Staff.login(admin, p.anonymous(), "Till Cashier", "CASHIER", "Cashier#2026x");
-    Api till = p.anonymous().as(p.anonymous().signIn(cashier.signIn(), "Cashier#2026x"));
+        Staff.login(admin, p.anonymous(), "Till Cashier", "CASHIER", "Cashier#2026x-strong");
+    Api till = p.anonymous().as(p.anonymous().signIn(cashier.signIn(), "Cashier#2026x-strong"));
     till.in(p.uid(), null).post("/api/v1/data-export", "{}").expect(403);
 
     // One at a time: while one is open, a second (or the old download) is refused.
@@ -390,7 +391,7 @@ class DataLifecycleTest extends IntegrationTest {
     assertThat(partition("entries_2014_04")).isFalse();
 
     // Lifted: the next run takes what it kept.
-    root.delete("/api/v1/platform/tenants/" + held.uid() + "/legal-hold").expect(200);
+    Roots.twoRoots(root, api(), "LIFT_LEGAL_HOLD", held.uid(), null).expect(200);
     root.post("/api/v1/platform/retention/run", "{}").expect(200);
     assertThat(invitations(held)).isZero();
     assertThat(partition("entries_2014_03")).isFalse();
@@ -528,7 +529,7 @@ class DataLifecycleTest extends IntegrationTest {
     Files.writeString(stored.resolve("blocker"), "x");
 
     Api.Response erased =
-        root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}").expect(200);
+        Roots.twoRoots(root, api(), "ERASE_TENANT", leaving.uid(), leaving.code()).expect(200);
     assertThat(erased.read("$.data.rows['platform.event_publication']", Long.class)).isPositive();
     assertThat(erased.read("$.data.rows['files (queued for a retry)']", Long.class)).isOne();
     assertThat(events(leaving.uid())).isZero();
@@ -571,7 +572,7 @@ class DataLifecycleTest extends IntegrationTest {
   void exportLeavesOutRootNotesAndShowsFormerStaff() throws IOException {
     Pharmacy p = pharmacy("RN");
     Staff.Login neema =
-        Staff.login(p.admin(), p.anonymous(), "Neema Old", "CASHIER", "Neema#2026xx");
+        Staff.login(p.admin(), p.anonymous(), "Neema Old", "CASHIER", "Neema#2026xx-strong");
     List<String> roles =
         p.admin()
             .get("/api/v1/roles")
@@ -607,7 +608,7 @@ class DataLifecycleTest extends IntegrationTest {
 
     String people = zip.get("access/users.csv");
     assertThat(people).contains("Neema Old").doesNotContain("Neema New");
-    root.delete(tenants + "/legal-hold").expect(200);
+    Roots.twoRoots(root, api(), "LIFT_LEGAL_HOLD", p.uid(), null).expect(200);
   }
 
   // ------------------------------------------------------------------ helpers

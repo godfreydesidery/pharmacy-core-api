@@ -299,6 +299,11 @@ class PasskeyServiceImpl implements PasskeyService {
         passkeys
             .findByUidAndUserUid(passkeyUid, userUid)
             .orElseThrow(() -> Refusal.notFound("passkey_not_found", "No such passkey."));
+    User owner = user(userUid);
+    if (!owner.isTwoFactorEnabled() && passkeys.countByUserUid(userUid) <= 1) {
+      // The last second factor: the password would then stand alone (STD-21).
+      SecondFactors.passwordMayStandAlone(owner);
+    }
     passkeys.delete(passkey);
     audit.record("PASSKEY_REMOVED", "User", userUid, Map.of("name", passkey.getName()), null);
   }

@@ -16,7 +16,7 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.StatementKey;
 
 /**
- * Receipts and credited returns per supplier as plain SQL; row-level security keeps them to the
+ * Receipts, the supplier's debit notes and credited returns per supplier as plain SQL; row-level security keeps them to the
  * current tenant. A receipt counts at its base-currency total; a return at its credit note's base
  * value (at its total for returns from before credit notes), on the day the credit was recorded. A
  * return awaiting its credit note counts only in {@code awaitingCredit}.
@@ -36,7 +36,13 @@ class SupplierActivityImpl implements SupplierActivity {
           + " coalesce(credit_note_number, goods_receipt_number),"
           + " (coalesce(credited_at, created_at) at time zone ?)::date,"
           + " -coalesce(credit_base_amount, total) from purchasing.supplier_returns"
-          + " where supplier_uid = ? and status = 'CREDITED'";
+          + " where supplier_uid = ? and status = 'CREDITED'"
+          // A supplier's debit note (STD-2) raises what is owed, like a receipt.
+          + " union all"
+          + " select supplier_uid, supplier_name, 'DEBIT_NOTE', 1, uid, number,"
+          + " coalesce(supplier_reference, goods_receipt_number),"
+          + " (created_at at time zone ?)::date, total from purchasing.supplier_debit_notes"
+          + " where supplier_uid = ?";
 
   private static final String AFTER =
       " and (on_date, ord, coalesce(number, ''), uid) > (?, ?, ?, ?)";
@@ -96,7 +102,8 @@ class SupplierActivityImpl implements SupplierActivity {
   }
 
   private static List<Object> entriesArgs(UUID supplierUid, ZoneId zone) {
-    return List.of(zone.getId(), supplierUid, zone.getId(), supplierUid);
+    return List.of(
+        zone.getId(), supplierUid, zone.getId(), supplierUid, zone.getId(), supplierUid);
   }
 
   private static void addKey(List<Object> args, StatementKey key) {
@@ -119,6 +126,9 @@ class SupplierActivityImpl implements SupplierActivity {
             + " case when status = 'CREDITED' then coalesce(credit_base_amount, total) else 0 end,"
             + " case when status = 'PENDING_CREDIT' then total else 0 end,"
             + " coalesce(credited_at, created_at) from purchasing.supplier_returns"
+            + " union all"
+            + " select supplier_uid, supplier_name, total, 0, 0, created_at"
+            + " from purchasing.supplier_debit_notes"
             + ") e group by supplier_uid",
         (rs, i) ->
             new Totals(

@@ -30,8 +30,8 @@ import tz.co.pharmacy.support.Staff;
  */
 class ControlsStockTest extends IntegrationTest {
 
-  private static final String ADMIN_PASSWORD = "Admin#2026x";
-  private static final String MANAGER_PASSWORD = "Manager#2026x";
+  private static final String ADMIN_PASSWORD = "Admin#2026x-strong";
+  private static final String MANAGER_PASSWORD = "Manager#2026x-strong";
 
   @Autowired DataSource dataSource;
 
