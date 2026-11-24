@@ -51,6 +51,7 @@ class Dispatcher {
   private final TransactionTemplate transactions;
   private final SmsCap smsCap;
   private final NotificationMetrics metrics;
+  private final MessageSeal seal;
 
   @SuppressWarnings("java:S107")
   private final Clock clock;
@@ -73,7 +74,9 @@ class Dispatcher {
           boolean keepAccountMessages,
       SmsCap smsCap,
       NotificationMetrics metrics,
+      MessageSeal seal,
       Clock clock) {
+    this.seal = seal;
     this.metrics = metrics;
     this.smsCap = smsCap;
     this.keepAccountMessages = keepAccountMessages;
@@ -135,6 +138,28 @@ class Dispatcher {
     Message message = found.get();
     String provider = message.getChannel() == Channel.IN_APP ? "in-app" : null;
     String error = null;
+    // An account message's text is sealed while it waits (AUTH-8): opened here, for the send only.
+    String text;
+    String html;
+    try {
+      text = message.plainBody(seal::open);
+      html = message.plainHtmlBody(seal::open);
+    } catch (IllegalStateException unreadable) {
+      // Sealed under a key no longer in the keyring: it cannot be sent; the person asks again.
+      log.warn(
+          "Notification {} cannot be opened; given up: {}", messageUid, unreadable.getMessage());
+      transactions.executeWithoutResult(
+          status ->
+              messages
+                  .findByUid(messageUid)
+                  .ifPresent(
+                      row ->
+                          row.refused(
+                              "unresolved",
+                              "message_unreadable",
+                              "The message was sealed under a key that is no longer configured.")));
+      return;
+    }
     if (message.getChannel() != Channel.IN_APP) {
       List<ProviderRouter.Route> routes = router.routes(message.getChannel());
       Optional<UUID> tenant = TenantContext.tenantUid();
@@ -156,13 +181,7 @@ class Dispatcher {
       for (ProviderRouter.Route route : routes) {
         provider = route.label();
         try {
-          route
-              .sender()
-              .send(
-                  message.getToAddress(),
-                  message.getSubject(),
-                  message.getHtmlBody(),
-                  message.getBody());
+          route.sender().send(message.getToAddress(), message.getSubject(), html, text);
           noteSent(route);
           error = null;
           break;
@@ -196,6 +215,9 @@ class Dispatcher {
                         row.sent(used);
                         if (row.carriesSecrets() && !keepAccountMessages) {
                           row.forgetText();
+                        } else if (row.carriesSecrets()) {
+                          // Local and test runs read links from the outbox once sent.
+                          row.keepText(text, html);
                         }
                       } else {
                         metrics.failed(row.getChannel());

@@ -69,6 +69,12 @@ public class Message extends ScopedEntity {
    */
   private String reason;
 
+  /**
+   * The body (and HTML body) are sealed with the keyring: an account message waiting to be sent
+   * (AUTH-8). Opened only to send it.
+   */
+  private boolean sealed;
+
   @SuppressWarnings("java:S107")
   public Message(
       String templateKey,
@@ -115,6 +121,41 @@ public class Message extends ScopedEntity {
   public void forgetText() {
     this.body = "(Sent. Account messages are not kept: they carry links and codes.)";
     this.htmlBody = null;
+    this.sealed = false;
+  }
+
+  /** An account message that will not be sent: its link or code goes too (AUTH-8). */
+  public void forgetUnsent() {
+    this.body = "(Not sent. Account messages are not kept: they carry links and codes.)";
+    this.htmlBody = null;
+    this.sealed = false;
+  }
+
+  /** Seals the text while the message waits to be sent; once only. */
+  public void seal(java.util.function.UnaryOperator<String> sealer) {
+    if (sealed) {
+      return;
+    }
+    this.body = sealer.apply(body);
+    this.htmlBody = htmlBody == null ? null : sealer.apply(htmlBody);
+    this.sealed = true;
+  }
+
+  /** The text to send: opened when sealed. */
+  public String plainBody(java.util.function.UnaryOperator<String> opener) {
+    return sealed ? opener.apply(body) : body;
+  }
+
+  /** The HTML text to send, if any: opened when sealed. */
+  public String plainHtmlBody(java.util.function.UnaryOperator<String> opener) {
+    return sealed && htmlBody != null ? opener.apply(htmlBody) : htmlBody;
+  }
+
+  /** Keeps the text in the clear (local and test runs, which read links from the outbox). */
+  public void keepText(String plainBody, String plainHtmlBody) {
+    this.body = plainBody;
+    this.htmlBody = plainHtmlBody;
+    this.sealed = false;
   }
 
   /** An account message: links and codes that let someone into an account. */
@@ -140,6 +181,10 @@ public class Message extends ScopedEntity {
     this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
     this.reason = null;
     this.nextAttemptAt = attempts >= MAX_ATTEMPTS ? null : nextAttempt;
+    if (nextAttemptAt == null && carriesSecrets()) {
+      // No attempt left: the link or code would only wait in the outbox (AUTH-8).
+      forgetUnsent();
+    }
   }
 
   /**
@@ -153,5 +198,8 @@ public class Message extends ScopedEntity {
     this.reason = reason;
     this.lastError = error == null ? null : error.substring(0, Math.min(error.length(), 500));
     this.nextAttemptAt = null;
+    if (carriesSecrets()) {
+      forgetUnsent();
+    }
   }
 }
