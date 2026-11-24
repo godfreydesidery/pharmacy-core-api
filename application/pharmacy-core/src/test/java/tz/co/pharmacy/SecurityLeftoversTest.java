@@ -264,12 +264,32 @@ class SecurityLeftoversTest extends IntegrationTest {
             "\"address\":\"Mbezi\"",
             "\"paymentTerms\":\"NET_30\"",
             "\"active\":false",
-            "\"consents\":{\"MARKETING\":true}")) {
+            "\"consents\":{\"INSURER_SHARING\":true}",
+            "\"consents\":{\"SMS_RECEIPTS\":true,\"INSURER_SHARING\":false}")) {
       Response refused =
           cashier.post(
               "/api/v1/customers", "{\"name\":\"Juma\",\"phone\":\"0754333444\"," + extra + "}");
       assertThat(refused.expect(422).string("$.reason")).as(extra).isEqualTo("field_not_allowed");
     }
+    // What the customer agreed to about SMS receipts and marketing is recorded at the till (owner,
+    // 24 Nov 2026), and reads back as given.
+    String asked =
+        cashier
+            .post(
+                "/api/v1/customers",
+                "{\"name\":\"Rehema Ally\",\"phone\":\"0754999000\","
+                    + "\"consents\":{\"SMS_RECEIPTS\":true,\"MARKETING\":false}}")
+            .expect(201)
+            .string("$.data.uid");
+    Response consents = admin.get("/api/v1/customers/" + asked + "/consents").expect(200);
+    assertThat(
+            consents
+                .json()
+                .read("$.data.current[?(@.purpose == 'SMS_RECEIPTS')].status", List.class))
+        .containsExactly("GIVEN");
+    assertThat(
+            consents.json().read("$.data.current[?(@.purpose == 'MARKETING')].status", List.class))
+        .containsExactly("WITHDRAWN");
     // Nothing else opens: the customer is changed by someone who manages customers.
     cashier.put("/api/v1/customers/" + uid, "{\"name\":\"Neema K\"}").expect(403);
     cashier.post("/api/v1/suppliers", "{\"name\":\"Supplier\"}").expect(403);
