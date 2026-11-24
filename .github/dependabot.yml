@@ -11,10 +11,20 @@ updates:
         patterns: ["org.springframework*"]
       aws:
         patterns: ["software.amazon.awssdk*"]
+    ignore:
+      # The tests' PostgreSQL major follows production's (18 on Railway and RDS); moved by hand.
+      - dependency-name: "io.zonky.test.postgres:embedded-postgres-binaries-bom"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Build and run on a Java LTS (25; the next is 29). Non-LTS releases are skipped.
+      - dependency-name: "maven"
+        versions: ["3.9-eclipse-temurin-26", "3.9-eclipse-temurin-27", "3.9-eclipse-temurin-28"]
+      - dependency-name: "eclipse-temurin"
+        versions: ["26-jre-alpine", "27-jre-alpine", "28-jre-alpine"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
