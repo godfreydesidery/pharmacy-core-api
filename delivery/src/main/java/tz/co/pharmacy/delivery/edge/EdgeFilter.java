@@ -72,6 +72,7 @@ public class EdgeFilter extends OncePerRequestFilter {
   private final PharmacyVisits visits;
   private final TenantConcurrency fairShare;
   private final EdgeAccessCache accessCache;
+  private final tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService settings;
   private final TransactionTemplate reads;
   private final int authRequestsPerMinute;
 
@@ -85,10 +86,12 @@ public class EdgeFilter extends OncePerRequestFilter {
       PharmacyVisits visits,
       TenantConcurrency fairShare,
       EdgeAccessCache accessCache,
+      tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService settings,
       PlatformTransactionManager transactions,
       @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute) {
     this.fairShare = fairShare;
     this.accessCache = accessCache;
+    this.settings = settings;
     this.reads = new TransactionTemplate(transactions);
     this.reads.setReadOnly(true);
     this.authentication = authentication;
@@ -246,6 +249,8 @@ public class EdgeFilter extends OncePerRequestFilter {
       permissions = Set.copyOf(grant.permissions());
       allowedBranches = grant.allBranches() ? null : new HashSet<>(grant.branchUids());
       visits.working(principal.sessionUid(), principal.userUid(), tenantUid);
+      // The inactivity limit is this pharmacy's, whatever pharmacy the app reports activity in.
+      authentication.workingUnderLimit(principal, access.idleMinutes());
     }
 
     if (branchUid != null) {
@@ -296,7 +301,10 @@ public class EdgeFilter extends OncePerRequestFilter {
                           }
                           BranchView branch =
                               branchUid == null ? null : branches.find(branchUid).orElse(null);
-                          return new EdgeAccessCache.Access(tenant, grant, branch);
+                          // The pharmacy's own inactivity limit, held on every request (AUTH-17).
+                          Integer idleMinutes =
+                              principal.rootAdmin() ? null : settings.current().idleMinutes();
+                          return new EdgeAccessCache.Access(tenant, grant, branch, idleMinutes);
                         })));
   }
 

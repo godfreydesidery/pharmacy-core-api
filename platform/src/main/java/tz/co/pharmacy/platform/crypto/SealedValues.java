@@ -21,6 +21,12 @@ public class SealedValues {
   /** The status's name for values still in plain text (webhook secrets saved before sealing). */
   public static final String PLAIN = "plain";
 
+  /**
+   * The status's name for hashes kept before keyed hashes ({@link SealedColumn#keyedHash}): plain
+   * SHA-256, which need no key.
+   */
+  public static final String UNKEYED = "unkeyed";
+
   private final JdbcTemplate jdbc;
   private final TransactionTemplate writes;
   private final TransactionTemplate reads;
@@ -38,6 +44,9 @@ public class SealedValues {
   /** How many values name each key id ({@code legacy} for unversioned, {@link #PLAIN}). */
   public Map<String, Long> count(SealedColumn column) {
     String c = column.column();
+    if (column.keyedHash()) {
+      return countKeyedHashes(column);
+    }
     StringBuilder key = new StringBuilder("case when ").append(c).append(" like 'v2:%' then");
     key.append(" split_part(").append(c).append(", ':', 2)");
     List<Object> arguments = new ArrayList<>();
@@ -75,6 +84,10 @@ public class SealedValues {
    * value no key in the keyring opens is counted as unreadable and left.
    */
   public Batch reseal(SealedColumn column, long afterId, int limit) {
+    if (column.keyedHash()) {
+      // A keyed hash cannot be opened: it stays under its key until the code is used or replaced.
+      return new Batch(0, 0, afterId, false);
+    }
     String c = column.column();
     String active = keyring.activeKey(column.purpose());
     List<Object> arguments = new ArrayList<>();
@@ -144,6 +157,35 @@ public class SealedValues {
           }
           return new Batch(resealed, unreadable, last, rows.size() == limit);
         });
+  }
+
+  private Map<String, Long> countKeyedHashes(SealedColumn column) {
+    String c = column.column();
+    String sql =
+        "select case when "
+            + c
+            + " like '"
+            + Keyring.MAC_VERSION
+            + ":%' then split_part("
+            + c
+            + ", ':', 2) else '"
+            + UNKEYED
+            + "' end as key_id, count(*) as n from "
+            + column.table()
+            + " where "
+            + c
+            + " is not null"
+            + scope(column)
+            + " group by 1 order by 1";
+    Map<String, Long> counts = new LinkedHashMap<>();
+    reads.executeWithoutResult(
+        status ->
+            jdbc.query(
+                sql,
+                row -> {
+                  counts.put(row.getString("key_id"), row.getLong("n"));
+                }));
+    return counts;
   }
 
   private static String scope(SealedColumn column) {

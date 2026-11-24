@@ -226,6 +226,30 @@ final class TemplateCatalog {
         new Default(
             "Your sign-in email was changed",
             "Hello {{name}}, your Pharmacy Core sign-in email was changed to {{newEmail}} on"
+                + " {{time}}. If this was not you, undo it within {{days}} days: {{revertLink}}"
+                + " The link puts this address back, asks you for a new password and signs out"
+                + " every device. Then contact your pharmacy or Pharmacy Core support.",
+            "Your Pharmacy Core sign-in email was changed to {{newEmail}}. Not you? Undo it:"
+                + " {{revertLink}}"),
+        new Default(
+            "Barua pepe yako ya kuingia imebadilishwa",
+            "Habari {{name}}, barua pepe yako ya kuingia Pharmacy Core imebadilishwa kuwa"
+                + " {{newEmail}} tarehe {{time}}. Kama si wewe, tengua ndani ya siku {{days}}:"
+                + " {{revertLink}} Kiungo hiki kinarudisha anwani hii, kinakuomba nenosiri jipya na"
+                + " kutoa kila kifaa. Kisha wasiliana na famasia yako au msaada wa Pharmacy Core.",
+            "Barua pepe yako ya Pharmacy Core imebadilishwa kuwa {{newEmail}}. Si wewe? Tengua:"
+                + " {{revertLink}}"),
+        Map.of(
+            "name", "Amina Hassan",
+            "newEmail", "a***@example.com",
+            "time", "22 Nov 2026 10:15",
+            "days", 7,
+            "revertLink", "/revert-email?token=..."));
+    define(
+        TemplateKeys.ACCESS_EMAIL_RECOVERED,
+        new Default(
+            "Your sign-in email was changed",
+            "Hello {{name}}, your Pharmacy Core sign-in email was changed to {{newEmail}} on"
                 + " {{time}}. If this was not you, contact your pharmacy or Pharmacy Core support"
                 + " at once.",
             "Your Pharmacy Core sign-in email was changed to {{newEmail}}. Not you? Contact"

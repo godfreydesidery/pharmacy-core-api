@@ -273,7 +273,8 @@ class TwoFactorServiceImpl implements TwoFactorService {
     }
     if (RecoveryCodes.looksLikeRecoveryCode(code)) {
       return recoveryCodes
-          .findByUserUidAndCodeHashAndUsedAtIsNull(user.getUid(), RecoveryCodes.hash(code))
+          .findFirstByUserUidAndCodeHashInAndUsedAtIsNull(
+              user.getUid(), RecoveryCodes.hashes(secrets, code))
           .map(
               recovery -> {
                 recovery.use(clock.instant());
@@ -294,7 +295,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
     recoveryCodes.deleteAllOf(userUid);
     List<String> codes = RecoveryCodes.generate();
     for (String code : codes) {
-      recoveryCodes.save(new RecoveryCode(userUid, RecoveryCodes.hash(code)));
+      recoveryCodes.save(new RecoveryCode(userUid, RecoveryCodes.hash(secrets, code)));
     }
     return codes;
   }

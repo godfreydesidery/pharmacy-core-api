@@ -138,13 +138,31 @@ class AccessNotificationsAdapter implements AccessNotices {
 
   @Override
   public void emailChanged(
-      UUID userUid, String name, String oldEmail, String phone, String newEmail, Instant at) {
+      UUID userUid,
+      String name,
+      String oldEmail,
+      String phone,
+      String newEmail,
+      Instant at,
+      String revertLink) {
     notifier.send(
         new NotificationRequest(
-            TemplateKeys.ACCESS_EMAIL_CHANGED,
+            revertLink == null
+                ? TemplateKeys.ACCESS_EMAIL_RECOVERED
+                : TemplateKeys.ACCESS_EMAIL_CHANGED,
             new Recipient(userUid, name, oldEmail, phone, null),
             Set.of(Channel.EMAIL, Channel.SMS),
-            params("newEmail", newEmail, "time", WHEN.format(at)),
+            revertLink == null
+                ? params("newEmail", newEmail, "time", WHEN.format(at))
+                : params(
+                    "newEmail",
+                    newEmail,
+                    "time",
+                    WHEN.format(at),
+                    "revertLink",
+                    revertLink,
+                    "days",
+                    tz.co.pharmacy.modules.access.ports.inbound.AccountSecurity.EMAIL_REVERT_DAYS),
             null));
   }
 

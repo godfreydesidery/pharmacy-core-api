@@ -18,6 +18,12 @@ public final class TemplateKeys {
   public static final String ACCESS_EMAIL_CONFIRM = "access.email_confirm";
   public static final String ACCESS_EMAIL_IN_USE = "access.email_in_use";
   public static final String ACCESS_EMAIL_CHANGED = "access.email_changed";
+
+  /**
+   * To the old address after a recovery: changed, with no undo link (its mailbox was the lost one).
+   */
+  public static final String ACCESS_EMAIL_RECOVERED = "access.email_recovered";
+
   public static final String ACCESS_PASSWORD_CHANGED = "access.password_changed";
   public static final String ACCESS_PHONE_REMOVED = "access.phone_removed";
   public static final String ACCESS_RECOVERY_STARTED = "access.recovery_started";
@@ -51,6 +57,7 @@ public final class TemplateKeys {
           ACCESS_EMAIL_CONFIRM,
           ACCESS_EMAIL_IN_USE,
           ACCESS_EMAIL_CHANGED,
+          ACCESS_EMAIL_RECOVERED,
           ACCESS_PASSWORD_CHANGED,
           ACCESS_PHONE_REMOVED,
           ACCESS_RECOVERY_STARTED,

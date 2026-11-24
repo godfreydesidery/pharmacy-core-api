@@ -7,7 +7,9 @@ import java.util.Locale;
 
 /**
  * Recovery codes: 10 codes such as {@code k7mq-2xhz}, from an alphabet without look-alikes. Each
- * carries about 40 bits, so a SHA-256 hash is enough to store it; entry ignores case and dashes.
+ * carries about 40 bits: few enough to try them all against a bare SHA-256 hash, so a code is
+ * stored as a keyed hash with the {@code codes} pepper ({@link SecretBox#codeHash}, AUTH-16); codes
+ * stored as SHA-256 before still match ({@link #legacyHash}). Entry ignores case and dashes.
  */
 final class RecoveryCodes {
 
@@ -36,8 +38,23 @@ final class RecoveryCodes {
     return code == null ? "" : code.replaceAll("[\\s-]", "").toLowerCase(Locale.ROOT);
   }
 
-  static String hash(String code) {
-    return Tokens.hash("recovery:" + normalise(code));
+  /** The code as it is stored now: a keyed hash. */
+  static String hash(SecretBox secrets, String code) {
+    return secrets.codeHash(text(code));
+  }
+
+  /** Every form the code may be stored as, the newest first. */
+  static java.util.List<String> hashes(SecretBox secrets, String code) {
+    return secrets.codeHashes(text(code), legacyHash(code));
+  }
+
+  /** The unsalted SHA-256 hash codes were stored as before keyed hashes. */
+  static String legacyHash(String code) {
+    return Tokens.hash(text(code));
+  }
+
+  private static String text(String code) {
+    return "recovery:" + normalise(code);
   }
 
   static boolean looksLikeRecoveryCode(String code) {

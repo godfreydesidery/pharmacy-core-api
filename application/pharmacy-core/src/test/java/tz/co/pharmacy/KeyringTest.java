@@ -238,6 +238,20 @@ class KeyringTest extends IntegrationTest {
     assertThat(keysOf(after, "notifications.provider_settings.secrets"))
         .containsOnly("testproviders");
     assertThat(after.read("$.data.toReseal", Long.class)).isZero();
+    // Keyed hashes (recovery and SMS codes, AUTH-16) cannot be re-sealed: a code hashed under the
+    // legacy key keeps the key in use until it is used up or replaced. Once none is left, it may
+    // go.
+    try (Connection connection = ownerConnection();
+        PreparedStatement recovery =
+            connection.prepareStatement(
+                "delete from access.recovery_codes where code_hash like 'h1:legacy:%'");
+        PreparedStatement phone =
+            connection.prepareStatement(
+                "delete from access.phone_codes where code_hash like 'h1:legacy:%'")) {
+      recovery.executeUpdate();
+      phone.executeUpdate();
+    }
+    after = root.get("/api/v1/platform/keys").expect(200);
     assertThat(removable(after, "legacy")).isTrue();
     assertThat(removable(after, "testtotp")).isFalse();
 

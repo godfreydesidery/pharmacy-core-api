@@ -49,6 +49,7 @@ class NotifierImpl implements Notifier {
   private final PendingScopes pending;
   private final Dispatcher dispatcher;
   private final NotificationMetrics metrics;
+  private final MessageSeal seal;
   private final String defaultCountryCode;
 
   @SuppressWarnings("java:S107")
@@ -63,8 +64,10 @@ class NotifierImpl implements Notifier {
       PendingScopes pending,
       Dispatcher dispatcher,
       NotificationMetrics metrics,
+      MessageSeal seal,
       @Value("${pharmacy.notifications.default-country-code:255}") String defaultCountryCode,
       Clock clock) {
+    this.seal = seal;
     this.metrics = metrics;
     this.clock = clock;
     this.messages = messages;
@@ -140,6 +143,10 @@ class NotifierImpl implements Notifier {
         messages.save(message);
         inboxUsers.add(recipient.userUid());
       } else {
+        if (message.carriesSecrets()) {
+          // A link or a code: sealed while it waits, never at rest in the clear (AUTH-8).
+          message.seal(seal::seal);
+        }
         messages.save(message);
         queued.add(message.getUid());
       }

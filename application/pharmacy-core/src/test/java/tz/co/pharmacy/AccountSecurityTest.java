@@ -124,6 +124,71 @@ class AccountSecurityTest extends IntegrationTest {
   }
 
   @Test
+  @DisplayName(
+      "AUTH-13 the old address may undo an email change: back, a new password, every session out")
+  void revertEmailChange() {
+    String next = "moved." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
+    person
+        .post(
+            "/api/v1/auth/email-change",
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(next))
+        .expect(202);
+    String confirm =
+        Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", next, true));
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(confirm))
+        .expect(200);
+    Api mover = anonymous.as(anonymous.signIn(next, "Admin#2026x"));
+
+    // The old address is told, with a link that undoes it.
+    String notice = outbox.platformMessage("access.email_changed", "EMAIL", email, true);
+    assertThat(notice).contains("/revert-email?token=").contains("7 days");
+    String revert = Outbox.token(notice);
+    // A confirm link it is not.
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(revert))
+        .expect(422);
+
+    // Whoever moved the account asks to move it on: the way back stays open.
+    String third = "third." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
+    mover
+        .post(
+            "/api/v1/auth/email-change",
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(third))
+        .expect(202);
+    String onward =
+        Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", third, true));
+
+    String body = "{\"token\":\"%s\",\"newPassword\":\"%s\"}";
+    assertThat(
+            anonymous
+                .post("/api/v1/auth/email-change/revert", body.formatted(revert, ""))
+                .expect(422)
+                .string("$.reason"))
+        .isEqualTo("password_required");
+    anonymous
+        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Back#2026-home"))
+        .expect(200);
+
+    // The old address and the new password sign in; the mover's session and address do not.
+    mover.get("/api/v1/auth/me").expect(401);
+    Api back = anonymous.as(anonymous.signIn(email, "Back#2026-home"));
+    anonymous
+        .post(
+            "/api/v1/auth/sign-in",
+            "{\"email\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(next))
+        .expect(401);
+    // Single use, and the onward change asked for meanwhile is cancelled.
+    anonymous
+        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Again#2026-home"))
+        .expect(422);
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(onward))
+        .expect(422);
+    assertThat(history(back)).contains("EMAIL_CHANGED", "EMAIL_CHANGE_REVERTED");
+  }
+
+  @Test
   @DisplayName("asking for an address that has an account answers the same and changes nothing")
   void takenEmail() {
     String other = "taken." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";

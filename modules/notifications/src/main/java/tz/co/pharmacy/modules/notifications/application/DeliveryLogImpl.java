@@ -36,6 +36,10 @@ class DeliveryLogImpl implements DeliveryLog {
 
   private static final Duration SAFETY_NET = Duration.ofMinutes(2);
 
+  /** What the delivery log shows of an account message waiting to be sent (its text is sealed). */
+  static final String SEALED =
+      "(Waiting to be sent. Account messages are sealed: they carry links and codes.)";
+
   private final MessageRepository messages;
   private final Dispatcher dispatcher;
   private final PendingScopes pending;
@@ -61,7 +65,7 @@ class DeliveryLogImpl implements DeliveryLog {
         m.getToAddress(),
         m.getLocale(),
         mask(m.getSubject()),
-        mask(m.getBody()),
+        m.isSealed() ? SEALED : mask(m.getBody()),
         m.getStatus().name(),
         m.getProvider(),
         m.getAttempts(),

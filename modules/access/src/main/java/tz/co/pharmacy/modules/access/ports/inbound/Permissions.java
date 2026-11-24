@@ -67,6 +67,21 @@ public final class Permissions {
   /** Reporting an adverse drug reaction (pharmacovigilance, TMDA; STD-8). */
   public static final String ADR_REPORT = "adr.report";
 
+  /**
+   * Exporting a claim batch for the payer (CSV, FHIR R4): the claims name patients and carry their
+   * diagnoses, so it is its own permission (Batch 10, owner's decision of 24 Nov 2026) rather than
+   * {@link #DATA_EXPORT} with {@link #HEALTH_VIEW}. It does not let anyone browse prescriptions or
+   * health records.
+   */
+  public static final String INSURANCE_CLAIMS_EXPORT = "insurance.claims_export";
+
+  /**
+   * Adding a walk-in customer at the till: a name, a phone, an email, type RETAIL, nothing more (no
+   * credit limit, insurance, address or payment terms). Without {@link #PARTNERS_MANAGE}, it opens
+   * nothing else on customers or suppliers (Batch 10, owner's decision of 24 Nov 2026).
+   */
+  public static final String PARTNERS_CREATE_AT_TILL = "partners.create_at_till";
+
   private static final List<PermissionView> CATALOGUE =
       List.of(
           new PermissionView(PLATFORM_MANAGE, "platform", "Manage tenants and root administrators"),
@@ -116,7 +131,15 @@ public final class Permissions {
               HEALTH_VIEW,
               "pharmacy",
               "View health details: prescriptions, patients, diagnoses, adverse reactions"),
-          new PermissionView(ADR_REPORT, "pharmacy", "Report adverse drug reactions"));
+          new PermissionView(ADR_REPORT, "pharmacy", "Report adverse drug reactions"),
+          new PermissionView(
+              INSURANCE_CLAIMS_EXPORT,
+              "finance",
+              "Export insurance claim batches for the payer (patients and diagnoses)"),
+          new PermissionView(
+              PARTNERS_CREATE_AT_TILL,
+              "partners",
+              "Add a walk-in customer at the till (name, phone and email only)"));
 
   /** Every permission code. */
   public static final Set<String> ALL =
@@ -164,6 +187,11 @@ public final class Permissions {
    * every role that could sell keeps selling prescription medicines (the built-in Cashier
    * included), and the notice offers to take that off the Cashier where the pharmacy has not
    * decided yet.
+   *
+   * <p>Nor did {@link #INSURANCE_CLAIMS_EXPORT} and {@link #PARTNERS_CREATE_AT_TILL} (Batch 10):
+   * access V21 gives them to every existing pharmacy's built-in roles exactly as these presets do
+   * (and the claims export to the pharmacy's own roles that could export claim batches before).
+   * decided yet.
    */
   public static final String PRESETS_VERSION = "2026-11-23";
 
@@ -201,7 +229,8 @@ public final class Permissions {
               REPORTS_VIEW,
               SALES_DISPENSE_RX,
               HEALTH_VIEW,
-              ADR_REPORT);
+              ADR_REPORT,
+              PARTNERS_CREATE_AT_TILL);
       case "CASHIER" ->
           ordered(
               DASHBOARD_VIEW,
@@ -209,7 +238,8 @@ public final class Permissions {
               SALES_VIEW,
               CATALOGUE_VIEW,
               PARTNERS_VIEW,
-              INVENTORY_VIEW);
+              INVENTORY_VIEW,
+              PARTNERS_CREATE_AT_TILL);
       case "STORE_KEEPER" ->
           ordered(
               DASHBOARD_VIEW,
@@ -233,7 +263,8 @@ public final class Permissions {
               PURCHASING_VIEW,
               PARTNERS_VIEW,
               PARTNERS_CREDIT_LIMIT,
-              DATA_EXPORT);
+              DATA_EXPORT,
+              INSURANCE_CLAIMS_EXPORT);
       default -> Set.of();
     };
   }

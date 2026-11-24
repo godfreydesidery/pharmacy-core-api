@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Recalls;
 import tz.co.pharmacy.modules.inventory.ports.inbound.Recalls.RecallBatch;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
@@ -25,6 +26,10 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SalesReports.BatchSale;
 /**
  * Batch recalls: every sale that took the batch, with the customer's phone for contacting them, and
  * quarantine of what is left (across the tenant) until it is released.
+ *
+ * <p>The sales are those of the branches the caller may work in (a user limited to one branch sees
+ * its own buyers only; {@code SalesReports.batchSales} filters by the request's branches), and a
+ * sale's patient name is health data: it is shown only to holders of {@code health.view} (STD-5).
  */
 @RestController
 @RequestMapping("/api/v1/recalls")
@@ -80,13 +85,16 @@ public class RecallHandler {
 
   private RecallView view(RecallBatch batch) {
     Map<UUID, String> phones = new HashMap<>();
+    boolean health = HealthFields.visible();
     List<SaleOfBatch> sales =
-        salesReports.batchSales(batch.uid()).stream().map(sale -> sale(sale, phones)).toList();
+        salesReports.batchSales(batch.uid()).stream()
+            .map(sale -> sale(sale, phones, health))
+            .toList();
     long out = sales.stream().mapToLong(s -> s.quantity() - s.returnedQuantity()).sum();
     return new RecallView(batch, sales, out);
   }
 
-  private SaleOfBatch sale(BatchSale sale, Map<UUID, String> phones) {
+  private SaleOfBatch sale(BatchSale sale, Map<UUID, String> phones, boolean health) {
     String phone =
         sale.customerUid() == null
             ? null
@@ -101,7 +109,7 @@ public class RecallHandler {
         sale.customerUid(),
         sale.customerName(),
         phone,
-        sale.patientName(),
+        health ? sale.patientName() : null,
         sale.quantity(),
         sale.returnedQuantity());
   }

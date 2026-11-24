@@ -32,6 +32,9 @@ public interface AccountSecurity {
   int RECOVERY_HOLD_HOURS = 24;
   int RECOVERY_VALID_HOURS = 72;
 
+  /** How long the old address may undo an email change (AUTH-13). */
+  int EMAIL_REVERT_DAYS = 7;
+
   /**
    * Sends a confirmation link to {@code newEmail}. 401 invalid_password; 422 invalid_code (two-
    * factor on and no valid code); 422 same_email; 422 managed_login. Asking again replaces an
@@ -46,6 +49,15 @@ public interface AccountSecurity {
    * invalid_token; 409 email_taken when the address got an account meanwhile.
    */
   void confirmEmail(String token, String newPassword);
+
+  /**
+   * Undoes an email change from the link sent to the old address (AUTH-13): the old address is the
+   * sign-in again, {@code newPassword} the password, every session is signed out, every passkey
+   * removed, and two-factor turned off if it was turned on after the change. 422 invalid_token
+   * (unknown, used or older than {@link #EMAIL_REVERT_DAYS} days); 422 password_required or
+   * weak_password; 409 email_taken when another account has taken the old address meanwhile.
+   */
+  void revertEmail(String token, String newPassword);
 
   /** Cancels a recovery from the link sent to the old email or phone. 422 invalid_token. */
   void cancelRecovery(String token);

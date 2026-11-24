@@ -15016,6 +15016,42 @@
         "x-scope" : "PUBLIC"
       }
     },
+    "/api/v1/auth/email-change/revert" : {
+      "post" : {
+        "description" : "**Access:** scope PUBLIC.",
+        "operationId" : "AccountSecurityHandler_revertEmail",
+        "parameters" : [ ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ConfirmRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "security" : [ ],
+        "tags" : [ "account-security-handler" ],
+        "x-permission" : "",
+        "x-scope" : "PUBLIC"
+      }
+    },
     "/api/v1/auth/invitations/accept" : {
       "post" : {
         "description" : "**Access:** scope PUBLIC.",
@@ -17261,7 +17297,7 @@
         "x-scope" : "TENANT"
       },
       "post" : {
-        "description" : "**Access:** scope TENANT; permission `partners.manage`.",
+        "description" : "**Access:** scope TENANT; any of `partners.manage`, `partners.create_at_till`.",
         "operationId" : "PartnerHandler_createCustomer",
         "parameters" : [ {
           "$ref" : "#/components/parameters/tenant"
@@ -17314,7 +17350,8 @@
           }
         },
         "tags" : [ "partner-handler" ],
-        "x-permission" : "partners.manage",
+        "x-permission" : "",
+        "x-permission-any-of" : [ "partners.manage", "partners.create_at_till" ],
         "x-scope" : "TENANT"
       }
     },
@@ -20300,7 +20337,7 @@
     },
     "/api/v1/insurance/batches/{uid}/export" : {
       "get" : {
-        "description" : "**Access:** scope TENANT; permission `finance.view`; plan feature INSURANCE.",
+        "description" : "**Access:** scope TENANT; all of `finance.view`, `insurance.claims_export`; plan feature INSURANCE.",
         "operationId" : "InsuranceHandler_export",
         "parameters" : [ {
           "$ref" : "#/components/parameters/tenant"
@@ -20357,7 +20394,8 @@
           }
         },
         "tags" : [ "insurance-handler" ],
-        "x-permission" : "finance.view",
+        "x-permission" : "",
+        "x-permission-all-of" : [ "finance.view", "insurance.claims_export" ],
         "x-plan-feature" : "INSURANCE",
         "x-scope" : "TENANT"
       }

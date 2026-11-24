@@ -66,6 +66,35 @@ class WebhookTargetsTest {
   }
 
   @Test
+  void refusesIpv6FormsThatCarryAnIpv4Address() {
+    // INT-14: a NAT64 or 6to4 gateway would reach the IPv4 address inside for us.
+    for (String address :
+        List.of(
+            "64:ff9b::a00:1", // NAT64 of 10.0.0.1
+            "64:ff9b::7f00:1", // NAT64 of 127.0.0.1
+            "64:ff9b:1::a9fe:a9fe", // local-use NAT64 of 169.254.169.254
+            "2002:a00:1::1", // 6to4 of 10.0.0.1
+            "2002:5db8:d822::1", // 6to4 of a public address: refused all the same
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+            "2001:db8::1", // documentation
+            "100::1", // discard-only
+            "::a00:1")) { // IPv4-compatible
+      assertThat(targets.check("https://[" + address + "]/x").allowed()).as(address).isFalse();
+    }
+    assertThat(targets.check("https://[2606:4700:4700::1111]/x").allowed()).isTrue();
+  }
+
+  @Test
+  void keepsTheAddressesItChecked() {
+    WebhookTargets.Target target = targets.target("https://hooks.example.com/pharmacy");
+    assertThat(target.allowed()).isTrue();
+    assertThat(target.addresses())
+        .extracting(InetAddress::getHostAddress)
+        .containsExactly("93.184.216.34");
+    assertThat(targets.target("https://rebound.example.com/x").addresses()).isEmpty();
+  }
+
+  @Test
   void allowListedDevelopmentHostsMayUseHttp() {
     WebhookTargets dev =
         new WebhookTargets(

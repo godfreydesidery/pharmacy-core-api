@@ -55,6 +55,15 @@ public interface AuthenticationService {
    */
   SessionActivity recordActivity(String token, Integer pharmacyIdleMinutes);
 
+  /**
+   * A request of {@code principal}'s session works in a pharmacy whose inactivity limit is {@code
+   * pharmacyIdleMinutes} (AUTH-17): the limit is taken from each request's pharmacy on the server,
+   * whatever pharmacy the app names when it reports activity. 401 session_idle when the session has
+   * been unused for longer than that limit (and it ends); a stricter limit than the session's
+   * becomes the session's. Nothing for a root administrator, who keeps the platform's limit.
+   */
+  void workingUnderLimit(Principal principal, Integer pharmacyIdleMinutes);
+
   default void signOut(String token) {
     signOut(token, false);
   }

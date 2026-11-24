@@ -90,7 +90,10 @@ class VouchersImpl implements Vouchers {
             new VoucherIssued(
                 meta,
                 voucher.getUid(),
-                voucher.getCode(),
+                // The code spends the voucher: the event (kept in platform.event_publication, and
+                // the
+                // journal's reference) names it by its last characters only.
+                VoucherIssued.masked(voucher.getCode()),
                 branch,
                 voucher.getInitialValue(),
                 voucher.getPaidBy()));
