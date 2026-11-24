@@ -132,10 +132,33 @@ class AuthenticationServiceImpl implements AuthenticationService {
       }
       throw Refusal.unauthenticated("invalid_credentials", "The email or password is wrong.");
     }
+    notePasswordLength(user, password);
     if (user.isTwoFactorEnabled()) {
       return challenge(user, from);
     }
     return new SignInOutcome.Signed(issuer.issue(user, from, "PASSWORD"));
+  }
+
+  /**
+   * Notes, once, whether the password just proved may be the account's only factor (STD-21): a
+   * password from before the rule is known after its next sign-in. Its length is kept, never it.
+   */
+  private void notePasswordLength(User user, String password) {
+    boolean longEnough = Passwords.longEnoughAlone(password);
+    if (Boolean.valueOf(longEnough).equals(user.getPasswordLongEnoughAlone())) {
+      return;
+    }
+    ExecutionContext.callAs(
+        SessionIssuer.userFrame(user),
+        () -> {
+          writes.executeWithoutResult(
+              status ->
+                  users
+                      .findByUid(user.getUid())
+                      .ifPresent(row -> row.notePasswordLength(longEnough)));
+          return null;
+        });
+    user.notePasswordLength(longEnough);
   }
 
   /** Counts a failed sign-in and audits it; true when it locked the account. */
@@ -407,7 +430,11 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 users
                     .findByUid(userUid)
                     .orElseThrow(() -> Refusal.notFound("user_not_found", "No such user.")));
-    Passwords.acceptable(newPassword, "newPassword", known.getEmail());
+    // An authenticator app or a passkey: the password then needs 8 characters, not 15 (STD-21).
+    boolean secondFactor =
+        known.isTwoFactorEnabled()
+            || Boolean.TRUE.equals(reads.execute(status -> passkeys.existsByUserUid(userUid)));
+    Passwords.acceptable(newPassword, "newPassword", known.getEmail(), secondFactor);
     // The current password first, and a wrong one counts like a failed sign-in: a stolen session
     // must not be a way to guess the password without end (AUTH-5), nor to make the server hash
     // new passwords for nothing (AUTH-6).
@@ -419,7 +446,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
       throw Refusal.invalid(
           "invalid_current_password", "The current password is wrong.", "currentPassword");
     }
-    String hash = passwords.hash(newPassword, "newPassword", known.getEmail());
+    String hash = passwords.hash(newPassword, "newPassword", known.getEmail(), secondFactor);
     writes.executeWithoutResult(
         status -> {
           User user =
@@ -434,6 +461,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 "newPassword");
           }
           user.changePassword(hash);
+          user.notePasswordLength(Passwords.longEnoughAlone(newPassword));
           resets.closeOpen(userUid, now);
           int revoked =
               currentToken == null

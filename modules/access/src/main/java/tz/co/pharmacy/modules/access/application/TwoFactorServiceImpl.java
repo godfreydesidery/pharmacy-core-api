@@ -104,7 +104,9 @@ class TwoFactorServiceImpl implements TwoFactorService {
             .filter(change -> change.openAt(clock.instant()) && !change.isRecovery())
             .map(tz.co.pharmacy.modules.access.domain.EmailChange::getNewEmail)
             .findFirst()
-            .orElse(null));
+            .orElse(null),
+        Passwords.minimum(user.isTwoFactorEnabled() || passkeys.countByUserUid(userUid) > 0),
+        Boolean.TRUE.equals(user.getPasswordLongEnoughAlone()));
   }
 
   @Override
@@ -163,6 +165,10 @@ class TwoFactorServiceImpl implements TwoFactorService {
     User user = user(userUid);
     if (!user.isTwoFactorEnabled()) {
       return;
+    }
+    if (passkeys.countByUserUid(userUid) == 0) {
+      // Nothing would be left but the password (STD-21): it must have 15 characters.
+      SecondFactors.passwordMayStandAlone(user);
     }
     if (!secondFactor(user, code)) {
       throw invalidCode();

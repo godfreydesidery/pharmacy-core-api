@@ -13,8 +13,13 @@ import tz.co.pharmacy.platform.kernel.Refusal;
  * Cheat Sheet).
  *
  * <ul>
- *   <li>8 to 128 characters, counted as characters (code points), any characters allowed, no
- *       composition rules.
+ *   <li>At least 15 characters when the password is the account's only factor, and 8 when the
+ *       account has a second factor (an authenticator app or a passkey): NIST SP 800-63B-4
+ *       §3.1.1.2, the owner's decision of 24 Nov 2026 (STD-21). At most 128. Counted as characters
+ *       (code points), any characters allowed, no composition rules. A new account has no second
+ *       factor yet, so it starts with 15. Existing passwords keep working: the rule applies when a
+ *       password is set. Passwords from operator configuration (the first root administrator, who
+ *       must then enrol a second factor, and the local demonstration seed) need 8.
  *   <li>Not a commonly used or easily guessed password: a blocklist of the most common ones, one
  *       character repeated, a run like {@code 12345678} or {@code abcdefgh}, or the account's own
  *       email name.
@@ -29,8 +34,20 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 @Component
 class Passwords {
 
-  private static final int MIN_LENGTH = 8;
+  /** The minimum when the password is the only factor (NIST SP 800-63B-4). */
+  static final int MIN_LENGTH_ALONE = 15;
+
+  /** The minimum when the account also has a second factor. */
+  static final int MIN_LENGTH_WITH_SECOND_FACTOR = 8;
+
   private static final int MAX_LENGTH = 128;
+
+  /**
+   * Services whose passwords come from operator configuration, not from a person choosing one: the
+   * root administrator bootstrap (two-factor is required of root administrators) and the local
+   * demonstration seed, whose passwords are published in the README.
+   */
+  private static final Set<String> OPERATOR_SERVICES = Set.of("bootstrap", "demo-seed");
 
   /** Among the most used passwords in breach corpora, lower case. */
   static final Set<String> COMMON =
@@ -131,15 +148,46 @@ class Passwords {
   /** A hash to compare against when no user matches, so a miss takes as long as a hit. */
   private final String decoy = encoder.encode("decoy-password-for-timing");
 
-  /** The hash of a new password, refused if the password breaks the rule. */
+  /**
+   * The hash of a new password for an account without a second factor (15 characters), refused if
+   * the password breaks the rule.
+   */
   String hash(String password, String field) {
     return hash(password, field, null);
   }
 
   /** The same, also refusing a password made of the account's email name ({@code email}). */
   String hash(String password, String field, String email) {
-    String accepted = acceptable(password, field, email);
+    return hash(password, field, email, false);
+  }
+
+  /** The same for an account that has ({@code secondFactor}) or lacks a second factor. */
+  String hash(String password, String field, String email, boolean secondFactor) {
+    String accepted = acceptable(password, field, email, secondFactor);
     return limited(() -> encoder.encode(accepted));
+  }
+
+  /** Whether a password may be the account's only factor: 15 characters or more. */
+  static boolean longEnoughAlone(String password) {
+    return password != null && password.codePointCount(0, password.length()) >= MIN_LENGTH_ALONE;
+  }
+
+  /** The minimum length for an account with or without a second factor. */
+  static int minimum(boolean secondFactor) {
+    if (secondFactor || operatorService()) {
+      return MIN_LENGTH_WITH_SECOND_FACTOR;
+    }
+    return MIN_LENGTH_ALONE;
+  }
+
+  private static boolean operatorService() {
+    return tz.co.pharmacy.platform.kernel.ExecutionContext.current()
+        .map(frame -> frame.actor())
+        .filter(
+            actor ->
+                actor.type() == tz.co.pharmacy.platform.kernel.Actor.ActorType.PLATFORM_SERVICE)
+        .map(actor -> OPERATOR_SERVICES.contains(actor.name()))
+        .orElse(false);
   }
 
   boolean matches(String password, String hash) {
@@ -154,10 +202,33 @@ class Passwords {
   }
 
   static String acceptable(String password, String field, String email) {
+    return acceptable(password, field, email, false);
+  }
+
+  /**
+   * The password if it keeps the rule: 422 password_too_short (with {@code minLength} and {@code
+   * twoFactor}) below the minimum for the account's factors, weak_password above 128 characters,
+   * common_password for a guessable one.
+   */
+  static String acceptable(String password, String field, String email, boolean secondFactor) {
     int length = password == null ? 0 : password.codePointCount(0, password.length());
-    if (password == null || length < MIN_LENGTH || length > MAX_LENGTH) {
+    int minimum = minimum(secondFactor);
+    if (length < minimum) {
       throw Refusal.invalid(
-          "weak_password", "The password must be 8 to 128 characters long.", field);
+              "password_too_short",
+              secondFactor
+                  ? "The password must have at least " + minimum + " characters."
+                  : "The password must have at least "
+                      + minimum
+                      + " characters (8 once the account has two-factor or a passkey).",
+              field)
+          .with("minLength", minimum)
+          .with("twoFactor", secondFactor);
+    }
+    if (length > MAX_LENGTH) {
+      throw Refusal.invalid(
+              "weak_password", "The password must be at most " + MAX_LENGTH + " characters.", field)
+          .with("maxLength", MAX_LENGTH);
     }
     String lower = password.toLowerCase(Locale.ROOT);
     if (COMMON.contains(lower) || repeated(lower) || run(lower) || ownName(lower, email)) {

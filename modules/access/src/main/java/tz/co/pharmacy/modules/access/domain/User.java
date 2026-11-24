@@ -69,6 +69,17 @@ public class User extends MutableEntity {
   /** The person must choose their own password before working. */
   private boolean passwordChangeRequired;
 
+  /**
+   * Whether the current password has 15 characters or more, so it may be the only factor (STD-21);
+   * null while not known (a password from before the rule, until the next sign-in notes it).
+   */
+  private Boolean passwordLongEnoughAlone;
+
+  /** Notes whether the current password, just seen, may be the only factor. */
+  public void notePasswordLength(boolean longEnoughAlone) {
+    this.passwordLongEnoughAlone = longEnoughAlone;
+  }
+
   public User(String email, String name, String passwordHash, boolean rootAdmin) {
     this.email = email;
     this.name = name;
@@ -139,6 +150,8 @@ public class User extends MutableEntity {
   public void changePassword(String passwordHash) {
     this.passwordHash = passwordHash;
     this.passwordChangeRequired = false;
+    // Not known until the caller notes it: a stale "long enough" must never outlive the password.
+    this.passwordLongEnoughAlone = null;
   }
 
   /** A new managed login of {@code tenantUid}, with a temporary password to change at sign-in. */
@@ -166,6 +179,7 @@ public class User extends MutableEntity {
     }
     this.passwordHash = temporaryPasswordHash;
     this.passwordChangeRequired = true;
+    this.passwordLongEnoughAlone = null;
     unlock();
   }
 
