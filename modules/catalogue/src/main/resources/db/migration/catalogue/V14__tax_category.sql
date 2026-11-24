@@ -31,6 +31,14 @@ alter table catalogue.products force row level security;
 
 alter table tenancy.settings no force row level security;
 alter table catalogue.products no force row level security;
+-- A pharmacy that charges no VAT today (a standard rate of 0 and no taxed product) is recorded as
+-- not VAT-registered, so nothing it sells starts carrying VAT; its admin turns registration on in
+-- Settings. A pharmacy with taxed products stays registered (tenancy V15's default).
+update tenancy.settings s
+   set vat_registered = false
+ where s.default_tax_rate_percent = 0
+   and not exists (select 1 from catalogue.products p
+                    where p.tenant_uid = s.tenant_uid and p.tax_rate_percent > 0);
 update tenancy.settings s
    set default_tax_rate_percent = coalesce(
          (select mode() within group (order by p.tax_rate_percent)
