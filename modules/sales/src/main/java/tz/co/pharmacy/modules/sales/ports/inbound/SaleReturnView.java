@@ -28,4 +28,7 @@ public record SaleReturnView(
     List<SaleReturnLineView> lines,
     Instant createdAt,
     String createdBy,
-    List<SaleRefundView> refunds) {}
+    List<SaleRefundView> refunds,
+    /* Its credit note's status (null: its sale had no fiscal receipt) and number, once issued. */
+    FiscalStatus fiscalStatus,
+    String fiscalReference) {}

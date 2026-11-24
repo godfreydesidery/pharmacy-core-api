@@ -17,4 +17,9 @@ public interface PurchasingDirectory {
    * The product's tracking mode: BATCH_EXPIRY, BATCH, SERIAL or QUANTITY; 422 product_not_found.
    */
   String trackingMode(UUID productUid);
+
+  /** Whether the pharmacy is VAT-registered, so a receipt's input VAT is recoverable (STD-2). */
+  default boolean vatRegistered() {
+    return false;
+  }
 }

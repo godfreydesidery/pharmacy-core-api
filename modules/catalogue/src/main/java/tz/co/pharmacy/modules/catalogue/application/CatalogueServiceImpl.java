@@ -66,6 +66,7 @@ class CatalogueServiceImpl implements CatalogueService {
   private final PriceHistory priceHistory;
   private final tz.co.pharmacy.platform.approval.Approvals approvals;
   private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
+  private final tz.co.pharmacy.modules.catalogue.ports.outbound.PricingSettings settings;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -454,6 +455,12 @@ class CatalogueServiceImpl implements CatalogueService {
           "invalid_reorder_level", "reorderLevel must be zero or more.", "reorderLevel");
     }
     ProductRules.Kind kind = ProductRules.kind(c);
+    BigDecimal sentRate = Checks.percent(c.taxRatePercent(), "taxRatePercent");
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory =
+        c.taxCategory() != null
+            ? c.taxCategory()
+            : tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(sentRate);
+    BigDecimal taxRate = taxCategory.taxed() ? standardRate() : BigDecimal.ZERO;
     return new Product.Details(
         name,
         kind.genericName(),
@@ -468,7 +475,7 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.schedule(),
         Checks.notNegative(c.sellingPrice(), "sellingPrice"),
         Checks.notNegative(c.costPrice(), "costPrice"),
-        Checks.percent(c.taxRatePercent(), "taxRatePercent"),
+        taxRate,
         reorder,
         c.storage() == null ? Storage.ROOM_TEMPERATURE : c.storage(),
         kind.productType(),
@@ -477,7 +484,27 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.brand(),
         kind.model(),
         kind.warrantyMonths(),
-        kind.requiresSerialAtSale());
+        kind.requiresSerialAtSale(),
+        taxCategory);
+  }
+
+  /** The pharmacy's standard VAT rate (its settings, read once per transaction). */
+  private BigDecimal standardRate() {
+    BigDecimal rate = settings.standardVatRatePercent();
+    return rate == null ? BigDecimal.ZERO : Checks.percent(rate, "taxRatePercent");
+  }
+
+  @Override
+  @Transactional
+  public int applyStandardVatRate(BigDecimal ratePercent) {
+    BigDecimal rate = Checks.percent(Checks.required(ratePercent, "ratePercent"), "ratePercent");
+    return entityManager
+        .createQuery(
+            "update Product p set p.taxRatePercent = :rate where p.taxCategory = :standard"
+                + " and (p.taxRatePercent is null or p.taxRatePercent <> :rate)")
+        .setParameter("rate", rate)
+        .setParameter("standard", tz.co.pharmacy.platform.kernel.TaxCategory.STANDARD)
+        .executeUpdate();
   }
 
   void publish(Product product) {
@@ -582,6 +609,9 @@ class CatalogueServiceImpl implements CatalogueService {
         p.getBrand(),
         p.getModel(),
         p.getWarrantyMonths(),
-        p.isRequiresSerialAtSale());
+        p.isRequiresSerialAtSale(),
+        p.getTaxCategory() == null
+            ? tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(p.getTaxRatePercent())
+            : p.getTaxCategory());
   }
 }

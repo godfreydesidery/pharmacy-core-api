@@ -19,7 +19,12 @@ public interface FinancialStatements {
    */
   BalanceSheet balanceSheet(LocalDate asOf);
 
-  /** Output VAT on sales less VAT given back on returns, posted between the dates. */
+  /**
+   * The VAT posted between the dates (STD-2): output VAT charged on sales (2100 credits), VAT given
+   * back on returns (2100 debits), input VAT on purchases and expenses (1150, net of any reversal),
+   * and what is payable to TRA: output less returns less input (negative: a credit to carry or
+   * claim back).
+   */
   VatSummary vat(LocalDate from, LocalDate to);
 
   record Line(
@@ -49,5 +54,8 @@ public interface FinancialStatements {
       LocalDate to,
       BigDecimal outputVat,
       BigDecimal vatReversed,
-      BigDecimal netPayable) {}
+      BigDecimal netPayable,
+      BigDecimal inputVat,
+      /* Output VAT less the VAT given back on returns. */
+      BigDecimal netOutputVat) {}
 }

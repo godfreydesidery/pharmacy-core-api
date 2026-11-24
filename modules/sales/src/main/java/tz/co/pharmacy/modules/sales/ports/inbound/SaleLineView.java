@@ -7,7 +7,9 @@ import java.util.UUID;
 
 /**
  * {@code schedule}: the medicine's dispensing class when sold (null for lines from before it was
- * kept); {@code promotionUid}, {@code promotionName}: the promotion that priced the line.
+ * kept); {@code promotionUid}, {@code promotionName}: the promotion that priced the line. {@code
+ * taxCategory} and {@code taxRatePercent}: the VAT it was sold under (a line from before categories
+ * were kept takes the one its rate implies).
  */
 public record SaleLineView(
     UUID uid,
@@ -27,4 +29,6 @@ public record SaleLineView(
     List<String> returnedSerialNumbers,
     String schedule,
     UUID promotionUid,
-    String promotionName) {}
+    String promotionName,
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
+    BigDecimal taxRatePercent) {}

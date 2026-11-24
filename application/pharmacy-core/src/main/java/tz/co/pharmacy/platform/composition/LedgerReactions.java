@@ -190,7 +190,8 @@ public class LedgerReactions {
                             localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
                             baseTotal(event),
                             foreign(event) ? event.currency() : null,
-                            foreign(event) ? event.total() : null))));
+                            foreign(event) ? event.total() : null,
+                            baseVat(event)))));
   }
 
   @Async
@@ -290,6 +291,11 @@ public class LedgerReactions {
   /** The receipt's total in base; an event from before multi-currency is in base already. */
   static BigDecimal baseTotal(GoodsReceived event) {
     return event.baseTotal() == null ? event.total() : event.baseTotal();
+  }
+
+  /** The receipt's input VAT in base (STD-2); none in events from before it was kept. */
+  static BigDecimal baseVat(GoodsReceived event) {
+    return event.baseVatTotal() == null ? BigDecimal.ZERO : event.baseVatTotal();
   }
 
   /** Whether the receipt is in a currency other than its tenant's base. */

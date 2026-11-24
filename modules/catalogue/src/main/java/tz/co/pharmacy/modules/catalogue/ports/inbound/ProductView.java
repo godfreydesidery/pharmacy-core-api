@@ -4,6 +4,11 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * A product. {@code taxRatePercent} is the VAT rate it is sold at while the pharmacy is
+ * VAT-registered, derived from {@code taxCategory}: the standard rate for STANDARD, 0 for
+ * ZERO_RATED and EXEMPT. A pharmacy that is not registered charges no VAT on any of them.
+ */
 public record ProductView(
     UUID uid,
     String name,
@@ -33,4 +38,5 @@ public record ProductView(
     String brand,
     String model,
     Integer warrantyMonths,
-    boolean requiresSerialAtSale) {}
+    boolean requiresSerialAtSale,
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory) {}

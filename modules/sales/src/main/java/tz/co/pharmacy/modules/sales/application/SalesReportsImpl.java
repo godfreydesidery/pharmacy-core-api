@@ -197,6 +197,75 @@ class SalesReportsImpl implements SalesReports {
         + ")";
   }
 
+  /** A line's VAT category: as kept, else the one its rate implies (older lines). */
+  private static final String CATEGORY =
+      "coalesce(l.tax_category, case when l.tax_rate_percent > 0 then 'STANDARD'"
+          + " else 'EXEMPT' end)";
+
+  @Override
+  public List<VatCategoryLine> vatByCategory(LocalDate from, LocalDate to, java.time.ZoneId zone) {
+    LocalDate end = to == null ? LocalDate.now(zone) : to;
+    LocalDate start = from == null ? end.withDayOfMonth(1) : from;
+    if (end.isBefore(start)) {
+      throw Refusal.invalid("invalid_period", "to is before from.", "to");
+    }
+    Object[] args = {
+      start.atStartOfDay(zone).toOffsetDateTime(),
+      end.plusDays(1).atStartOfDay(zone).toOffsetDateTime()
+    };
+    Map<String, BigDecimal[]> figures = new LinkedHashMap<>();
+    for (tz.co.pharmacy.platform.kernel.TaxCategory category :
+        tz.co.pharmacy.platform.kernel.TaxCategory.values()) {
+      figures.put(
+          category.name(),
+          new BigDecimal[] {Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO});
+    }
+    jdbc.query(
+        "select "
+            + CATEGORY
+            + " as category, coalesce(sum(l.line_total - l.tax), 0) as net,"
+            + " coalesce(sum(l.tax), 0) as tax"
+            + " from sales.sale_lines l join sales.sales s on s.id = l.sale_id"
+            + " where s.created_at >= ? and s.created_at < ? group by 1",
+        r -> {
+          BigDecimal[] row = figures.get(r.getString("category"));
+          if (row != null) {
+            row[0] = row[0].add(r.getBigDecimal("net"));
+            row[1] = row[1].add(r.getBigDecimal("tax"));
+          }
+        },
+        args);
+    jdbc.query(
+        "select "
+            + CATEGORY
+            + " as category, coalesce(sum(rl.refund - rl.tax), 0) as net,"
+            + " coalesce(sum(rl.tax), 0) as tax"
+            + " from sales.sale_return_lines rl join sales.sale_returns r on r.id = rl.return_id"
+            + " join sales.sale_lines l on l.uid = rl.sale_line_uid"
+            + " where r.created_at >= ? and r.created_at < ? group by 1",
+        r -> {
+          BigDecimal[] row = figures.get(r.getString("category"));
+          if (row != null) {
+            row[2] = row[2].add(r.getBigDecimal("net"));
+            row[3] = row[3].add(r.getBigDecimal("tax"));
+          }
+        },
+        args);
+    List<VatCategoryLine> lines = new ArrayList<>();
+    figures.forEach(
+        (category, row) ->
+            lines.add(
+                new VatCategoryLine(
+                    tz.co.pharmacy.platform.kernel.TaxCategory.valueOf(category),
+                    Amounts.money(row[0]),
+                    Amounts.money(row[1]),
+                    Amounts.money(row[2]),
+                    Amounts.money(row[3]),
+                    Amounts.money(row[0].subtract(row[2])),
+                    Amounts.money(row[1].subtract(row[3])))));
+    return lines;
+  }
+
   /** The person's row, keyed by account (or the email, for rows with no account). */
   private static Row row(Map<String, Row> rows, java.sql.ResultSet r) throws java.sql.SQLException {
     Row row = rows.computeIfAbsent(r.getString("cashier"), k -> new Row());

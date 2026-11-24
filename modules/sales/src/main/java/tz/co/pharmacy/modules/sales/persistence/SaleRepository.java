@@ -39,36 +39,23 @@ public interface SaleRepository extends JpaRepository<Sale, Long>, JpaSpecificat
       nativeQuery = true)
   Integer holdLock(@org.springframework.data.repository.query.Param("key") String key);
 
-  /**
-   * Takes the right to issue a sale's fiscal receipt until {@code until} (a lease): only while the
-   * receipt is due and nobody else holds an unexpired lease. 1 when taken, 0 otherwise.
-   */
-  @org.springframework.data.jpa.repository.Modifying
-  @org.springframework.data.jpa.repository.Query(
-      value =
-          "update sales.sales set fiscal_claimed_until = :until where uid = :uid and fiscal_due"
-              + " and (fiscal_claimed_until is null or fiscal_claimed_until < :now)",
-      nativeQuery = true)
-  int claimFiscalReceipt(
-      @org.springframework.data.repository.query.Param("uid") UUID uid,
-      @org.springframework.data.repository.query.Param("now") java.time.Instant now,
-      @org.springframework.data.repository.query.Param("until") java.time.Instant until);
-
   /** Records the issued receipt (its reference, or none) and ends the lease. */
   @org.springframework.data.jpa.repository.Modifying
   @org.springframework.data.jpa.repository.Query(
       value =
           "update sales.sales set fiscal_reference = cast(:reference as text), fiscal_due = false,"
-              + " fiscal_claimed_until = null where uid = :uid and fiscal_due",
+              + " fiscal_claimed_until = null, fiscal_status = 'ISSUED' where uid = :uid",
       nativeQuery = true)
   int recordFiscalReceipt(
       @org.springframework.data.repository.query.Param("uid") UUID uid,
       @org.springframework.data.repository.query.Param("reference") String reference);
 
-  /** Gives the lease back after a failed attempt, so the next delivery may try at once. */
+  /** The receipt document's status beside the sale (PENDING again, or FAILED). */
   @org.springframework.data.jpa.repository.Modifying
   @org.springframework.data.jpa.repository.Query(
-      value = "update sales.sales set fiscal_claimed_until = null where uid = :uid and fiscal_due",
+      value = "update sales.sales set fiscal_status = :status where uid = :uid",
       nativeQuery = true)
-  int releaseFiscalReceipt(@org.springframework.data.repository.query.Param("uid") UUID uid);
+  int fiscalStatus(
+      @org.springframework.data.repository.query.Param("uid") UUID uid,
+      @org.springframework.data.repository.query.Param("status") String status);
 }

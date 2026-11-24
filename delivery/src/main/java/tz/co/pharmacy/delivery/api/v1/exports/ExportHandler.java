@@ -96,6 +96,7 @@ public class ExportHandler {
           column("Cost", "Gharama", ProductView::costPrice),
           column("Price", "Bei", ProductView::sellingPrice),
           column("VAT %", "VAT %", ProductView::taxRatePercent),
+          column("VAT category", "Aina ya VAT", ProductView::taxCategory),
           column("Reorder level", "Kiwango cha kuagiza", ProductView::reorderLevel),
           column("Storage", "Uhifadhi", ProductView::storage),
           column("Active", "Inatumika", ProductView::active));

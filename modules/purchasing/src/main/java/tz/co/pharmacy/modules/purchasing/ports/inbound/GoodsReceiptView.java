@@ -5,6 +5,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * A goods receipt. {@code total} is what the supplier is owed: the lines plus {@code vatTotal}, the
+ * invoice's input VAT (STD-2); {@code baseTotal} and {@code baseVatTotal} are both in the base
+ * currency.
+ */
 public record GoodsReceiptView(
     UUID uid,
     String number,
@@ -21,4 +26,6 @@ public record GoodsReceiptView(
     String createdBy,
     String currency,
     BigDecimal exchangeRate,
-    BigDecimal baseTotal) {}
+    BigDecimal baseTotal,
+    BigDecimal vatTotal,
+    BigDecimal baseVatTotal) {}

@@ -26,7 +26,51 @@ public record ChangeSettingsCommand(
     /* Days a sale's goods may come back without a manager, 0 to 365. */
     Integer returnWindowDays,
     /* A cashier must open a shift before selling or refunding. */
-    Boolean requireOpenShift) {
+    Boolean requireOpenShift,
+    /* Registered for VAT: false charges no VAT on any sale. Null keeps it. */
+    Boolean vatRegistered,
+    /* The TIN (9 digits; dashes and spaces are dropped); blank clears it, null keeps it. */
+    String tin,
+    /* The VRN; blank clears it, null keeps it. */
+    String vrn) {
+
+  /** The command of the fifteen settings that came before VAT registration. */
+  public ChangeSettingsCommand(
+      BigDecimal defaultTaxRatePercent,
+      String invoicePrefix,
+      String receiptFooter,
+      BigDecimal maxDiscountPercent,
+      Integer expiryAlertDays,
+      Boolean lowStockAlerts,
+      Boolean smsReceipts,
+      java.util.List<String> acceptedCurrencies,
+      Boolean pricesIncludeTax,
+      String look,
+      Integer idleMinutes,
+      Boolean requireTwoFactor,
+      BigDecimal approvalLimit,
+      Integer returnWindowDays,
+      Boolean requireOpenShift) {
+    this(
+        defaultTaxRatePercent,
+        invoicePrefix,
+        receiptFooter,
+        maxDiscountPercent,
+        expiryAlertDays,
+        lowStockAlerts,
+        smsReceipts,
+        acceptedCurrencies,
+        pricesIncludeTax,
+        look,
+        idleMinutes,
+        requireTwoFactor,
+        approvalLimit,
+        returnWindowDays,
+        requireOpenShift,
+        null,
+        null,
+        null);
+  }
 
   /** The command of the twelve settings that came before the controls. */
   public ChangeSettingsCommand(

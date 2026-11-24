@@ -16,4 +16,6 @@ public record ExpenseView(
     String paymentMethod,
     String reference,
     Instant createdAt,
-    String createdBy) {}
+    String createdBy,
+    /* The input VAT in the amount (STD-2), 0 for none. */
+    BigDecimal vatAmount) {}

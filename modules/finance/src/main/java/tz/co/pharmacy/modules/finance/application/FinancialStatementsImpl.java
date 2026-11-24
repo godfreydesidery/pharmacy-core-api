@@ -76,23 +76,31 @@ class FinancialStatementsImpl implements FinancialStatements {
       throw Refusal.invalid("invalid_period", "to is before from.", "to");
     }
     // 2100 Tax payable: credits are VAT charged on sales, debits VAT given back on returns.
-    BigDecimal[] totals = {Amounts.ZERO, Amounts.ZERO};
+    // 1150 VAT receivable: debits are input VAT on purchases and expenses, credits its reversal.
+    BigDecimal[] totals = {Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO};
     jdbc.query(
-        "select coalesce(sum(b.credit), 0) as credit, coalesce(sum(b.debit), 0) as debit"
+        "select b.account_code, coalesce(sum(b.credit), 0) as credit,"
+            + " coalesce(sum(b.debit), 0) as debit"
             + " from finance.account_daily_balances b"
-            + " where b.account_code = '2100' and b.day between ? and ?",
+            + " where b.account_code in ('2100', '1150') and b.day between ? and ?"
+            + " group by b.account_code",
         row -> {
-          totals[0] = row.getBigDecimal("credit");
-          totals[1] = row.getBigDecimal("debit");
+          int at = "2100".equals(row.getString("account_code")) ? 0 : 2;
+          totals[at] = row.getBigDecimal("credit");
+          totals[at + 1] = row.getBigDecimal("debit");
         },
         start,
         end);
+    BigDecimal netOutput = totals[0].subtract(totals[1]);
+    BigDecimal input = totals[3].subtract(totals[2]);
     return new VatSummary(
         start,
         end,
         Amounts.money(totals[0]),
         Amounts.money(totals[1]),
-        Amounts.money(totals[0].subtract(totals[1])));
+        Amounts.money(netOutput.subtract(input)),
+        Amounts.money(input),
+        Amounts.money(netOutput));
   }
 
   private List<Line> lines(LocalDate asOf) {

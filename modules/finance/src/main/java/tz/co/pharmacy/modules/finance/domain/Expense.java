@@ -45,6 +45,18 @@ public class Expense extends TenantEntity {
 
   private String reference;
 
+  /** The input VAT in {@code amount} (STD-2), booked to 1150 VAT receivable; 0 for none. */
+  @Column(nullable = false, precision = 14, scale = 2)
+  private BigDecimal vatAmount = tz.co.pharmacy.platform.kernel.Amounts.ZERO;
+
+  /** The input VAT in the amount, at most the amount. */
+  public void withVat(BigDecimal vat) {
+    this.vatAmount =
+        vat == null
+            ? tz.co.pharmacy.platform.kernel.Amounts.ZERO
+            : tz.co.pharmacy.platform.kernel.Amounts.money(vat);
+  }
+
   public Expense(
       String number,
       UUID branchUid,

@@ -94,6 +94,14 @@ public class Sale extends TenantEntity {
   @Column(nullable = false, updatable = false)
   private boolean fiscalDue;
 
+  /**
+   * The status of its fiscal receipt document (STD-1), null when it has none; written with the
+   * document, by SQL of its own, as {@link #fiscalReference}.
+   */
+  @Enumerated(EnumType.STRING)
+  @Column(updatable = false)
+  private tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus fiscalStatus;
+
   private String cashierName;
 
   @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -175,6 +183,8 @@ public class Sale extends TenantEntity {
   /** A new sale whose fiscal receipt is issued after it commits (PERF-1). */
   public void fiscalReceiptDue(boolean due) {
     this.fiscalDue = due;
+    this.fiscalStatus =
+        due ? tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus.PENDING : null;
   }
 
   /** After a return: RETURNED once every unit came back, otherwise PARTIALLY_RETURNED. */

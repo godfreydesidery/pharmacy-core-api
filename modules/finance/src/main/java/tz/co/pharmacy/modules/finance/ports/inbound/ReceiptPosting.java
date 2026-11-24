@@ -13,10 +13,24 @@ public record ReceiptPosting(
     BigDecimal total,
     /* The receipt's currency and its total in it, noted on the payable; null for base receipts. */
     String currency,
-    BigDecimal foreignTotal) {
+    BigDecimal foreignTotal,
+    /* The input VAT in the total, in the base currency (STD-2); null or 0 for none. */
+    BigDecimal vat) {
 
   public ReceiptPosting(
       UUID receiptUid, String number, UUID branchUid, LocalDate date, BigDecimal total) {
-    this(receiptUid, number, branchUid, date, total, null, null);
+    this(receiptUid, number, branchUid, date, total, null, null, null);
+  }
+
+  /** A receipt without input VAT. */
+  public ReceiptPosting(
+      UUID receiptUid,
+      String number,
+      UUID branchUid,
+      LocalDate date,
+      BigDecimal total,
+      String currency,
+      BigDecimal foreignTotal) {
+    this(receiptUid, number, branchUid, date, total, currency, foreignTotal, null);
   }
 }
