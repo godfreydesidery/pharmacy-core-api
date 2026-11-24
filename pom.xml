@@ -60,17 +60,17 @@
         <springdoc.version>3.2.1</springdoc.version>
         <fastexcel.version>0.20.2</fastexcel.version>
         <archunit.version>1.5.1</archunit.version>
-        <bouncycastle.version>1.86</bouncycastle.version>
+        <bouncycastle.version>1.87</bouncycastle.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
         <!-- The tests' PostgreSQL major is production's (Railway and RDS run 18); move both together. -->
         <embedded-postgres-binaries.version>18.7.0</embedded-postgres-binaries.version>
         <!-- AWS SDK for Java v2 (the files module's S3-compatible store), through its BOM. -->
-        <awssdk.version>2.59.5</awssdk.version>
-        <spotless.version>3.10.4</spotless.version>
+        <awssdk.version>2.59.7</awssdk.version>
+        <spotless.version>3.12.0</spotless.version>
         <google-java-format.version>1.30.0</google-java-format.version>
         <sentry.version>8.55.0</sentry.version>
         <!-- Guava comes with webauthn-server-core; CVE-2026-102554 is fixed in 33.7.2. -->
-        <guava.version>33.7.2-jre</guava.version>
+        <guava.version>33.8.0-jre</guava.version>
         <!-- Only pharmacy-core is runnable: mvn -pl application/pharmacy-core -am spring-boot:run -->
         <spring-boot.run.skip>true</spring-boot.run.skip>
         <!-- The build folder. CI and scripts may pass -Dpharmacy.build.dir=target-mvn so an IDE's
