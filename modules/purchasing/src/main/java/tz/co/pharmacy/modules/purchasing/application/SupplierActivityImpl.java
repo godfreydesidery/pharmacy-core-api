@@ -16,10 +16,10 @@ import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.StatementKey;
 
 /**
- * Receipts, the supplier's debit notes and credited returns per supplier as plain SQL; row-level security keeps them to the
- * current tenant. A receipt counts at its base-currency total; a return at its credit note's base
- * value (at its total for returns from before credit notes), on the day the credit was recorded. A
- * return awaiting its credit note counts only in {@code awaitingCredit}.
+ * Receipts, the supplier's debit notes and credited returns per supplier as plain SQL; row-level
+ * security keeps them to the current tenant. A receipt counts at its base-currency total; a return
+ * at its credit note's base value (at its total for returns from before credit notes), on the day
+ * the credit was recorded. A return awaiting its credit note counts only in {@code awaitingCredit}.
  */
 @Service
 @Transactional(readOnly = true)
@@ -102,8 +102,7 @@ class SupplierActivityImpl implements SupplierActivity {
   }
 
   private static List<Object> entriesArgs(UUID supplierUid, ZoneId zone) {
-    return List.of(
-        zone.getId(), supplierUid, zone.getId(), supplierUid, zone.getId(), supplierUid);
+    return List.of(zone.getId(), supplierUid, zone.getId(), supplierUid, zone.getId(), supplierUid);
   }
 
   private static void addKey(List<Object> args, StatementKey key) {
