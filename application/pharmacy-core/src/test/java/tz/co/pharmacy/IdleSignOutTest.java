@@ -162,7 +162,7 @@ class IdleSignOutTest extends IntegrationTest {
     admin.put("/api/v1/settings", "{\"idleMinutes\":5}").expect(200);
 
     // A script reports activity outside the pharmacy (the platform's 15 minutes) and works in it.
-    String token = anonymous.signIn(email, "Admin#2026x");
+    String token = anonymous.signIn(email, "Admin#2026x-strong");
     Api outside = anonymous.as(token);
     Api inside = outside.in(tenant, null);
     assertThat(outside.post("/api/v1/auth/activity", "{}").expect(200).string("$.data.idleMinutes"))
@@ -174,7 +174,7 @@ class IdleSignOutTest extends IntegrationTest {
     outside.get("/api/v1/auth/me").expect(401);
 
     // A request in the pharmacy makes its stricter limit the session's, wherever it reports next.
-    Api fresh = anonymous.as(anonymous.signIn(email, "Admin#2026x"));
+    Api fresh = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong"));
     fresh.in(tenant, null).get("/api/v1/settings").expect(200);
     assertThat(fresh.post("/api/v1/auth/activity", "{}").expect(200).string("$.data.idleMinutes"))
         .isEqualTo("5");

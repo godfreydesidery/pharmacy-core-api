@@ -43,12 +43,12 @@ class SelfApprovalTest extends IntegrationTest {
                 {"code":"%s","name":"Alone %s","legalName":"Alone %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Juma Owner","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Juma Owner","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, ownerEmail))
             .expect(201)
             .string("$.data.uid");
-    Api signedIn = anonymous.as(anonymous.signIn(ownerEmail, "Admin#2026x"));
+    Api signedIn = anonymous.as(anonymous.signIn(ownerEmail, "Admin#2026x-strong"));
     branch =
         signedIn
             .in(tenant, null)
@@ -75,7 +75,7 @@ class SelfApprovalTest extends IntegrationTest {
     // A wrong password still counts as one.
     assertThat(approve(owner, ownerEmail, "Wrong#2026x").expect(422).string("$.reason"))
         .isEqualTo("invalid_credentials");
-    Response self = approve(owner, ownerEmail, "Admin#2026x").expect(201);
+    Response self = approve(owner, ownerEmail, "Admin#2026x-strong").expect(201);
     assertThat(self.read("$.data.selfApproved", Boolean.class)).isTrue();
     assertThat(self.string("$.message")).startsWith("Self-approved by");
     owner.post("/api/v1/vouchers", VOUCHER, "X-Approval", self.string("$.data.token")).expect(201);
@@ -88,28 +88,37 @@ class SelfApprovalTest extends IntegrationTest {
     assertThat(actions).contains("APPROVAL_SELF_GRANTED");
 
     // A cashier cannot approve, so the owner is still alone.
-    Staff.login(owner.in(tenant, null), anonymous, "Till Cashier", "CASHIER", "Cashier#2026x");
+    Staff.login(
+        owner.in(tenant, null), anonymous, "Till Cashier", "CASHIER", "Cashier#2026x-strong");
     assertThat(owner.post("/api/v1/vouchers", VOUCHER).read("$.selfApproval", Boolean.class))
         .isTrue();
 
     // A branch manager can: from now on the owner needs them, and nobody approves themselves.
     Staff.Login managerLogin =
         Staff.login(
-            owner.in(tenant, null), anonymous, "Branch Manager", "BRANCH_MANAGER", "Manager#2026x");
+            owner.in(tenant, null),
+            anonymous,
+            "Branch Manager",
+            "BRANCH_MANAGER",
+            "Manager#2026x-strong");
     Response again = owner.post("/api/v1/vouchers", VOUCHER).expect(403);
     assertThat(again.read("$.selfApproval", Boolean.class)).isFalse();
-    assertThat(approve(owner, ownerEmail, "Admin#2026x").expect(422).string("$.reason"))
+    assertThat(approve(owner, ownerEmail, "Admin#2026x-strong").expect(422).string("$.reason"))
         .isEqualTo("approver_is_requester");
-    Response byManager = approve(owner, managerLogin.signIn(), "Manager#2026x").expect(201);
+    Response byManager = approve(owner, managerLogin.signIn(), "Manager#2026x-strong").expect(201);
     assertThat(byManager.read("$.data.selfApproved", Boolean.class)).isFalse();
 
     // A manager (not the owner) never approves their own request.
     Api manager =
-        anonymous.as(anonymous.signIn(managerLogin.signIn(), "Manager#2026x")).in(tenant, branch);
+        anonymous
+            .as(anonymous.signIn(managerLogin.signIn(), "Manager#2026x-strong"))
+            .in(tenant, branch);
     assertThat(manager.post("/api/v1/vouchers", VOUCHER).read("$.selfApproval", Boolean.class))
         .isFalse();
     assertThat(
-            approve(manager, managerLogin.signIn(), "Manager#2026x").expect(422).string("$.reason"))
+            approve(manager, managerLogin.signIn(), "Manager#2026x-strong")
+                .expect(422)
+                .string("$.reason"))
         .isEqualTo("approver_is_requester");
   }
 
@@ -151,7 +160,7 @@ class SelfApprovalTest extends IntegrationTest {
         owner
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"%s\",\"amount\":300,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"%s\",\"amount\":300,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(refused.string("$.action"), ownerEmail))
             .expect(201)
             .string("$.data.token");
@@ -165,7 +174,7 @@ class SelfApprovalTest extends IntegrationTest {
         owner
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"%s\",\"amount\":300,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"%s\",\"amount\":300,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(refused.string("$.action"), ownerEmail))
             .expect(201)
             .string("$.data.token");

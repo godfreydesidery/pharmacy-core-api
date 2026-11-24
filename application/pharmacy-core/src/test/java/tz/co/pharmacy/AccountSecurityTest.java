@@ -131,14 +131,14 @@ class AccountSecurityTest extends IntegrationTest {
     person
         .post(
             "/api/v1/auth/email-change",
-            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(next))
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(next))
         .expect(202);
     String confirm =
         Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", next, true));
     anonymous
         .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(confirm))
         .expect(200);
-    Api mover = anonymous.as(anonymous.signIn(next, "Admin#2026x"));
+    Api mover = anonymous.as(anonymous.signIn(next, "Admin#2026x-strong"));
 
     // The old address is told, with a link that undoes it.
     String notice = outbox.platformMessage("access.email_changed", "EMAIL", email, true);
@@ -154,7 +154,7 @@ class AccountSecurityTest extends IntegrationTest {
     mover
         .post(
             "/api/v1/auth/email-change",
-            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(third))
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(third))
         .expect(202);
     String onward =
         Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", third, true));
@@ -167,16 +167,16 @@ class AccountSecurityTest extends IntegrationTest {
                 .string("$.reason"))
         .isEqualTo("password_required");
     anonymous
-        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Back#2026-home"))
+        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Back#2026-home-strong"))
         .expect(200);
 
     // The old address and the new password sign in; the mover's session and address do not.
     mover.get("/api/v1/auth/me").expect(401);
-    Api back = anonymous.as(anonymous.signIn(email, "Back#2026-home"));
+    Api back = anonymous.as(anonymous.signIn(email, "Back#2026-home-strong"));
     anonymous
         .post(
             "/api/v1/auth/sign-in",
-            "{\"email\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(next))
+            "{\"email\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(next))
         .expect(401);
     // Single use, and the onward change asked for meanwhile is cancelled.
     anonymous

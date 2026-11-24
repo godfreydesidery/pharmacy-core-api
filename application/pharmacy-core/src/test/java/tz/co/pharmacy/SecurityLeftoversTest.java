@@ -31,8 +31,8 @@ import tz.co.pharmacy.support.Totp;
  */
 class SecurityLeftoversTest extends IntegrationTest {
 
-  private static final String ADMIN_PASSWORD = "Admin#2026x";
-  private static final String STAFF_PASSWORD = "Staff#2026x";
+  private static final String ADMIN_PASSWORD = "Admin#2026x-strong";
+  private static final String STAFF_PASSWORD = "Staff#2026x-strong";
   private static final byte[] PDF =
       "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
   private static final HttpClient HTTP = HttpClient.newHttpClient();

@@ -64,12 +64,12 @@ class StandardsLeftoversTest extends IntegrationTest {
                 {"code":"%s","name":"Leftovers %s","legalName":"Leftovers %s Ltd","country":"%s",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, country, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(uid, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(uid, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     return new Pharmacy(uid, admin, admin.in(uid, branch));
