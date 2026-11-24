@@ -65,7 +65,7 @@
         <!-- The tests' PostgreSQL major is production's (Railway and RDS run 18); move both together. -->
         <embedded-postgres-binaries.version>18.7.0</embedded-postgres-binaries.version>
         <!-- AWS SDK for Java v2 (the files module's S3-compatible store), through its BOM. -->
-        <awssdk.version>2.59.5</awssdk.version>
+        <awssdk.version>2.59.7</awssdk.version>
         <spotless.version>3.10.4</spotless.version>
         <google-java-format.version>1.30.0</google-java-format.version>
         <sentry.version>8.55.0</sentry.version>
