@@ -115,7 +115,11 @@ public class SessionResponses {
             permissions,
             grant.allBranches(),
             allowed,
-            view.directUserCreation()));
+            view.directUserCreation(),
+            view.status() == tz.co.pharmacy.modules.tenancy.ports.inbound.TenantStatus.SUSPENDED
+                ? view.suspensionKind()
+                : null,
+            view.legalHold()));
   }
 
   /** {@code methods}: TOTP, RECOVERY_CODE and, when the user has one, PASSKEY. */

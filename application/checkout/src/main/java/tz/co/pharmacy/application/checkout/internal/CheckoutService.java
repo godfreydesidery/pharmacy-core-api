@@ -109,16 +109,22 @@ class CheckoutService implements Checkout {
     // Outside any transaction: a push request still pending is asked about now, so nothing below
     // waits on a provider while it holds the number and the stock.
     sales.preparePayments(command.payments());
+    // WEB-2: the key answers again only for the same request; another cart under it is refused.
+    String fingerprint = key == null ? null : SaleFingerprint.of(command);
     return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
-        .execute(status -> sell(command, key, lines));
+        .execute(status -> sell(command, key, fingerprint, lines));
   }
 
-  /** The sale's one transaction: database work only. */
-  private SaleView sell(CheckoutCommand command, String key, List<CheckoutLine> lines) {
+  /**
+   * The sale's one transaction: database work only. A refusal rolls it back whole, the sale and its
+   * key with it, so a key whose sale was refused stays free for the corrected cart.
+   */
+  private SaleView sell(
+      CheckoutCommand command, String key, String fingerprint, List<CheckoutLine> lines) {
     if (key != null) {
       // Same-key requests take turns, so a retry sent while the first is still running gets its
-      // sale back rather than a conflict.
-      var existing = sales.claimIdempotencyKey(key);
+      // sale back rather than a conflict (or 422 idempotency_key_reused for another cart).
+      var existing = sales.claimIdempotencyKey(key, fingerprint);
       if (existing.isPresent()) {
         return existing.get();
       }
@@ -163,7 +169,8 @@ class CheckoutService implements Checkout {
       }
       if (!product.active()) {
         throw Refusal.invalid(
-            "product_inactive", product.name() + " is no longer sold.", field + ".productUid");
+                "product_inactive", product.name() + " is no longer sold.", field + ".productUid")
+            .with("product", product.name());
       }
       List<String> serials =
           line.serialNumbers() == null
@@ -174,9 +181,10 @@ class CheckoutService implements Checkout {
                   .toList();
       if (product.requiresSerialAtSale() && serials.isEmpty()) {
         throw Refusal.invalid(
-            "serial_required",
-            "Scan or enter the serial number of each " + product.name() + " sold.",
-            field + ".serialNumbers");
+                "serial_required",
+                "Scan or enter the serial number of each " + product.name() + " sold.",
+                field + ".serialNumbers")
+            .with("product", product.name());
       }
       if (serials.isEmpty()) {
         openPacksFor(packs.get(product.uid()), product.uid(), line.quantity(), number);
@@ -222,6 +230,7 @@ class CheckoutService implements Checkout {
         command,
         number,
         key,
+        fingerprint,
         customerName,
         saleLines,
         products,
@@ -423,6 +432,7 @@ class CheckoutService implements Checkout {
       CheckoutCommand command,
       String number,
       String key,
+      String fingerprint,
       String customerName,
       List<SaleLineCommand> saleLines,
       Map<UUID, ProductView> products,
@@ -547,7 +557,8 @@ class CheckoutService implements Checkout {
                 pricedUnder.uid(),
                 pricedUnder.name(),
                 normalTotal,
-                planSource(resolved)));
+                planSource(resolved),
+                fingerprint));
 
     BigDecimal onCredit = paidBy(sale, PaymentMethod.CREDIT);
     BigDecimal fromAccount = paidBy(sale, PaymentMethod.ACCOUNT_CREDIT);
@@ -848,7 +859,38 @@ class CheckoutService implements Checkout {
   public Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query) {
     Page<ProductView> page =
         catalogue.products(new ProductFilter(q, categoryUid, true, null), query);
-    List<UUID> uids = page.items().stream().map(ProductView::uid).toList();
+    return page.map(sellableAt(page.items()));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<SellableProduct> sellable(java.util.Collection<UUID> productUids) {
+    if (productUids == null || productUids.isEmpty()) {
+      return List.of();
+    }
+    if (productUids.size() > MAX_SELLABLE_UIDS) {
+      throw Refusal.invalid(
+              "too_many_uids",
+              "Ask for at most " + MAX_SELLABLE_UIDS + " products at a time.",
+              "uids")
+          .with("max", MAX_SELLABLE_UIDS);
+    }
+    List<UUID> order = productUids.stream().distinct().toList();
+    Map<UUID, ProductView> found =
+        catalogue.products(order).stream()
+            .filter(ProductView::active)
+            .collect(Collectors.toMap(ProductView::uid, Function.identity(), (a, b) -> a));
+    List<ProductView> products =
+        order.stream().map(found::get).filter(java.util.Objects::nonNull).toList();
+    return products.stream().map(sellableAt(products)).toList();
+  }
+
+  /** The most products {@link #sellable(java.util.Collection)} reads at once. */
+  static final int MAX_SELLABLE_UIDS = 100;
+
+  /** The till's view of each product: its stock here, what packs can be opened, what is held. */
+  private Function<ProductView, SellableProduct> sellableAt(List<ProductView> products) {
+    List<UUID> uids = products.stream().map(ProductView::uid).toList();
     Map<UUID, Integer> onHand = stockQueries.onHand(uids);
     Map<UUID, Integer> recalled = stockQueries.quarantined(uids);
     // Units a cashier can still sell by opening packs here (break bulk at the till).
@@ -861,28 +903,27 @@ class CheckoutService implements Checkout {
                     .map(PackagingService.PackLinkView::packProductUid)
                     .distinct()
                     .toList());
-    return page.map(
-        product ->
-            new SellableProduct(
-                product.uid(),
-                product.name(),
-                product.genericName(),
-                product.sku(),
-                product.gtin(),
-                product.dosageForm(),
-                product.strength(),
-                product.categoryUid(),
-                product.categoryName(),
-                product.schedule(),
-                product.sellingPrice(),
-                product.taxRatePercent(),
-                onHand.getOrDefault(product.uid(), 0),
-                product.productType(),
-                product.trackingMode(),
-                product.unitOfMeasure(),
-                product.requiresSerialAtSale(),
-                openable(packs.get(product.uid()), packsOnHand),
-                recalled.getOrDefault(product.uid(), 0)));
+    return product ->
+        new SellableProduct(
+            product.uid(),
+            product.name(),
+            product.genericName(),
+            product.sku(),
+            product.gtin(),
+            product.dosageForm(),
+            product.strength(),
+            product.categoryUid(),
+            product.categoryName(),
+            product.schedule(),
+            product.sellingPrice(),
+            product.taxRatePercent(),
+            onHand.getOrDefault(product.uid(), 0),
+            product.productType(),
+            product.trackingMode(),
+            product.unitOfMeasure(),
+            product.requiresSerialAtSale(),
+            openable(packs.get(product.uid()), packsOnHand),
+            recalled.getOrDefault(product.uid(), 0));
   }
 
   private static int openable(PackagingService.PackLinkView pack, Map<UUID, Integer> packsOnHand) {

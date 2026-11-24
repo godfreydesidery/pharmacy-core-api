@@ -72,9 +72,10 @@ record SheetFile(List<String> headings, List<Line> lines) {
       lines.add(new Line(i + 1, cells.stream().map(String::strip).toList()));
       if (lines.size() > MAX_ROWS) {
         throw Refusal.invalid(
-            "too_many_rows",
-            "The file has more than " + MAX_ROWS + " rows: split it and import each part.",
-            "file");
+                "too_many_rows",
+                "The file has more than " + MAX_ROWS + " rows: split it and import each part.",
+                "file")
+            .with("max", MAX_ROWS);
       }
     }
     return new SheetFile(headings, lines);

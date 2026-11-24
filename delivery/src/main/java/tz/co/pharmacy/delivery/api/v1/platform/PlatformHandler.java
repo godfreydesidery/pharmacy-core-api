@@ -209,13 +209,14 @@ public class PlatformHandler {
   public ApiResponse<TenantView> legalHold(
       @PathVariable UUID tenantUid, @RequestBody(required = false) ReasonRequest body) {
     return ApiResponse.ok(
-        tenants.legalHold(tenantUid, body == null ? null : body.reason()), "Legal hold placed");
+        forget(tenantUid, tenants.legalHold(tenantUid, body == null ? null : body.reason())),
+        "Legal hold placed");
   }
 
   @DeleteMapping("/tenants/{tenantUid}/legal-hold")
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
   public ApiResponse<TenantView> liftLegalHold(@PathVariable UUID tenantUid) {
-    return ApiResponse.ok(tenants.liftLegalHold(tenantUid), "Legal hold lifted");
+    return ApiResponse.ok(forget(tenantUid, tenants.liftLegalHold(tenantUid)), "Legal hold lifted");
   }
 
   @GetMapping("/tenants/{tenantUid}/export")

@@ -28,19 +28,21 @@ public class ProblemAdvice {
 
   private static final Logger log = LoggerFactory.getLogger(ProblemAdvice.class);
 
+  /** The same members as a refusal answered at the edge ({@link Problems#members}). */
   @ExceptionHandler(Refusal.class)
   ResponseEntity<ProblemDetail> refusal(Refusal refusal) {
-    ResponseEntity<ProblemDetail> problem =
-        problem(refusal.kind().status(), refusal.reason(), refusal.getMessage(), refusal.field());
-    refusal.extras().forEach(problem.getBody()::setProperty);
-    if (refusal.retryAfterSeconds() == null) {
-      return problem;
+    int status = refusal.kind().status();
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(HttpStatus.valueOf(status), refusal.getMessage());
+    problem.setType(URI.create(Problems.TYPE_PREFIX + refusal.reason()));
+    problem.setTitle(Problems.title(status));
+    Problems.members(refusal, ExecutionContext.correlationId().orElse(null), problem::setProperty);
+    ResponseEntity.BodyBuilder answer =
+        ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON);
+    if (refusal.retryAfterSeconds() != null) {
+      answer.header("Retry-After", String.valueOf(refusal.retryAfterSeconds()));
     }
-    problem.getBody().setProperty("retryAfterSeconds", refusal.retryAfterSeconds());
-    return ResponseEntity.status(problem.getStatusCode())
-        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-        .header("Retry-After", String.valueOf(refusal.retryAfterSeconds()))
-        .body(problem.getBody());
+    return answer.body(problem);
   }
 
   @ExceptionHandler(HttpMessageNotReadableException.class)

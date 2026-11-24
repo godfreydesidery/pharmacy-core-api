@@ -52,14 +52,22 @@ public class SalesHandler {
   private final Checkout checkout;
   private final SaleService saleService;
 
-  /** Active products with their price and quantity on hand here, such as {@code ?q=para}. */
+  /**
+   * Active products with their price and quantity on hand here, such as {@code ?q=para}. With
+   * {@code ?uids=a,b,c} (at most 100) the active ones among those products instead, in the order
+   * asked, on one page: a parked sale reads its products again.
+   */
   @GetMapping("/pos/products")
   @Access(scope = AccessScope.BRANCH, permission = "sales.sell")
   public ApiResponse<Page<SellableProduct>> sellable(
       @RequestParam(required = false) String q,
       @RequestParam(required = false) UUID categoryUid,
+      @RequestParam(required = false) List<UUID> uids,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
+    if (uids != null) {
+      return ApiResponse.ok(Page.of(checkout.sellable(uids), null), "Products retrieved");
+    }
     return ApiResponse.ok(
         checkout.sellable(q, categoryUid, Pages.of(cursor, limit)), "Products retrieved");
   }
@@ -123,7 +131,9 @@ public class SalesHandler {
 
   /**
    * The branch's sales, newest first, such as {@code ?q=INV-HQ&from=2026-11-01}; {@code
-   * since=2026-11-21T09:30:00Z} keeps those made from that moment (the last 24 hours).
+   * since=2026-11-21T09:30:00Z} keeps those made from that moment (the last 24 hours); {@code
+   * idempotencyKey=...} keeps the sale made with that key, or none (a till that lost the answer to
+   * its checkout asks whether it was made).
    */
   @GetMapping("/sales")
   @Access(scope = AccessScope.BRANCH, permission = "sales.view")
@@ -134,6 +144,7 @@ public class SalesHandler {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           java.time.Instant since,
+      @RequestParam(required = false) String idempotencyKey,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
     SaleStatus saleStatus =
@@ -141,7 +152,15 @@ public class SalesHandler {
             ? null
             : Checks.oneOf(SaleStatus.class, status, "status");
     return ApiResponse.ok(
-        saleService.list(new SaleFilter(q, saleStatus, from, to, since), Pages.of(cursor, limit)),
+        saleService.list(
+            new SaleFilter(
+                q,
+                saleStatus,
+                from,
+                to,
+                since,
+                Checks.optionalText(idempotencyKey, "idempotencyKey", 255)),
+            Pages.of(cursor, limit)),
         "Sales retrieved");
   }
 

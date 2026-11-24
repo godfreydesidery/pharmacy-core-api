@@ -73,6 +73,10 @@ public class Sale extends TenantEntity {
   private BigDecimal changeDue;
 
   private String idempotencyKey;
+
+  /** SHA-256 of the request that made the sale, its idempotency key left out (WEB-2). */
+  private String requestFingerprint;
+
   private String prescriberName;
   private String prescriberRegistration;
   private String prescriptionReference;
@@ -129,6 +133,11 @@ public class Sale extends TenantEntity {
   }
 
   /** Where the plan came from: CUSTOMER or CHOSEN; null for Normal Sale by default. */
+  /** Keeps the fingerprint of the request that made the sale, to tell a retry from a reuse. */
+  public void fingerprinted(String requestFingerprint) {
+    this.requestFingerprint = requestFingerprint;
+  }
+
   public void planFrom(String source) {
     this.pricePlanSource = source;
   }

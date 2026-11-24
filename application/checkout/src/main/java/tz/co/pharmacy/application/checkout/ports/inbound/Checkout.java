@@ -36,6 +36,13 @@ public interface Checkout {
   Page<SellableProduct> sellable(String q, UUID categoryUid, PageQuery query);
 
   /**
+   * The active products among {@code productUids} (at most 100, else 422 {@code too_many_uids}), in
+   * the order asked, each as {@link #sellable(String, UUID, PageQuery)} shows it: a parked sale
+   * reads its products again. A product unknown or no longer sold is left out.
+   */
+  java.util.List<SellableProduct> sellable(java.util.Collection<UUID> productUids);
+
+  /**
    * How a basket splits between the member's insurer and the patient, priced as checkout would
    * price it; for the POS coverage panel.
    */

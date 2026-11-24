@@ -171,11 +171,12 @@ class AccountSecurityImpl implements AccountSecurity {
             .orElseThrow(AccountSecurityImpl::invalidToken);
     if (!change.usableAt(now)) {
       throw Refusal.invalid(
-          "recovery_on_hold",
-          "This recovery link works from "
-              + EAST_AFRICA.format(change.getNotBefore())
-              + " (East Africa Time).",
-          "token");
+              "recovery_on_hold",
+              "This recovery link works from "
+                  + EAST_AFRICA.format(change.getNotBefore())
+                  + " (East Africa Time).",
+              "token")
+          .with("notBefore", change.getNotBefore());
     }
     String hash =
         change.isRecovery()

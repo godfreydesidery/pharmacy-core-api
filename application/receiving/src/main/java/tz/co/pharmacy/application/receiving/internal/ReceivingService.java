@@ -58,9 +58,12 @@ class ReceivingService implements Receiving {
                           field + ".batchUid"));
       if (batch.quantity() < quantity) {
         throw Refusal.invalid(
-            "insufficient_stock",
-            "Only " + batch.quantity() + " of batch " + batch.batchNumber() + " are in stock.",
-            field + ".quantity");
+                "insufficient_stock",
+                "Only " + batch.quantity() + " of batch " + batch.batchNumber() + " are in stock.",
+                field + ".quantity")
+            .with("batch", batch.batchNumber())
+            .with("available", batch.quantity())
+            .with("requested", quantity);
       }
       lines.add(
           new SupplierReturns.Line(

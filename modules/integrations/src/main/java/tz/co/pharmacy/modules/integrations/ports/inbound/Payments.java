@@ -32,6 +32,8 @@ public interface Payments {
   /**
    * Pushes a payment request to the customer's phone through the method's adapter. Refuses 422
    * {@code adapter_unavailable} when the provider is not connected (take its reference instead).
+   * {@code saleKey}, when sent, binds the request to the sale it is for (the sale's idempotency
+   * key): only that sale may then be paid with it (WEB-9).
    */
   IntentView requestPayment(RequestPaymentCommand command);
 
@@ -44,7 +46,19 @@ public interface Payments {
    * request was made for another method or branch), which it then marks used; a method that
    * requires a reference needs one; others pass. Returns the reference to record.
    */
-  Verification verify(String methodCode, BigDecimal amount, String reference, String saleNumber);
+  default Verification verify(
+      String methodCode, BigDecimal amount, String reference, String saleNumber) {
+    return verify(methodCode, amount, reference, saleNumber, null);
+  }
+
+  /**
+   * As {@link #verify(String, BigDecimal, String, String)}, for the sale whose idempotency key is
+   * {@code saleKey} (null for a sale sent without one): a request bound to another sale's key is
+   * refused 422 {@code payment_mismatch}. A request sent without a key (an older till) pays any
+   * sale, as before.
+   */
+  Verification verify(
+      String methodCode, BigDecimal amount, String reference, String saleNumber, String saleKey);
 
   record MethodTypeCommand(
       String code,
@@ -84,8 +98,15 @@ public interface Payments {
       String accountReference,
       boolean enabled) {}
 
+  /** {@code saleKey}: the idempotency key of the sale the request is for; null for none. */
   record RequestPaymentCommand(
-      String methodCode, BigDecimal amount, String currency, String phone) {}
+      String methodCode, BigDecimal amount, String currency, String phone, String saleKey) {
+
+    public RequestPaymentCommand(
+        String methodCode, BigDecimal amount, String currency, String phone) {
+      this(methodCode, amount, currency, phone, null);
+    }
+  }
 
   record IntentView(
       UUID uid,
@@ -96,7 +117,9 @@ public interface Payments {
       String status,
       String providerReference,
       String failureReason,
-      Instant expiresAt) {}
+      Instant expiresAt,
+      /* The idempotency key of the sale the request is for, as the till sent it; null for none. */
+      String saleKey) {}
 
   record Verification(boolean approved, String reference, String declineReason) {}
 }

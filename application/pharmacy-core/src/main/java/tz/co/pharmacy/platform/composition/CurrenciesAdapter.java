@@ -46,9 +46,10 @@ class CurrenciesAdapter implements PurchasingCurrencies, SalesCurrencies, Financ
     String code = currency.trim().toUpperCase(Locale.ROOT);
     if (!acceptedCurrencies().contains(code)) {
       throw Refusal.invalid(
-          "currency_not_accepted",
-          code + " is not one of the currencies this pharmacy accepts (Settings → Currencies).",
-          "currency");
+              "currency_not_accepted",
+              code + " is not one of the currencies this pharmacy accepts (Settings → Currencies).",
+              "currency")
+          .with("currency", code);
     }
     return code;
   }

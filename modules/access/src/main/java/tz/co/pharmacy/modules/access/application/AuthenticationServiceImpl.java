@@ -307,10 +307,11 @@ class AuthenticationServiceImpl implements AuthenticationService {
   /** 401 session_idle, so the app can tell the person why they have to sign in again. */
   static Refusal idleRefusal(Integer idleMinutes) {
     return Refusal.unauthenticated(
-        "session_idle",
-        "You were signed out after "
-            + idleMinutes
-            + " minutes without using the app; sign in again.");
+            "session_idle",
+            "You were signed out after "
+                + idleMinutes
+                + " minutes without using the app; sign in again.")
+        .with("idleMinutes", idleMinutes);
   }
 
   @Override

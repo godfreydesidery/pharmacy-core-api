@@ -83,9 +83,11 @@ class SettingsServiceImpl implements SettingsService {
     if (command.idleMinutes() != null
         && (command.idleMinutes() < MIN_IDLE_MINUTES || command.idleMinutes() > MAX_IDLE_MINUTES)) {
       throw Refusal.invalid(
-          "invalid_idle_minutes",
-          "idleMinutes must be between " + MIN_IDLE_MINUTES + " and " + MAX_IDLE_MINUTES + ".",
-          "idleMinutes");
+              "invalid_idle_minutes",
+              "idleMinutes must be between " + MIN_IDLE_MINUTES + " and " + MAX_IDLE_MINUTES + ".",
+              "idleMinutes")
+          .with("min", MIN_IDLE_MINUTES)
+          .with("max", MAX_IDLE_MINUTES);
     }
     String footer =
         command.receiptFooter() == null || command.receiptFooter().isBlank()

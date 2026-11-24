@@ -335,19 +335,23 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
   private static void refuseOverCap(Plan plan, int cap, PlanLimit limit, long used, long adding) {
     if (used + adding > cap) {
       throw Refusal.invalid(
-          "plan_limit_reached",
-          "The "
-              + plan.getName()
-              + " plan allows "
-              + cap
-              + " "
-              + label(limit)
-              + " and "
-              + used
-              + " are in use"
-              + (adding > 1 ? "; the import would add " + adding : "")
-              + ". Upgrade the subscription to add more.",
-          "plan");
+              "plan_limit_reached",
+              "The "
+                  + plan.getName()
+                  + " plan allows "
+                  + cap
+                  + " "
+                  + label(limit)
+                  + " and "
+                  + used
+                  + " are in use"
+                  + (adding > 1 ? "; the import would add " + adding : "")
+                  + ". Upgrade the subscription to add more.",
+              "plan")
+          .with("limit", cap)
+          .with("plan", plan.getName())
+          .with("resource", limit.name())
+          .with("used", used);
     }
   }
 
@@ -376,13 +380,16 @@ class SubscriptionsImpl implements Subscriptions, Entitlements, SubscriptionPaym
           }
           if (amount != null && amount.compareTo(invoice.getAmount()) < 0) {
             throw Refusal.invalid(
-                "payment_short",
-                "The invoice is "
-                    + invoice.getCurrency()
-                    + " "
-                    + invoice.getAmount().toPlainString()
-                    + "; a part payment does not settle it.",
-                "amount");
+                    "payment_short",
+                    "The invoice is "
+                        + invoice.getCurrency()
+                        + " "
+                        + invoice.getAmount().toPlainString()
+                        + "; a part payment does not settle it.",
+                    "amount")
+                .with("paid", amount)
+                .with("total", invoice.getAmount())
+                .with("currency", invoice.getCurrency());
           }
           invoice.pay(paidOn == null ? today() : paidOn, how, ref);
           Subscription s = required(invoice.getTenantUid());

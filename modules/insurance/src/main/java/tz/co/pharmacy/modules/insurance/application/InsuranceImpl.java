@@ -308,9 +308,10 @@ class InsuranceImpl implements Insurance {
     }
     if (payer.isRequiresPreauth() && (preauthNumber == null || preauthNumber.isBlank())) {
       throw Refusal.invalid(
-          "preauth_required",
-          payer.getName() + " needs a pre-authorisation number.",
-          "preauthNumber");
+              "preauth_required",
+              payer.getName() + " needs a pre-authorisation number.",
+              "preauthNumber")
+          .with("payer", payer.getName());
     }
     return CoverageCalculator.quote(
         member.getUid(),
@@ -666,9 +667,12 @@ class InsuranceImpl implements Insurance {
         BigDecimal value = Amounts.money(entry.getValue());
         if (value.compareTo(claim.due()) > 0) {
           throw Refusal.invalid(
-              "remittance_exceeds_due",
-              claim.getNumber() + " has only " + claim.due().toPlainString() + " due.",
-              "perClaim");
+                  "remittance_exceeds_due",
+                  claim.getNumber() + " has only " + claim.due().toPlainString() + " due.",
+                  "perClaim")
+              .with("claim", claim.getNumber())
+              .with("due", claim.due())
+              .with("amount", value);
         }
         pay(claim, value, allocated);
         left = left.subtract(value);
@@ -680,9 +684,12 @@ class InsuranceImpl implements Insurance {
       BigDecimal due = payable.stream().map(Claim::due).reduce(BigDecimal.ZERO, BigDecimal::add);
       if (amount.compareTo(due) > 0) {
         throw Refusal.invalid(
-            "remittance_exceeds_due",
-            payer.getName() + " owes " + due.toPlainString() + " on approved claims.",
-            "amount");
+                "remittance_exceeds_due",
+                payer.getName() + " owes " + due.toPlainString() + " on approved claims.",
+                "amount")
+            .with("payer", payer.getName())
+            .with("due", due)
+            .with("amount", amount);
       }
       for (Claim claim : payable) {
         if (left.signum() <= 0) {

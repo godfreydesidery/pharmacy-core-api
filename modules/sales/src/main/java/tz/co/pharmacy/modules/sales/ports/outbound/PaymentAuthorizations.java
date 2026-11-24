@@ -18,6 +18,22 @@ public interface PaymentAuthorizations {
       PaymentMethod method, String channel, BigDecimal amount, String reference, String saleNumber);
 
   /**
+   * As {@link #authorize(PaymentMethod, String, BigDecimal, String, String)}, for the sale whose
+   * idempotency key is {@code saleKey} (null when it was sent without one): a push request bound to
+   * another sale is refused 422 {@code payment_mismatch} (WEB-9). An adapter that binds no request
+   * to a sale keeps the five-argument form.
+   */
+  default PaymentAuthorization authorize(
+      PaymentMethod method,
+      String channel,
+      BigDecimal amount,
+      String reference,
+      String saleNumber,
+      String saleKey) {
+    return authorize(method, channel, amount, reference, saleNumber);
+  }
+
+  /**
    * Runs before the sale's transaction, outside any (PERF-1): asks the provider about a push
    * request it has not confirmed yet, so that {@link #authorize}, inside the transaction that takes
    * the sale number and the stock, makes no call out. Returns why the tender cannot be approved now

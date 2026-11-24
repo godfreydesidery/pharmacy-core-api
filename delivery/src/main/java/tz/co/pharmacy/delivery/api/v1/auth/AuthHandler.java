@@ -223,6 +223,11 @@ public class AuthHandler {
       boolean twoFactorSetupRequired,
       boolean passwordChangeRequired) {}
 
+  /**
+   * {@code suspensionKind}: why the pharmacy is suspended (UNPAID, DISPUTE, ABUSE or OTHER; null
+   * unless {@code tenantStatus} is SUSPENDED). {@code legalHold}: its data is under a legal hold.
+   * The platform's own note of why is never shown here.
+   */
   public record MembershipResponse(
       UUID uid,
       UUID tenantUid,
@@ -235,7 +240,9 @@ public class AuthHandler {
       List<String> permissions,
       boolean allBranches,
       List<BranchResponse> branches,
-      boolean directUserCreation) {}
+      boolean directUserCreation,
+      tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind suspensionKind,
+      boolean legalHold) {}
 
   public record BranchResponse(UUID uid, String code, String name) {}
 }

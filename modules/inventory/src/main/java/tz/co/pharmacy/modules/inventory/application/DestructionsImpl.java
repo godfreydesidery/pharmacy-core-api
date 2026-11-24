@@ -94,16 +94,19 @@ class DestructionsImpl implements Destructions {
       if ("EXPIRED".equals(reason)
           && (batch.getExpiryDate() == null || !batch.getExpiryDate().isBefore(on))) {
         throw Refusal.invalid(
-            "batch_not_expired",
-            "Batch "
-                + batch.getBatchNumber()
-                + " of "
-                + name
-                + (batch.getExpiryDate() == null
-                    ? " has no expiry date"
-                    : " expires on " + batch.getExpiryDate())
-                + "; destroy it as DAMAGED, or wait until it has expired.",
-            field + ".reason");
+                "batch_not_expired",
+                "Batch "
+                    + batch.getBatchNumber()
+                    + " of "
+                    + name
+                    + (batch.getExpiryDate() == null
+                        ? " has no expiry date"
+                        : " expires on " + batch.getExpiryDate())
+                    + "; destroy it as DAMAGED, or wait until it has expired.",
+                field + ".reason")
+            .with("batch", batch.getBatchNumber())
+            .with("product", name)
+            .with("expiry", batch.getExpiryDate());
       }
       // Short stock is refused before a manager is asked to approve it.
       int held = (int) levels.quantityOfBatchAt(branch, batch);
@@ -117,6 +120,10 @@ class DestructionsImpl implements Destructions {
                     + " batch "
                     + batch.getBatchNumber()
                     + " are in stock at this branch.")
+            .with("product", name)
+            .with("batch", batch.getBatchNumber())
+            .with("available", held)
+            .with("requested", quantity)
             .about(field + ".quantity");
       }
       planned.add(new Planned(field, batch, name, reason, quantity));

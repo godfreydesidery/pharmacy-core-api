@@ -410,7 +410,7 @@ public class EdgeFilter extends OncePerRequestFilter {
       if (admin && reading) {
         return;
       }
-      throw Refusal.forbidden("tenant_closed", "This pharmacy is closed.");
+      throw standing(Refusal.forbidden("tenant_closed", "This pharmacy is closed."), tenant);
     }
     if (tenant.suspensionKind()
             == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID
@@ -420,14 +420,28 @@ public class EdgeFilter extends OncePerRequestFilter {
     }
     if (tenant.suspensionKind()
         == tz.co.pharmacy.modules.tenancy.ports.inbound.SuspensionKind.UNPAID) {
-      throw Refusal.forbidden(
-          admin ? "tenant_suspended_read_only" : "tenant_suspended",
-          admin
-              ? "This pharmacy's subscription is unpaid: you can still see and export its data, but"
-                  + " not change it, until it is paid."
-              : "This pharmacy's subscription is unpaid; its admin can renew it.");
+      throw standing(
+          Refusal.forbidden(
+              admin ? "tenant_suspended_read_only" : "tenant_suspended",
+              admin
+                  ? "This pharmacy's subscription is unpaid: you can still see and export its data,"
+                      + " but not change it, until it is paid."
+                  : "This pharmacy's subscription is unpaid; its admin can renew it."),
+          tenant);
     }
-    throw Refusal.forbidden("tenant_suspended", "This pharmacy's account is suspended.");
+    throw standing(
+        Refusal.forbidden("tenant_suspended", "This pharmacy's account is suspended."), tenant);
+  }
+
+  /**
+   * The pharmacy's standing on its refusal (UX-8): {@code suspensionKind} (UNPAID, DISPUTE, ABUSE,
+   * OTHER; null when it is not suspended) and {@code legalHold}, so the app can say what the person
+   * may do. Never the platform's own note of why ({@code status_reason}).
+   */
+  private static Refusal standing(Refusal refusal, TenantView tenant) {
+    return refusal
+        .with("suspensionKind", tenant.suspensionKind())
+        .with("legalHold", tenant.legalHold());
   }
 
   /**

@@ -2,12 +2,23 @@ package tz.co.pharmacy.delivery.edge;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.BiConsumer;
+import tools.jackson.databind.json.JsonMapper;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
-/** Writes an RFC 9457 problem from the edge, before Spring MVC handles the request. */
+/**
+ * RFC 9457 problems. {@link #write} answers from the edge, before Spring MVC handles the request;
+ * {@link ProblemAdvice} answers for a handler. Both take a refusal's members from {@link #members},
+ * so a refusal carries the same members (its {@code reason}, {@code field}, {@code
+ * retryAfterSeconds} and every {@link Refusal#with} value) whichever path answers it.
+ */
 final class Problems {
 
   static final String TYPE_PREFIX = "https://pharmacy-core/problems/";
+
+  private static final JsonMapper JSON = JsonMapper.builder().build();
 
   private Problems() {}
 
@@ -20,26 +31,50 @@ final class Problems {
     }
     response.setContentType("application/problem+json");
     response.setCharacterEncoding("UTF-8");
-    String body =
-        "{"
-            + field("type", TYPE_PREFIX + refusal.reason())
-            + ","
-            + field("title", title(status))
-            + ",\"status\":"
-            + status
-            + ","
-            + field("detail", refusal.getMessage())
-            + ","
-            + field("reason", refusal.reason())
-            + (refusal.field() == null ? "" : "," + field("field", refusal.field()))
-            + (refusal.retryAfterSeconds() == null
-                ? ""
-                : ",\"retryAfterSeconds\":" + refusal.retryAfterSeconds())
-            + ","
-            + field("correlationId", correlationId)
-            + "}";
-    response.getWriter().write(body);
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("type", TYPE_PREFIX + refusal.reason());
+    body.put("title", title(status));
+    body.put("status", status);
+    body.put("detail", refusal.getMessage());
+    members(refusal, correlationId, body::put);
+    response.getWriter().write(JSON.writeValueAsString(body));
   }
+
+  /**
+   * The members a refusal's problem carries besides type, title, status and detail: {@code reason},
+   * {@code field} (when it names one), {@code correlationId}, its extras, and {@code
+   * retryAfterSeconds} (when it has one). An extra never replaces one of the standard members.
+   */
+  static void members(Refusal refusal, String correlationId, BiConsumer<String, Object> member) {
+    member.accept("reason", refusal.reason());
+    if (refusal.field() != null) {
+      member.accept("field", refusal.field());
+    }
+    member.accept("correlationId", correlationId);
+    refusal
+        .extras()
+        .forEach(
+            (name, value) -> {
+              if (!STANDARD.contains(name)) {
+                member.accept(name, value);
+              }
+            });
+    if (refusal.retryAfterSeconds() != null) {
+      member.accept("retryAfterSeconds", refusal.retryAfterSeconds());
+    }
+  }
+
+  private static final java.util.Set<String> STANDARD =
+      java.util.Set.of(
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "reason",
+          "field",
+          "correlationId",
+          "retryAfterSeconds");
 
   static String title(int status) {
     return switch (status) {
@@ -56,30 +91,5 @@ final class Problems {
       case 503 -> "Service unavailable";
       default -> "Error";
     };
-  }
-
-  private static String field(String name, String value) {
-    return "\"" + name + "\":" + (value == null ? "null" : "\"" + escape(value) + "\"");
-  }
-
-  private static String escape(String value) {
-    StringBuilder out = new StringBuilder();
-    for (char c : value.toCharArray()) {
-      switch (c) {
-        case '"' -> out.append("\\\"");
-        case '\\' -> out.append("\\\\");
-        case '\n' -> out.append("\\n");
-        case '\r' -> out.append("\\r");
-        case '\t' -> out.append("\\t");
-        default -> {
-          if (c < 0x20) {
-            out.append(String.format("\\u%04x", (int) c));
-          } else {
-            out.append(c);
-          }
-        }
-      }
-    }
-    return out.toString();
   }
 }
