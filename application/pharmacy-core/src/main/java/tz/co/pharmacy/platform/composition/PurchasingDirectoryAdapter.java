@@ -22,6 +22,12 @@ class PurchasingDirectoryAdapter implements PurchasingDirectory {
   private final SupplierService supplierService;
   private final CatalogueService catalogueService;
   private final BranchService branchService;
+  private final tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService settings;
+
+  @Override
+  public boolean vatRegistered() {
+    return settings.current().vatRegistered();
+  }
 
   @Override
   public String supplierName(UUID supplierUid) {

@@ -81,6 +81,25 @@ public class SaleLine extends TenantEntity {
   /** The promotion that priced the line, and its name then; null without one. */
   private UUID promotionUid;
 
+  /**
+   * The VAT category it was sold under (STD-2); null on lines sold before it was kept, whose rate
+   * says it ({@link #category()}).
+   */
+  @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+  private tz.co.pharmacy.platform.kernel.TaxCategory taxCategory;
+
+  /** Its VAT category: as kept, else the one its rate implies. */
+  public tz.co.pharmacy.platform.kernel.TaxCategory category() {
+    return taxCategory != null
+        ? taxCategory
+        : tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(taxRatePercent);
+  }
+
+  /** Keeps the VAT category the line is sold under. */
+  public void taxedAs(tz.co.pharmacy.platform.kernel.TaxCategory category) {
+    this.taxCategory = category;
+  }
+
   private String promotionName;
 
   @ElementCollection(fetch = FetchType.EAGER)

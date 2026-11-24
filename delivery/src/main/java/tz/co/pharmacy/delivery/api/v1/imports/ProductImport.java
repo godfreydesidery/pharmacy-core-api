@@ -25,6 +25,7 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Storage;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.UnitOfMeasure;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
+import tz.co.pharmacy.platform.kernel.TaxCategory;
 
 /**
  * Products, matched on Code: a code the pharmacy has updates that product, a new code adds a
@@ -145,6 +146,17 @@ class ProductImport implements Importer<ProductImport.Plan> {
                   "Kiwango cha VAT, kama 18 au 0.")
               .about("taxRatePercent"),
           optional(
+                  "vatCategory",
+                  "VAT category",
+                  "Aina ya VAT",
+                  "One of "
+                      + values(TaxCategory.class)
+                      + ". Empty follows VAT %: above 0 STANDARD, 0 EXEMPT.",
+                  "Mojawapo ya "
+                      + values(TaxCategory.class)
+                      + ". Tupu inafuata VAT %: zaidi ya 0 STANDARD, 0 EXEMPT.")
+              .about("taxCategory"),
+          optional(
               "reorderLevel",
               "Reorder level",
               "Kiwango cha kuagiza",
@@ -190,6 +202,7 @@ class ProductImport implements Importer<ProductImport.Plan> {
         3500,
         5000,
         0,
+        "EXEMPT",
         10,
         "ROOM_TEMPERATURE",
         "Yes");
@@ -293,6 +306,12 @@ class ProductImport implements Importer<ProductImport.Plan> {
     BigDecimal cost = amount(row, "cost");
     BigDecimal price = amount(row, "price");
     BigDecimal vat = row.pick("vat", was, ProductView::taxRatePercent, r -> r.number("vat"));
+    // The category as written; else, with a VAT % in the file, the one that rate implies (null);
+    // else the product keeps its own.
+    TaxCategory vatCategory =
+        row.text("vatCategory") != null
+            ? row.choice("vatCategory", TaxCategory.class)
+            : row.has("vat") || was == null ? null : was.taxCategory();
     Integer reorder =
         row.pick("reorderLevel", was, ProductView::reorderLevel, r -> r.whole("reorderLevel"));
     Storage storage =
@@ -329,7 +348,8 @@ class ProductImport implements Importer<ProductImport.Plan> {
             brand,
             model,
             warranty,
-            was == null ? null : was.requiresSerialAtSale());
+            was == null ? null : was.requiresSerialAtSale(),
+            vatCategory);
     return new Plan(code, existing, command, newManufacturer, active);
   }
 
@@ -394,7 +414,8 @@ class ProductImport implements Importer<ProductImport.Plan> {
         c.brand(),
         c.model(),
         c.warrantyMonths(),
-        c.requiresSerialAtSale());
+        c.requiresSerialAtSale(),
+        c.taxCategory());
   }
 
   private static String key(String name) {

@@ -130,7 +130,10 @@ class CheckoutService implements Checkout {
       }
     }
     // The pharmacy's settings, read once for the whole sale (PERF-10).
-    boolean taxIncluded = settings.current().pricesIncludeTax();
+    var current = settings.current();
+    boolean taxIncluded = current.pricesIncludeTax();
+    // STD-2: a pharmacy that is not VAT-registered charges no VAT on anything.
+    boolean vatRegistered = current.vatRegistered();
     requireMultiCurrencyFor(command.payments());
     Map<UUID, ProductView> products =
         catalogue
@@ -199,8 +202,7 @@ class CheckoutService implements Checkout {
                 ? refusal
                 : refusal.about(field + "." + refusal.field());
       }
-      BigDecimal taxRate =
-          product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent();
+      BigDecimal taxRate = chargedRate(product, vatRegistered);
       PricingService.PricedLine priced = pricedBy.get(product.uid());
       boolean promoted = priced != null && "PROMOTION".equals(priced.source());
       for (Allocation allocation : allocations) {
@@ -222,7 +224,8 @@ class CheckoutService implements Checkout {
                 // The class at the moment of sale (FRD-6) and the promotion that priced it (FRD-8).
                 product.schedule() == null ? Schedule.OTC.name() : product.schedule().name(),
                 promoted ? priced.promotionUid() : null,
-                promoted ? priced.label() : null));
+                promoted ? priced.label() : null,
+                product.taxCategory()));
       }
     }
     requireControlledPrescription(command, products);
@@ -826,7 +829,9 @@ class CheckoutService implements Checkout {
             payerOf(memberUid, customerUid),
             basket,
             products);
-    boolean taxIncluded = pricesIncludeTax();
+    var current = settings.current();
+    boolean taxIncluded = current.pricesIncludeTax();
+    boolean vatRegistered = current.vatRegistered();
     List<SaleLineCommand> priced = new ArrayList<>();
     for (int i = 0; i < basket.size(); i++) {
       ProductView product = products.get(basket.get(i).productUid());
@@ -845,7 +850,7 @@ class CheckoutService implements Checkout {
               basket.get(i).quantity(),
               pricedBasket.prices().getOrDefault(product.uid(), product.sellingPrice()),
               null,
-              product.taxRatePercent() == null ? BigDecimal.ZERO : product.taxRatePercent(),
+              chargedRate(product, vatRegistered),
               null,
               null,
               taxIncluded));
@@ -890,6 +895,7 @@ class CheckoutService implements Checkout {
 
   /** The till's view of each product: its stock here, what packs can be opened, what is held. */
   private Function<ProductView, SellableProduct> sellableAt(List<ProductView> products) {
+    boolean vatRegistered = settings.current().vatRegistered();
     List<UUID> uids = products.stream().map(ProductView::uid).toList();
     Map<UUID, Integer> onHand = stockQueries.onHand(uids);
     Map<UUID, Integer> recalled = stockQueries.quarantined(uids);
@@ -916,14 +922,28 @@ class CheckoutService implements Checkout {
             product.categoryName(),
             product.schedule(),
             product.sellingPrice(),
-            product.taxRatePercent(),
+            chargedRate(product, vatRegistered),
             onHand.getOrDefault(product.uid(), 0),
             product.productType(),
             product.trackingMode(),
             product.unitOfMeasure(),
             product.requiresSerialAtSale(),
             openable(packs.get(product.uid()), packsOnHand),
-            recalled.getOrDefault(product.uid(), 0));
+            recalled.getOrDefault(product.uid(), 0),
+            product.taxCategory());
+  }
+
+  /**
+   * The VAT rate a sale charges on the product (STD-2): its rate (the standard rate for a STANDARD
+   * product, 0 for ZERO_RATED and EXEMPT) while the pharmacy is VAT-registered, else 0.
+   */
+  private static BigDecimal chargedRate(ProductView product, boolean vatRegistered) {
+    if (!vatRegistered || product.taxRatePercent() == null) {
+      return BigDecimal.ZERO;
+    }
+    return product.taxCategory() == null || product.taxCategory().taxed()
+        ? product.taxRatePercent()
+        : BigDecimal.ZERO;
   }
 
   private static int openable(PackagingService.PackLinkView pack, Map<UUID, Integer> packsOnHand) {
@@ -931,10 +951,5 @@ class CheckoutService implements Checkout {
       return 0;
     }
     return packsOnHand.getOrDefault(pack.packProductUid(), 0) * pack.unitsPerPack();
-  }
-
-  /** Whether the pharmacy's selling prices include VAT (its setting). */
-  private boolean pricesIncludeTax() {
-    return settings.current().pricesIncludeTax();
   }
 }

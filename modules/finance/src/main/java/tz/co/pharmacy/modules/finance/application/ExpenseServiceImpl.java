@@ -32,13 +32,16 @@ class ExpenseServiceImpl implements ExpenseService {
   private final DocumentNumbers numbers;
   private final DomainEventPublisher events;
   private final TenantCalendar calendar;
+  private final tz.co.pharmacy.modules.finance.ports.outbound.VatRegistration vat;
 
   ExpenseServiceImpl(
       ExpenseRepository expenses,
       JournalWriter writer,
       DocumentNumbers numbers,
       DomainEventPublisher events,
-      TenantCalendar calendar) {
+      TenantCalendar calendar,
+      tz.co.pharmacy.modules.finance.ports.outbound.VatRegistration vat) {
+    this.vat = vat;
     this.calendar = calendar;
     this.expenses = expenses;
     this.writer = writer;
@@ -60,6 +63,23 @@ class ExpenseServiceImpl implements ExpenseService {
     PaidFrom paidFrom = PaidFrom.parse(command.paymentMethod(), PaidFrom.CASH, "paymentMethod");
     String method = paidFrom.name();
     String reference = Checks.optionalText(command.reference(), "reference", 120);
+    BigDecimal inputVat =
+        command.vatAmount() == null
+            ? tz.co.pharmacy.platform.kernel.Amounts.ZERO
+            : tz.co.pharmacy.platform.kernel.Amounts.money(
+                Checks.notNegative(command.vatAmount(), "vatAmount"));
+    if (inputVat.compareTo(amount) > 0) {
+      throw Refusal.invalid(
+          "vat_exceeds_amount", "The VAT cannot be more than the amount paid.", "vatAmount");
+    }
+    if (inputVat.signum() > 0 && !vat.vatRegistered()) {
+      // STD-2: only a VAT-registered pharmacy recovers input VAT; for one that is not, the VAT is
+      // part of the expense.
+      throw Refusal.invalid(
+          "vat_not_registered",
+          "The pharmacy is not VAT-registered: the VAT is part of the expense.",
+          "vatAmount");
+    }
 
     Expense expense =
         expenses.save(
@@ -72,6 +92,7 @@ class ExpenseServiceImpl implements ExpenseService {
                 date,
                 method,
                 reference));
+    expense.withVat(inputVat);
     writer.post(
         LedgerImpl.EXPENSE,
         expense.getUid(),
@@ -79,7 +100,7 @@ class ExpenseServiceImpl implements ExpenseService {
         "Expense " + expense.getNumber() + ": " + description,
         branchUid,
         date,
-        Postings.expense(category, amount, paidFrom));
+        Postings.expense(category, amount, inputVat, paidFrom));
     events.publish(
         "expense.recorded",
         metadata ->
@@ -90,7 +111,8 @@ class ExpenseServiceImpl implements ExpenseService {
                 branchUid,
                 category.name(),
                 amount,
-                date));
+                date,
+                inputVat));
     return toView(expense);
   }
 
@@ -135,6 +157,9 @@ class ExpenseServiceImpl implements ExpenseService {
         expense.getPaymentMethod(),
         expense.getReference(),
         expense.getCreatedAt(),
-        expense.getCreatedBy());
+        expense.getCreatedBy(),
+        expense.getVatAmount() == null
+            ? tz.co.pharmacy.platform.kernel.Amounts.ZERO
+            : expense.getVatAmount());
   }
 }

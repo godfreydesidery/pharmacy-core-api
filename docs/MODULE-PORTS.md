@@ -85,6 +85,17 @@ record TenantRegistered(EventMetadata metadata, UUID tenantUid, String code, Str
 ```
 Note: `register` runs at platform scope (no tenant). The `TenantRegistered` metadata must carry the new tenant: publish it inside the `TenantSwitch.within(...)` block.
 
+VAT registration (Batch 9a, STD-2; tenancy V15):
+```java
+// ChangeSettingsCommand += Boolean vatRegistered, String tin, String vrn (null keeps, blank clears);
+//   the fifteen-argument constructor stays. 422 invalid_tin (9 digits; dashes and spaces dropped, kept as digits),
+//   invalid_vrn (8-15 of [0-9A-Z-], starting with a digit; upper-cased). Formats checked loosely: verify with TRA.
+// SettingsView += boolean vatRegistered, String tin, String vrn. defaultTaxRatePercent is the standard VAT rate:
+//   what a STANDARD product is sold at while the pharmacy is registered (new pharmacies: 18.00, registered).
+// events: StandardVatRateChanged(metadata, BigDecimal ratePercent) "settings.standard_vat_rate_changed", published
+//   when defaultTaxRatePercent changes; composition TaxReactions -> CatalogueService.applyStandardVatRate.
+```
+
 ## access (`tz.co.pharmacy.modules.access`)
 
 Tables:
@@ -220,6 +231,17 @@ record ProductChanged(EventMetadata metadata, UUID productUid, String name, Stri
 // pharmacy's maxDiscountPercent needs approval DEEP_PROMOTION (amount = percentOff); deletePromotion is replaced by
 // PromotionView switchOffPromotion(UUID uid) (never deleted; V11 revokes delete from the application role).
 // ports.outbound: PricingSettings { BigDecimal maxDiscountPercent(); }
+```
+
+Batch 9a (VAT categories, STD-2; catalogue V14):
+```java
+// ProductCommand += TaxCategory taxCategory (platform.kernel: STANDARD | ZERO_RATED | EXEMPT); the 23-argument
+//   constructor stays (null). Null follows taxRatePercent: above 0 STANDARD, else EXEMPT. The stored rate is derived:
+//   STANDARD -> PricingSettings.standardVatRatePercent() (the pharmacy's standard rate), ZERO_RATED / EXEMPT -> 0.
+// ProductView += TaxCategory taxCategory; taxRatePercent = the rate it is sold at while the pharmacy is registered.
+int applyStandardVatRate(BigDecimal ratePercent);  // every STANDARD product to the new standard rate
+// ports.outbound: PricingSettings += default BigDecimal standardVatRatePercent() (composition: settings' rate).
+// Imports and exports: a "VAT category" column (empty follows VAT %; a file without either keeps the product's).
 ```
 
 Batch 4 (the owner's controls of 23 Nov 2026, FRD-6):
@@ -412,6 +434,18 @@ record GoodsReceived(EventMetadata metadata, UUID receiptUid, String number, UUI
 }
 ```
 
+Batch 9a (input VAT, STD-2; purchasing V7):
+```java
+// RecordReceiptCommand += BigDecimal vatAmount: the invoice's VAT, in the receipt currency, on top of the lines
+//   (whose costs exclude it). total = lines + VAT (what is owed); baseTotal = base(lines) + base(VAT), each rounded
+//   once, so the stock's base value is unchanged by VAT. 422 vat_not_registered when the pharmacy is not registered
+//   (its VAT belongs in the unit costs). The seven-argument constructor stays (no VAT).
+// GoodsReceiptView += BigDecimal vatTotal, baseVatTotal. GoodsReceived += BigDecimal vatTotal, baseVatTotal (null
+//   in older events: none). purchasesTotal (and the reporting purchase fact) exclude the input VAT.
+// ports.outbound: PurchasingDirectory += default boolean vatRegistered().
+// Not yet: a supplier return does not reverse the input VAT of the goods sent back (a debit note); verify.
+```
+
 ## receiving (`tz.co.pharmacy.application.receiving`, application service)
 
 ```java
@@ -538,6 +572,57 @@ void fiscalise(UUID saleUid);   // after commit: lease (sales.fiscal_claimed_unt
 //   FiscalReceipts += default boolean enabled() (NoFiscalReceipts: false).
 // composition: FiscalReactions (sale.completed -> fiscalise), only with a fiscal provider other than none.
 // SaleLine and SalePayment are @AuditIgnore (PERF-7).
+```
+
+**Fiscal documents and VAT (Batch 9a, STD-1, STD-2; sales V16).** Replaces the Batch 7 lease on the sale:
+```java
+// sales.fiscal_documents: RECEIPT | CREDIT_NOTE | Z_REPORT, PENDING -> ISSUED | FAILED, the provider's receipt number,
+//   verification code, QR payload, the branch's global and daily counters (sales.fiscal_counters, one upsert when a
+//   document is first sent, kept for every retry), issued_at, attempts, last_error, a 2-minute lease (claimed_until).
+//   A RECEIPT is written PENDING in the sale's transaction (one insert, only with a fiscal provider on); a CREDIT_NOTE
+//   in the return's, when its sale has a receipt. Every later change is SQL of its own (FiscalDocumentRepository).
+// sales.sales.fiscal_status, sales.sale_returns.fiscal_status / fiscal_reference: the document's status beside it.
+//   sales.sales.fiscal_reference stays, filled from the receipt's number; fiscal_due stays (true until ISSUED).
+void fiscalise(UUID saleUid);   // the receipt: lease, counters, port with no transaction open, then the answer
+interface FiscalDocuments {
+  boolean enabled();
+  void fiscaliseReturn(UUID returnUid);            // the credit note; waits (throws) until the sale's receipt is ISSUED
+  FiscalDocumentView retry(UUID documentUid);      // FAILED (or PENDING) -> sent now; 404 fiscal_document_not_found,
+                                                   // 409 fiscal_document_issued, 422 fiscal_not_enabled
+  List<FiscalDocumentView> ofSale(UUID saleUid);   // receipt, then credit notes (current branch)
+  FiscalDocumentView closeDay(UUID branchUid, LocalDate day);   // the branch's Z report of its local day (default
+                                                   // today): closes every ISSUED receipt / credit note of that day or
+                                                   // before not yet in a Z; once per branch and day; 422 invalid_day
+  List<BranchDay> daysToClose(UUID branchUid);     // past days with documents no Z closed (the job's work)
+  int resend(Duration olderThan, int limit);       // PENDING documents whose lease is free (the job)
+  Page<FiscalDocumentView> zReports(UUID branchUid, PageQuery query);
+}
+record FiscalDocumentView(UUID uid, FiscalDocumentKind kind, FiscalStatus status, String provider, UUID branchUid,
+    UUID sourceUid, String sourceNumber, UUID saleUid, LocalDate businessDate, String sellerTin, String sellerVrn,
+    BigDecimal total, BigDecimal taxTotal, String receiptNumber, String verificationCode, String qrPayload,
+    Long globalCounter, Integer dailyCounter, Instant issuedAt, int attempts, String lastError, Instant createdAt,
+    ZFigures z /* Z reports: receipts, credit notes, their totals and tax, net per VAT category */) {}
+// SaleView += FiscalStatus fiscalStatus, List<FiscalDocumentView> fiscalDocuments (read with the sale; empty in lists).
+// SaleSummaryView += FiscalStatus fiscalStatus. SaleReturnView += FiscalStatus fiscalStatus, String fiscalReference.
+// SaleLineView += TaxCategory taxCategory, BigDecimal taxRatePercent. SaleLineCommand += TaxCategory taxCategory
+//   (sales.sale_lines.tax_category; null on older lines: the rate implies it).
+// SalesReports += List<VatCategoryLine> vatByCategory(LocalDate from, LocalDate to, ZoneId zone): per category the
+//   net and VAT of the sales and returns, every branch (the VAT report's split).
+// ports.outbound:
+interface FiscalReceipts { FiscalAnswer issue(FiscalRequest request);   // throws: not answered (PENDING, retried)
+                           default boolean enabled(); default String provider(); }
+record FiscalRequest(UUID documentUid /* idempotency key */, FiscalDocumentKind kind, String number, UUID branchUid,
+    String branchCode, LocalDate businessDate, Instant occurredAt, Seller seller /* name, TIN, VRN, vatRegistered */,
+    String customerName, List<Line> lines /* description, qty, unit price, discount, TaxCategory, rate, net, tax,
+    total */, List<Payment> payments /* method, base amount; change off the cash */, Totals totals /* net, tax, total,
+    net per category */, long globalCounter, Integer dailyCounter, String originalReceiptNumber, ZReport z) {}
+record FiscalAnswer(boolean issued, String receiptNumber, String verificationCode, String qrPayload, String refusal) {}
+//   SalesSettings += default Seller seller() (legal name, vatRegistered, TIN, VRN).
+// composition: NoFiscalReceipts (none, the default), SimulatedFiscalReceipts (simulator: sim, local, test profiles only;
+//   deterministic numbers SIM-<branch>-R<GC>, -C<GC>, -Z<yyyymmdd>; TIN 000000000 refused), SimulatedFiscalReceiptsRefused
+//   (stops the start elsewhere); FiscalReactions += sale.returned -> fiscaliseReturn; FiscalSchedule
+//   ("fiscal-documents", every 15 minutes, SingleRunner, recorded in platform.job_runs): resend, then close past days.
+// A real TRA VFD adapter: implement FiscalReceipts with TRA's specification, enabled by its own provider value.
 ```
 
 **The till's server side (Batch 8, WEB-2, WEB-9).** Added to the above:
@@ -667,6 +752,20 @@ record BalanceMismatch(String accountCode, LocalDate day, UUID branchUid, BigDec
                        BigDecimal readModelDebit, BigDecimal readModelCredit) {}
 // ports.outbound, implemented in composition (LedgerSourcesAdapter)
 interface LedgerSources { List<UnpostedDocument> recorded(Instant from, Instant before); }
+```
+
+Input VAT (Batch 9a, STD-2; finance V9). The default chart gains **1150 VAT Receivable** (ASSET); a chart that lacks a
+default account gets it on its next posting (`ChartOfAccounts.ensure` counts the default codes):
+```java
+// Postings.receipt: Dr 1200 (total - vat) and 1150 (vat) / Cr 2000 (total, noting the foreign amount).
+// Postings.expense: Dr the expense account (amount - vat) and 1150 (vat) / Cr the money account (amount).
+// ReceiptPosting += BigDecimal vat (base); the five- and seven-argument constructors stay (no VAT).
+// ExpenseCommand += BigDecimal vatAmount (422 vat_exceeds_amount, vat_not_registered); ExpenseView += vatAmount;
+//   ExpenseRecorded += vatAmount (reporting books the expense without it).
+// VatSummary += BigDecimal inputVat (1150 debits - credits), netOutputVat (2100 credits - debits);
+//   netPayable = netOutputVat - inputVat (negative: a credit to carry forward or claim).
+// ports.outbound: VatRegistration { boolean vatRegistered(); } (composition: settings).
+// Not yet: partial exemption (apportioning input VAT between taxable and exempt sales); verify with an accountant.
 ```
 
 ## reporting (`tz.co.pharmacy.modules.reporting`)

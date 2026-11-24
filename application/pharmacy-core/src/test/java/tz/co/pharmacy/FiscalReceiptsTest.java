@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import tz.co.pharmacy.modules.sales.ports.outbound.FiscalAnswer;
 import tz.co.pharmacy.modules.sales.ports.outbound.FiscalReceipts;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.IntegrationTest;
@@ -48,13 +48,14 @@ class FiscalReceiptsTest extends IntegrationTest {
   static class Authority {
     @Bean
     FiscalReceipts testAuthority() {
-      return (saleNumber, total, taxTotal) -> {
+      return request -> {
+        String saleNumber = request.number();
         if (DOWN.get()) {
           REFUSED.add(saleNumber);
           throw new IllegalStateException("The tax authority does not answer");
         }
         ISSUED.add(saleNumber);
-        return Optional.of("VFD-" + saleNumber);
+        return FiscalAnswer.issued("VFD-" + saleNumber, null, null);
       };
     }
   }

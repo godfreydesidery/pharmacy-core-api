@@ -63,6 +63,18 @@ public class SaleReturn extends TenantEntity {
   @Column(nullable = false, precision = 14, scale = 2)
   private BigDecimal fxDifference = Amounts.ZERO;
 
+  /**
+   * Its credit note (STD-1): the document's status, null when it has none (its sale had no fiscal
+   * receipt), and the authority's number once issued. Written with the document, by SQL of its own;
+   * an update of the return (a release from quarantine) never writes them.
+   */
+  @Enumerated(EnumType.STRING)
+  @Column(updatable = false)
+  private tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus fiscalStatus;
+
+  @Column(updatable = false)
+  private String fiscalReference;
+
   @OneToMany(mappedBy = "saleReturn", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("id")
   @BatchSize(size = 50)
@@ -118,6 +130,11 @@ public class SaleReturn extends TenantEntity {
     this.saleExchangeRate = saleRate;
     this.refundExchangeRate = todayRate;
     this.fxDifference = Amounts.money(basePaidOut.subtract(refundTotal));
+  }
+
+  /** A return whose credit note is issued after it commits. */
+  public void creditNoteDue() {
+    this.fiscalStatus = tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus.PENDING;
   }
 
   /** The base value that left the till: the booked refund plus the exchange difference. */

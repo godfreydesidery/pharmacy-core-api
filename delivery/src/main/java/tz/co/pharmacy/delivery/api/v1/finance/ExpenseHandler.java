@@ -39,7 +39,9 @@ public class ExpenseHandler {
       BigDecimal amount,
       LocalDate expenseDate,
       String paymentMethod,
-      String reference) {}
+      String reference,
+      /* The input VAT in the amount (STD-2); VAT-registered pharmacies only. */
+      BigDecimal vatAmount) {}
 
   /** The expenses of the request's branch, or of every branch the caller may use. */
   @GetMapping
@@ -70,7 +72,8 @@ public class ExpenseHandler {
             body.amount(),
             body.expenseDate(),
             body.paymentMethod(),
-            body.reference());
+            body.reference(),
+            body.vatAmount());
     return ApiResponse.created(expenses.record(command), "Expense recorded");
   }
 }

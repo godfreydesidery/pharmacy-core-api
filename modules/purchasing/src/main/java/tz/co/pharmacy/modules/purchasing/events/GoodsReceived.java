@@ -6,7 +6,10 @@ import java.util.UUID;
 import tz.co.pharmacy.platform.kernel.DomainEvent;
 import tz.co.pharmacy.platform.kernel.EventMetadata;
 
-/** "goods.received": a goods receipt was recorded at a branch. */
+/**
+ * "goods.received": a goods receipt was recorded at a branch. {@code total} includes {@code
+ * vatTotal}, the invoice's input VAT (STD-2; null in events from before it was kept: none).
+ */
 public record GoodsReceived(
     EventMetadata metadata,
     UUID receiptUid,
@@ -20,7 +23,10 @@ public record GoodsReceived(
     String currency,
     BigDecimal exchangeRate,
     /* {@code total} in the tenant's base currency. */
-    BigDecimal baseTotal)
+    BigDecimal baseTotal,
+    /* The input VAT in {@code total}, in the receipt's currency and in the base. */
+    BigDecimal vatTotal,
+    BigDecimal baseVatTotal)
     implements DomainEvent {
 
   public record Line(UUID productUid, String productName, int quantity, BigDecimal unitCost) {}

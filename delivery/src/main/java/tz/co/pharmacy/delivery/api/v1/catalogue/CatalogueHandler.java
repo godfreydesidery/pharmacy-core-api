@@ -224,7 +224,9 @@ public class CatalogueHandler {
       String brand,
       String model,
       Integer warrantyMonths,
-      Boolean requiresSerialAtSale) {
+      Boolean requiresSerialAtSale,
+      /* STANDARD, ZERO_RATED or EXEMPT; empty follows taxRatePercent (STD-2). */
+      String taxCategory) {
 
     ProductCommand toCommand() {
       return new ProductCommand(
@@ -254,7 +256,11 @@ public class CatalogueHandler {
           brand,
           model,
           warrantyMonths,
-          requiresSerialAtSale);
+          requiresSerialAtSale,
+          blank(taxCategory)
+              ? null
+              : Checks.oneOf(
+                  tz.co.pharmacy.platform.kernel.TaxCategory.class, taxCategory, "taxCategory"));
     }
 
     private static boolean blank(String value) {

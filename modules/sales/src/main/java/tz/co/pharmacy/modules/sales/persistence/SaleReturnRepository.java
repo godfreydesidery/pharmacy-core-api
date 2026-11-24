@@ -23,6 +23,19 @@ public interface SaleReturnRepository
   @Query("select r from SaleReturn r where r.uid = :uid")
   Optional<SaleReturn> lockByUid(@Param("uid") UUID uid);
 
+  /** The credit note's status and, once issued, its number beside the return. */
+  @org.springframework.data.jpa.repository.Modifying
+  @Query(
+      value =
+          "update sales.sale_returns set fiscal_status = :status,"
+              + " fiscal_reference = coalesce(cast(:reference as text), fiscal_reference)"
+              + " where uid = :uid",
+      nativeQuery = true)
+  int recordCreditNote(
+      @Param("uid") UUID uid, @Param("status") String status, @Param("reference") String reference);
+
+  java.util.Optional<SaleReturn> findByUid(UUID uid);
+
   /** The branch's returns with units still held in quarantine, newest first. */
   @Query(
       "select r from SaleReturn r where r.branchUid = :branch and exists (select 1 from"

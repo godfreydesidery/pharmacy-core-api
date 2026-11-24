@@ -85,7 +85,8 @@ public class GoodsReceiptHandler {
                 body.note(),
                 lines,
                 body.currency(),
-                body.exchangeRate())),
+                body.exchangeRate(),
+                body.vatAmount())),
         "Goods received");
   }
 
@@ -98,7 +99,9 @@ public class GoodsReceiptHandler {
       /* Null means the order's currency, or the base without an order. */
       String currency,
       /* Null means the order's locked rate, or today's rate. */
-      BigDecimal exchangeRate) {}
+      BigDecimal exchangeRate,
+      /* The invoice's input VAT on top of the lines (STD-2); VAT-registered pharmacies only. */
+      BigDecimal vatAmount) {}
 
   public record ReceiptLineRequest(
       UUID productUid,

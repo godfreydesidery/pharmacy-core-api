@@ -69,15 +69,46 @@ public class StatementsHandler {
     return ApiResponse.ok(statements.balanceSheet(orToday(asOf)), "Balance sheet retrieved");
   }
 
+  /**
+   * The VAT return's figures for the period (STD-2), for the whole pharmacy: from the ledger, the
+   * output VAT on sales (2100 credits), the VAT given back on returns, the input VAT on purchases
+   * and expenses (1150) and the net payable to TRA; from the sales, the net and VAT of the sales
+   * and returns split by VAT category (standard, zero-rated, exempt).
+   */
   @GetMapping("/vat")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
-  public ApiResponse<VatSummary> vat(
+  public ApiResponse<VatReport> vat(
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
     ReportRange range =
         ReportRange.limited(from == null ? orToday(null).withDayOfMonth(1) : from, orToday(to));
-    return ApiResponse.ok(statements.vat(range.from(), range.to()), "VAT summary retrieved");
+    VatSummary summary = statements.vat(range.from(), range.to());
+    return ApiResponse.ok(
+        new VatReport(
+            summary.from(),
+            summary.to(),
+            summary.outputVat(),
+            summary.vatReversed(),
+            summary.netOutputVat(),
+            summary.inputVat(),
+            summary.netPayable(),
+            salesReports.vatByCategory(range.from(), range.to(), calendar.zone())),
+        "VAT summary retrieved");
   }
+
+  /**
+   * The VAT report: {@code netPayable} = {@code outputVat} − {@code vatReversed} − {@code inputVat}
+   * (negative: a credit). {@code categories} splits the period's sales and returns by VAT category.
+   */
+  public record VatReport(
+      LocalDate from,
+      LocalDate to,
+      BigDecimal outputVat,
+      BigDecimal vatReversed,
+      BigDecimal netOutputVat,
+      BigDecimal inputVat,
+      BigDecimal netPayable,
+      List<SalesReports.VatCategoryLine> categories) {}
 
   /** Stock at cost and at retail for one branch. */
   public record BranchStock(

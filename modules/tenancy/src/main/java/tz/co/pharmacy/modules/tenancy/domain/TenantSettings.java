@@ -52,6 +52,19 @@ public class TenantSettings extends TenantEntity {
   /** A cashier must open a till shift before selling or refunding. */
   private boolean requireOpenShift;
 
+  /**
+   * Whether the pharmacy is registered for VAT with TRA (STD-2). A pharmacy that is not charges no
+   * VAT on any sale and books no input VAT. {@link #getDefaultTaxRatePercent()} is then the
+   * standard rate its STANDARD products are sold at once it registers.
+   */
+  private boolean vatRegistered;
+
+  /** The pharmacy's Taxpayer Identification Number: 9 digits in Tanzania (verify), or null. */
+  private String tin;
+
+  /** The pharmacy's VAT Registration Number (TRA), upper case, or null. */
+  private String vrn;
+
   /** The looks a pharmacy can choose. */
   public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
 
@@ -115,6 +128,22 @@ public class TenantSettings extends TenantEntity {
     }
   }
 
+  /**
+   * The VAT registration: null keeps each; a blank TIN or VRN clears it. The service checks the
+   * formats.
+   */
+  public void changeVat(Boolean vatRegistered, String tin, String vrn) {
+    if (vatRegistered != null) {
+      this.vatRegistered = vatRegistered;
+    }
+    if (tin != null) {
+      this.tin = tin.isBlank() ? null : tin;
+    }
+    if (vrn != null) {
+      this.vrn = vrn.isBlank() ? null : vrn;
+    }
+  }
+
   public void changeSmsReceipts(Boolean smsReceipts) {
     if (smsReceipts != null) {
       this.smsReceipts = smsReceipts;
@@ -124,7 +153,11 @@ public class TenantSettings extends TenantEntity {
   /** The settings a new tenant starts with. */
   public static TenantSettings defaults() {
     TenantSettings settings = new TenantSettings();
-    settings.defaultTaxRatePercent = BigDecimal.ZERO;
+    // The standard VAT rate in Tanzania (VAT Act 2014 s.5, verify), for STANDARD products.
+    settings.defaultTaxRatePercent = new BigDecimal("18.00");
+    // As every pharmacy charged before VAT registration was kept (STD-2): a pharmacy that is not
+    // registered switches it off in its settings, and then charges no VAT.
+    settings.vatRegistered = true;
     settings.invoicePrefix = "INV";
     settings.receiptFooter = "Thank you. Get well soon.";
     settings.maxDiscountPercent = BigDecimal.TEN;

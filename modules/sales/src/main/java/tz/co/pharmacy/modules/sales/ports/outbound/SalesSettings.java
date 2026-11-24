@@ -19,4 +19,14 @@ public interface SalesSettings {
 
   /** A cashier must have an open till shift to sell, refund or issue a voucher. */
   boolean requireOpenShift();
+
+  /**
+   * The pharmacy as the tax authority knows it (STD-1): its legal name, whether it is
+   * VAT-registered, its TIN and VRN (null when not set).
+   */
+  default Seller seller() {
+    return new Seller(null, true, null, null);
+  }
+
+  record Seller(String legalName, boolean vatRegistered, String tin, String vrn) {}
 }

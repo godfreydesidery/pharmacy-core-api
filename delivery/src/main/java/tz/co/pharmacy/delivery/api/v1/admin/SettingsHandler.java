@@ -81,7 +81,10 @@ public class SettingsHandler {
                 body.requireTwoFactor(),
                 body.approvalLimit(),
                 body.returnWindowDays(),
-                body.requireOpenShift())),
+                body.requireOpenShift(),
+                body.vatRegistered(),
+                body.tin(),
+                body.vrn())),
         "Settings changed");
   }
 
@@ -142,5 +145,8 @@ public class SettingsHandler {
       Boolean requireTwoFactor,
       java.math.BigDecimal approvalLimit,
       Integer returnWindowDays,
-      Boolean requireOpenShift) {}
+      Boolean requireOpenShift,
+      Boolean vatRegistered,
+      String tin,
+      String vrn) {}
 }

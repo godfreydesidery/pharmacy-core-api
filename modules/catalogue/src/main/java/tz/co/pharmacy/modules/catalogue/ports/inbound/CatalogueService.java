@@ -52,4 +52,10 @@ public interface CatalogueService {
 
   /** Whether the product is CONTROLLED now or ever was. */
   boolean everControlled(UUID productUid);
+
+  /**
+   * Sells every STANDARD product of the pharmacy at its new standard VAT rate (STD-2): the rate
+   * {@link ProductView#taxRatePercent()} shows and checkout charges. Returns how many changed.
+   */
+  int applyStandardVatRate(java.math.BigDecimal ratePercent);
 }

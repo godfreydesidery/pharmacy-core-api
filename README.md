@@ -136,7 +136,8 @@ Then set:
 | `PHARMACY_SESSION_HOURS` | `12` | Session lifetime |
 | `PHARMACY_SEED_DEMO` | `false` | Seed the demo tenant |
 | `PHARMACY_PAYMENTS_PROVIDER` | `manual` | Payment authorization adapter |
-| `PHARMACY_FISCAL_PROVIDER` | `none` | Fiscal receipt adapter |
+| `PHARMACY_FISCAL_PROVIDER` | `none` | Fiscal document adapter: `none`, `simulator` (sim/local/test only) or a real adapter's value |
+| `PHARMACY_FISCAL_JOB_CRON` / `PHARMACY_FISCAL_RESEND_AFTER` | `0 */15 * * * *` / `PT10M` | The fiscal job (`fiscal-documents`): resend PENDING documents, close past days with a Z report per branch |
 | `PHARMACY_SWAGGER_ENABLED` | `true` | Serve `/v3/api-docs` and Swagger UI |
 | `PHARMACY_LOG_FORMAT` | — | `json` (or `ecs`) for one JSON object per line on stdout, Elastic Common Schema; `logstash`, `gelf` also work; unset is plain text |
 | `PHARMACY_PORT` | `8080` | HTTP port |
@@ -203,7 +204,7 @@ mvn verify
 | Integration | Where | Default | How to replace |
 |---|---|---|---|
 | Payment authorization (M-Pesa, Airtel Money, card terminals, insurers) | `sales.ports.outbound.PaymentAuthorizations` | `ManualPaymentAuthorizations` (approves, keeps the reference) | Add a `@Component` implementing the port with `@ConditionalOnProperty(name = "pharmacy.integrations.payments.provider", havingValue = "mpesa")`, then set `PHARMACY_PAYMENTS_PROVIDER=mpesa` |
-| Fiscal receipts (TRA VFD/EFD, KRA eTIMS) | `sales.ports.outbound.FiscalReceipts` | `NoFiscalReceipts` (returns empty) | Same pattern, with `pharmacy.integrations.fiscal.provider` |
+| Fiscal documents (TRA VFD/EFD, KRA eTIMS): receipts, credit notes, daily Z reports | `sales.ports.outbound.FiscalReceipts` (`FiscalRequest`: TIN/VRN, lines with VAT category, payments, counters) | `NoFiscalReceipts` (`none`: no documents); `SimulatedFiscalReceipts` (`simulator`, sim/local/test profiles only) | Same pattern, with `pharmacy.integrations.fiscal.provider`; a TRA VFD adapter needs TRA's specification and the pharmacy's credentials |
 | Outbound events to any system | `integrations` module, `/api/v1/webhooks` | — | Register a webhook (at most 10 per pharmacy). Events arrive as CloudEvents 1.0 JSON signed as [Standard Webhooks](https://www.standardwebhooks.com/) define: `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64 HMAC-SHA256 of "id.timestamp.body">` with the `whsec_` secret. `POST /webhooks/{uid}/rotate-secret` issues a new secret; both sign for 24 h. The old `X-Pharmacy-Signature: sha256=<hex>` is still sent for one release |
 | External POS, ERP, e-commerce | The versioned REST API `/api/v1` | — | Use a session token and the tenant and branch headers, with `Idempotency-Key` on `POST /sales` for safe retries |
 

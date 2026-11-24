@@ -6,6 +6,7 @@ import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.PurchaseOrderLineView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.PurchaseOrderView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.ReceiptLineView;
+import tz.co.pharmacy.platform.kernel.Amounts;
 
 /** Maps the module's entities to its views. */
 final class PurchasingViews {
@@ -78,6 +79,8 @@ final class PurchasingViews {
         receipt.getCreatedBy(),
         receipt.getCurrency(),
         receipt.getExchangeRate().stripTrailingZeros(),
-        receipt.getBaseTotal());
+        receipt.getBaseTotal(),
+        receipt.getVatTotal() == null ? Amounts.ZERO : receipt.getVatTotal(),
+        receipt.getBaseVatTotal() == null ? Amounts.ZERO : receipt.getBaseVatTotal());
   }
 }

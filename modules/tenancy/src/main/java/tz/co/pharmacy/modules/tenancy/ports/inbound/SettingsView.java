@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 public record SettingsView(
     String currency,
     String timezone,
+    /* The standard VAT rate: what a STANDARD product is sold at while the pharmacy is registered. */
     BigDecimal defaultTaxRatePercent,
     String invoicePrefix,
     String receiptFooter,
@@ -27,4 +28,9 @@ public record SettingsView(
     /* Days a sale's goods may come back without a manager. */
     int returnWindowDays,
     /* A cashier must open a shift before selling or refunding. */
-    boolean requireOpenShift) {}
+    boolean requireOpenShift,
+    /* Registered for VAT with TRA: false charges no VAT on any sale and books no input VAT. */
+    boolean vatRegistered,
+    /* Taxpayer Identification Number (9 digits) and VAT Registration Number; null when unset. */
+    String tin,
+    String vrn) {}

@@ -66,6 +66,18 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
       Checks.positive(line.quantity(), "lines[" + i + "].quantity");
       Checks.notNegative(line.unitCost(), "lines[" + i + "].unitCost");
     }
+    BigDecimal vat =
+        command.vatAmount() == null
+            ? Amounts.ZERO
+            : Amounts.money(Checks.notNegative(command.vatAmount(), "vatAmount"));
+    if (vat.signum() > 0 && !directory.vatRegistered()) {
+      // STD-2: input VAT is recoverable only by a VAT-registered pharmacy; for one that is not,
+      // the VAT is part of what the goods cost, in the lines' unit costs.
+      throw Refusal.invalid(
+          "vat_not_registered",
+          "The pharmacy is not VAT-registered: enter the unit costs with the VAT in them.",
+          "vatAmount");
+    }
     String invoice =
         Checks.optionalText(command.supplierInvoiceNumber(), "supplierInvoiceNumber", 64);
     if (invoice != null
@@ -117,7 +129,10 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
             order == null ? null : order.getCurrency(),
             order == null ? null : order.getExchangeRate());
     receipt.priceIn(priced.currency(), priced.rate());
-    receipt.settleBase(currencies.toBase(receipt.getTotal(), priced.rate()));
+    receipt.chargeVat(vat);
+    receipt.settleBase(
+        currencies.toBase(receipt.linesTotal(), priced.rate()),
+        vat.signum() == 0 ? Amounts.ZERO : currencies.toBase(vat, priced.rate()));
     GoodsReceipt saved = receipts.save(receipt);
     events.publish(
         "goods.received",
@@ -133,7 +148,9 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
                 saved.getLines().stream().map(GoodsReceiptServiceImpl::eventLine).toList(),
                 saved.getCurrency(),
                 saved.getExchangeRate(),
-                saved.getBaseTotal()));
+                saved.getBaseTotal(),
+                saved.getVatTotal(),
+                saved.getBaseVatTotal()));
     return PurchasingViews.receipt(saved);
   }
 
