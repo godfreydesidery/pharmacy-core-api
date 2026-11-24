@@ -16,7 +16,21 @@ import tz.co.pharmacy.platform.kernel.Refusal;
  */
 final class Problems {
 
-  static final String TYPE_PREFIX = "https://pharmacy-core/problems/";
+  /**
+   * The start of every problem's {@code type}: a URI reference relative to the API itself, such as
+   * {@code /problems/insufficient_stock}, which a client resolves against the URL it called (RFC
+   * 9457 section 3.1.1; RFC 3986 section 5). The API serves it ({@link ProblemTypesHandler}), so
+   * the type stays on a host the API's operator controls wherever it is deployed (STD-14). Clients
+   * read the {@code reason} member, which is the type's last segment and never changes.
+   */
+  static final String TYPE_PREFIX = "/problems/";
+
+  /** RFC 9110 section 11.6.1: every 401 names the scheme that would work (RFC 6750). */
+  static final String WWW_AUTHENTICATE = "WWW-Authenticate";
+
+  /** The 401 reasons of a token sent that no longer works (RFC 6750 section 3.1 invalid_token). */
+  private static final java.util.Set<String> INVALID_TOKEN =
+      java.util.Set.of("session_expired", "session_idle", "stream_ticket_expired");
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -26,6 +40,9 @@ final class Problems {
       throws IOException {
     int status = refusal.kind().status();
     response.setStatus(status);
+    if (status == 401) {
+      response.setHeader(WWW_AUTHENTICATE, challenge(refusal.reason()));
+    }
     if (refusal.retryAfterSeconds() != null) {
       response.setHeader("Retry-After", String.valueOf(refusal.retryAfterSeconds()));
     }
@@ -75,6 +92,16 @@ final class Problems {
           "field",
           "correlationId",
           "retryAfterSeconds");
+
+  /**
+   * The {@code WWW-Authenticate} challenge of a 401 (STD-15): {@code Bearer realm="pharmacy-core"},
+   * with {@code error="invalid_token"} when the session or ticket sent has expired.
+   */
+  static String challenge(String reason) {
+    return INVALID_TOKEN.contains(reason)
+        ? "Bearer realm=\"pharmacy-core\", error=\"invalid_token\""
+        : "Bearer realm=\"pharmacy-core\"";
+  }
 
   static String title(int status) {
     return switch (status) {

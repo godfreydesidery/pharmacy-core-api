@@ -69,6 +69,12 @@ server:
     min-response-size: 1KB
 
 pharmacy:
+  api:
+    # The API contract's semantic version (STD-16): sent as X-Api-Version on every /api answer, as
+    # info.version in the OpenAPI document and in /actuator/info. The major version is the one in
+    # the path (/api/v1); the minor goes up with each additive change to the contract (new routes,
+    # members, headers), the patch with fixes that change no contract. Breaking changes need /api/v2.
+    version: 1.10.0
   audit:
     # PERF-7: rows of append-only ledgers that the automatic audit trail leaves out, besides the
     # entities marked @AuditIgnore (sales: SaleLine, SalePayment). Each table is its own record
@@ -300,6 +306,10 @@ logging:
     format:
       console: ${pharmacy.log.formats.${PHARMACY_LOG_FORMAT:plain}:}
 
+info:
+  api:
+    version: ${pharmacy.api.version}
+
 management:
   server:
     # Unset: actuator shares the API's port and serves only health. Set (8081 on ECS): actuator
@@ -310,8 +320,22 @@ management:
     web:
       exposure:
         # Prometheus is published only on a separate management port (MetricsConfiguration), or on
-        # the API's port where pharmacy.management.metrics-on-api-port says so (local, test).
-        include: health,prometheus
+        # the API's port where pharmacy.management.metrics-on-api-port says so (local, test). Info
+        # says which build is running (STD-16): its version and time, and the API's version.
+        include: health,info,prometheus
+  info:
+    # Only the build (META-INF/build-info.properties) and the info.* values below; never the
+    # environment, the Java runtime or the operating system.
+    env:
+      enabled: true
+    java:
+      enabled: false
+    os:
+      enabled: false
+    process:
+      enabled: false
+    git:
+      enabled: false
   endpoint:
     health:
       probes:

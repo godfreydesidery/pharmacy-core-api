@@ -61,20 +61,27 @@ public class OpenApiConfiguration {
   private static final String PROBLEM_JSON = "application/problem+json";
 
   @Bean
-  OpenAPI pharmacyOpenApi() {
+  OpenAPI pharmacyOpenApi(
+      @org.springframework.beans.factory.annotation.Value("${pharmacy.api.version}")
+          String version) {
     return new OpenAPI()
         .info(
             new Info()
                 .title("Pharmacy Core API")
-                .version("v1")
+                // The contract's semantic version, also sent as X-Api-Version (STD-16).
+                .version(version)
                 .description(
                     "Multi-tenant, multi-branch pharmacy management. Send Authorization: Bearer"
                         + " <token>, X-Tenant-Id and, on branch routes, X-Branch-Id. Successes"
                         + " use the envelope {success, code, message, timestamp, data}; refusals"
                         + " are RFC 9457 problems (application/problem+json) with a stable"
-                        + " `reason`. Each operation's x-scope and x-permission say who may call"
-                        + " it. The guide is pharmacy-core-docs/contracts/api-v1.md; this"
-                        + " document is the complete reference."))
+                        + " `reason`; a problem's type is /problems/<reason> on this server. A"
+                        + " 401 names its scheme in WWW-Authenticate (Bearer); a 201 names what"
+                        + " it created in Location when that has a route of its own; every answer"
+                        + " carries X-Api-Version, this document's version. Each operation's"
+                        + " x-scope and x-permission say who may call it. The guide is"
+                        + " pharmacy-core-docs/contracts/api-v1.md; this document is the complete"
+                        + " reference."))
         .servers(List.of(new Server().url("/").description("This server")))
         .components(
             new Components()
