@@ -145,6 +145,29 @@ public final class Api {
     }
   }
 
+  /** The body of a POST as bytes, such as a ZIP; fails unless it answers 200. */
+  public byte[] downloadPost(String path, String json) {
+    try {
+      HttpResponse<byte[]> response =
+          CLIENT.send(
+              request(path)
+                  .header("Content-Type", "application/json")
+                  .POST(HttpRequest.BodyPublishers.ofString(json == null ? "" : json))
+                  .build(),
+              HttpResponse.BodyHandlers.ofByteArray());
+      if (response.statusCode() != 200) {
+        throw new AssertionError(
+            "expected 200 but was " + response.statusCode() + ": " + new String(response.body()));
+      }
+      return response.body();
+    } catch (IOException exception) {
+      throw new IllegalStateException(exception);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(exception);
+    }
+  }
+
   /** Signs in and returns the session token. */
   public String signIn(String email, String password) {
     Response response =

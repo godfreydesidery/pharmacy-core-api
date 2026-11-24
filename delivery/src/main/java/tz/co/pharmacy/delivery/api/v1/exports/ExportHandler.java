@@ -57,6 +57,7 @@ public class ExportHandler {
   private final SupplierService suppliers;
   private final CustomerCredit credit;
   private final TenantCalendar calendar;
+  private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
 
   public ExportHandler(
       CatalogueService catalogue,
@@ -65,7 +66,9 @@ public class ExportHandler {
       CustomerService customers,
       SupplierService suppliers,
       CustomerCredit credit,
-      TenantCalendar calendar) {
+      TenantCalendar calendar,
+      tz.co.pharmacy.platform.persistence.audit.AuditLog audit) {
+    this.audit = audit;
     this.catalogue = catalogue;
     this.stock = stock;
     this.sales = sales;
@@ -93,6 +96,7 @@ public class ExportHandler {
           column("Unit", "Kipimo", ProductView::unitOfMeasure),
           column("Model", "Modeli", ProductView::model),
           column("Warranty (months)", "Dhamana (miezi)", ProductView::warrantyMonths),
+          column("TMDA registration", "Usajili wa TMDA", ProductView::tmdaRegistrationNumber),
           column("Cost", "Gharama", ProductView::costPrice),
           column("Price", "Bei", ProductView::sellingPrice),
           column("VAT %", "VAT %", ProductView::taxRatePercent),
@@ -244,6 +248,12 @@ public class ExportHandler {
       @RequestParam(required = false) String format,
       @RequestParam(required = false) String lang) {
     CustomerType customerType = blank(type) ? null : Checks.oneOf(CustomerType.class, type, "type");
+    // People's data in bulk leaving the system is recorded (STD-5, STD-22): who, when, which list.
+    java.util.Map<String, Object> filters = new java.util.LinkedHashMap<>();
+    filters.put("q", q == null ? "" : q);
+    filters.put("type", customerType == null ? "" : customerType.name());
+    filters.put("format", format == null ? "xlsx" : format);
+    audit.record("CUSTOMERS_EXPORTED", "Customer", null, null, filters);
     List<Column<CustomerView>> columns =
         List.of(
             column("Code", "Msimbo", CustomerView::code),

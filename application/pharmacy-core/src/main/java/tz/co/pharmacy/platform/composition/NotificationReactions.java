@@ -20,6 +20,8 @@ import tz.co.pharmacy.modules.notifications.ports.inbound.Notifier;
 import tz.co.pharmacy.modules.notifications.ports.inbound.Recipient;
 import tz.co.pharmacy.modules.notifications.ports.inbound.TemplateKeys;
 import tz.co.pharmacy.modules.notifications.ports.outbound.NotificationDirectory;
+import tz.co.pharmacy.modules.partners.ports.inbound.ConsentPurpose;
+import tz.co.pharmacy.modules.partners.ports.inbound.CustomerConsents;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
 import tz.co.pharmacy.modules.tenancy.events.TenantRegistered;
@@ -51,6 +53,7 @@ class NotificationReactions {
   private final BranchService branches;
   private final TenantService tenants;
   private final CustomerService customers;
+  private final CustomerConsents consents;
   private final String webUrl;
 
   NotificationReactions(
@@ -60,7 +63,9 @@ class NotificationReactions {
       BranchService branches,
       TenantService tenants,
       CustomerService customers,
+      CustomerConsents consents,
       @Value("${pharmacy.access.web-url:http://localhost:4300}") String webUrl) {
+    this.consents = consents;
     this.notifier = notifier;
     this.directory = directory;
     this.settings = settings;
@@ -122,6 +127,10 @@ class NotificationReactions {
         () -> {
           SettingsView current = settings.current();
           if (!current.smsReceipts()) {
+            return;
+          }
+          // STD-5: a customer who withdrew (or refused) SMS receipts gets none.
+          if (!consents.allows(event.customerUid(), ConsentPurpose.SMS_RECEIPTS)) {
             return;
           }
           customers

@@ -41,6 +41,17 @@ public class Customer extends TenantEntity {
   @Enumerated(EnumType.STRING)
   private PaymentTerms paymentTerms = PaymentTerms.NET_30;
 
+  /**
+   * When the customer was anonymised (STD-5). Written only by the anonymisation's own SQL, which
+   * leaves no copy of the personal values in the automatic audit trail.
+   */
+  @Column(insertable = false, updatable = false)
+  private java.time.Instant anonymisedAt;
+
+  public boolean isAnonymised() {
+    return anonymisedAt != null;
+  }
+
   public Customer(String code, Details details) {
     this.code = code;
     change(details);

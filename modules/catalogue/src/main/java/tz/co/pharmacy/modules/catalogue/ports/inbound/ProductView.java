@@ -39,4 +39,6 @@ public record ProductView(
     String model,
     Integer warrantyMonths,
     boolean requiresSerialAtSale,
-    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory) {}
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
+    /* The TMDA registration number (STD-8), optional. */
+    String tmdaRegistrationNumber) {}

@@ -355,7 +355,8 @@ class ControlsStockTest extends IntegrationTest {
     // Still on the register, with its movements, though OTC now.
     Response register = manager.get("/api/v1/controlled-drugs").expect(200);
     assertThat(
-            register.read("$.data[?(@.productUid == '" + codeine + "')].controlledNow", List.class))
+            register.read(
+                "$.data.items[?(@.productUid == '" + codeine + "')].controlledNow", List.class))
         .containsExactly(false);
     assertThat(
             manager

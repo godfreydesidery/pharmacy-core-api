@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.Spreadsheet;
 import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
@@ -47,6 +48,7 @@ public class ControlledDrugsHandler {
   private final StockQueries stockQueries;
   private final SaleService sales;
   private final tz.co.pharmacy.platform.kernel.TenantCalendar calendar;
+  private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
 
   /**
    * A product of the register and its sellable balance at the branch; {@code schedule} is its class
@@ -76,29 +78,35 @@ public class ControlledDrugsHandler {
       String prescriberRegistration,
       String prescriptionReference,
       String note,
-      String recordedBy) {}
+      String recordedBy,
+      java.time.LocalDate prescriptionDate,
+      /* The pharmacist who dispensed the sale (STD-7). */
+      String dispensedBy,
+      /* A sale's prescription the caller may not read (no health.view): its fields are null. */
+      boolean withheld) {}
 
+  /** The register's products by name, a page at a time (STD-7: no longer one capped list). */
   @GetMapping
   @Access(scope = AccessScope.BRANCH, permission = "inventory.view")
-  public ApiResponse<List<ControlledProduct>> products() {
+  public ApiResponse<Page<ControlledProduct>> products(
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit) {
     // FRD-6: every product CONTROLLED now or at any time before, so a class changed and changed
     // back never takes a product's movements out of the register.
-    List<ProductView> controlled = catalogue.controlledRegisterProducts();
+    Page<ProductView> controlled = catalogue.controlledRegisterProducts(Pages.of(cursor, limit));
     Map<UUID, Integer> onHand =
-        stockQueries.onHand(controlled.stream().map(ProductView::uid).toList());
+        stockQueries.onHand(controlled.items().stream().map(ProductView::uid).toList());
     return ApiResponse.ok(
-        controlled.stream()
-            .map(
-                p ->
-                    new ControlledProduct(
-                        p.uid(),
-                        p.name(),
-                        p.strength(),
-                        p.dosageForm() == null ? null : p.dosageForm().name(),
-                        onHand.getOrDefault(p.uid(), 0),
-                        p.schedule(),
-                        p.schedule() == Schedule.CONTROLLED))
-            .toList(),
+        controlled.map(
+            p ->
+                new ControlledProduct(
+                    p.uid(),
+                    p.name(),
+                    p.strength(),
+                    p.dosageForm() == null ? null : p.dosageForm().name(),
+                    onHand.getOrDefault(p.uid(), 0),
+                    p.schedule(),
+                    p.schedule() == Schedule.CONTROLLED)),
         "Controlled products retrieved");
   }
 
@@ -109,6 +117,10 @@ public class ControlledDrugsHandler {
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
     controlled(productUid);
+    if (HealthFields.visible()) {
+      // STD-5: the register names patients and prescribers; who read it is recorded.
+      audit.record("CONTROLLED_REGISTER_VIEWED", "Product", productUid, null, Map.of());
+    }
     return ApiResponse.ok(lines(productUid, Pages.of(cursor, limit)), "Register retrieved");
   }
 
@@ -126,6 +138,13 @@ public class ControlledDrugsHandler {
       @RequestParam(required = false) String format,
       @RequestParam(required = false) String lang) {
     ProductView product = controlled(productUid);
+    audit.record(
+        "CONTROLLED_REGISTER_EXPORTED",
+        "Product",
+        productUid,
+        null,
+        Map.of(
+            "format", format == null ? "xlsx" : format, "healthDetails", HealthFields.visible()));
     List<Spreadsheet.Column<RegisterLine>> columns =
         List.of(
             Spreadsheet.column("Date", "Tarehe", RegisterLine::at),
@@ -141,6 +160,9 @@ public class ControlledDrugsHandler {
                 "Registration", "Namba ya usajili", RegisterLine::prescriberRegistration),
             Spreadsheet.column(
                 "Prescription", "Cheti cha daktari", RegisterLine::prescriptionReference),
+            Spreadsheet.column(
+                "Prescription date", "Tarehe ya cheti", RegisterLine::prescriptionDate),
+            Spreadsheet.column("Dispensed by", "Ametolewa na", RegisterLine::dispensedBy),
             Spreadsheet.column("Note", "Maelezo", RegisterLine::note),
             Spreadsheet.column("By", "Na", RegisterLine::recordedBy));
     return Spreadsheet.answer(
@@ -171,13 +193,17 @@ public class ControlledDrugsHandler {
   /** A page of the register: the movements with the prescription of each sale or return. */
   private Page<RegisterLine> lines(UUID productUid, PageQuery query) {
     Page<MovementView> movements = stockQueries.movements(productUid, null, query);
-    Map<String, Optional<PrescriptionDetails>> prescriptions = new HashMap<>();
+    Map<String, Optional<SaleView>> salesByReference = new HashMap<>();
+    boolean visible = HealthFields.visible();
     return movements.map(
         m -> {
-          PrescriptionDetails rx =
+          SaleView sale =
               m.type() == MovementType.SALE || m.type() == MovementType.SALE_RETURN
-                  ? prescriptions.computeIfAbsent(m.reference(), this::prescriptionOf).orElse(null)
+                  ? salesByReference.computeIfAbsent(m.reference(), this::saleOf).orElse(null)
                   : null;
+          PrescriptionDetails found = sale == null ? null : sale.prescription();
+          boolean withheld = found != null && !visible;
+          PrescriptionDetails rx = withheld ? null : found;
           return new RegisterLine(
               m.uid(),
               m.createdAt(),
@@ -192,7 +218,10 @@ public class ControlledDrugsHandler {
               rx == null ? null : rx.prescriberRegistration(),
               rx == null ? null : rx.reference(),
               m.note(),
-              m.createdBy());
+              m.createdBy(),
+              rx == null ? null : rx.prescriptionDate(),
+              sale == null ? null : sale.dispensedBy(),
+              withheld);
         });
   }
 
@@ -200,7 +229,7 @@ public class ControlledDrugsHandler {
    * The prescription of the sale a movement points at: its number for a sale, or the sale number a
    * return names in its reference.
    */
-  private Optional<PrescriptionDetails> prescriptionOf(String reference) {
+  private Optional<SaleView> saleOf(String reference) {
     if (reference == null || reference.isBlank()) {
       return Optional.empty();
     }
@@ -212,7 +241,6 @@ public class ControlledDrugsHandler {
         .stream()
         .filter(s -> number.equals(s.number()))
         .findFirst()
-        .flatMap(s -> sales.find(s.uid()))
-        .map(SaleView::prescription);
+        .flatMap(s -> sales.find(s.uid()));
   }
 }

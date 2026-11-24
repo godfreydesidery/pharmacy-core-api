@@ -40,9 +40,14 @@ public record ProductCommand(
     String model,
     Integer warrantyMonths,
     Boolean requiresSerialAtSale,
-    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory) {
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
+    /* The TMDA registration (marketing authorisation) number, optional (STD-8). */
+    String tmdaRegistrationNumber) {
 
-  /** A product without its tax category: it follows {@code taxRatePercent}. */
+  /**
+   * A product without its tax category (it follows {@code taxRatePercent}) and without a TMDA
+   * registration number.
+   */
   public ProductCommand(
       String name,
       String genericName,
@@ -91,6 +96,7 @@ public record ProductCommand(
         model,
         warrantyMonths,
         requiresSerialAtSale,
+        null,
         null);
   }
 }

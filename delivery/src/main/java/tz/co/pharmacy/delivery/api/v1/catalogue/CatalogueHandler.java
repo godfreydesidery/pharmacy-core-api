@@ -226,7 +226,9 @@ public class CatalogueHandler {
       Integer warrantyMonths,
       Boolean requiresSerialAtSale,
       /* STANDARD, ZERO_RATED or EXEMPT; empty follows taxRatePercent (STD-2). */
-      String taxCategory) {
+      String taxCategory,
+      /* The TMDA registration number (STD-8), optional. */
+      String tmdaRegistrationNumber) {
 
     ProductCommand toCommand() {
       return new ProductCommand(
@@ -260,7 +262,8 @@ public class CatalogueHandler {
           blank(taxCategory)
               ? null
               : Checks.oneOf(
-                  tz.co.pharmacy.platform.kernel.TaxCategory.class, taxCategory, "taxCategory"));
+                  tz.co.pharmacy.platform.kernel.TaxCategory.class, taxCategory, "taxCategory"),
+          tmdaRegistrationNumber);
     }
 
     private static boolean blank(String value) {

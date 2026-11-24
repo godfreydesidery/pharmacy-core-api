@@ -102,6 +102,9 @@ public class Product extends TenantEntity {
   private Integer warrantyMonths;
   private boolean requiresSerialAtSale;
 
+  /** The TMDA marketing authorisation (registration) number, when the pharmacy records it. */
+  private String tmdaRegistrationNumber;
+
   public Product(Details details) {
     change(details);
   }
@@ -134,6 +137,7 @@ public class Product extends TenantEntity {
     this.model = details.model();
     this.warrantyMonths = details.warrantyMonths();
     this.requiresSerialAtSale = details.requiresSerialAtSale();
+    this.tmdaRegistrationNumber = details.tmdaRegistrationNumber();
   }
 
   public void activate(boolean active) {
@@ -165,5 +169,6 @@ public class Product extends TenantEntity {
       String model,
       Integer warrantyMonths,
       boolean requiresSerialAtSale,
-      tz.co.pharmacy.platform.kernel.TaxCategory taxCategory) {}
+      tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
+      String tmdaRegistrationNumber) {}
 }

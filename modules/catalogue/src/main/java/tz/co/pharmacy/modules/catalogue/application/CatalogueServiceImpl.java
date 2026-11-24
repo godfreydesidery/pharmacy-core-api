@@ -361,8 +361,19 @@ class CatalogueServiceImpl implements CatalogueService {
 
   @Override
   @Transactional(readOnly = true)
-  public List<ProductView> controlledRegisterProducts() {
-    return products.findControlledEver().stream().map(CatalogueServiceImpl::view).toList();
+  public Page<ProductView> controlledRegisterProducts(PageQuery query) {
+    List<Product> rows =
+        entityManager
+            .createQuery(
+                "select p from Product p left join fetch p.category left join fetch p.manufacturer"
+                    + " where p.everControlled = true or p.schedule = :controlled"
+                    + " order by lower(p.name), p.id",
+                Product.class)
+            .setParameter("controlled", Schedule.CONTROLLED)
+            .setFirstResult(query.offset())
+            .setMaxResults(query.limit() + 1)
+            .getResultList();
+    return Page.offset(rows, query, products::countControlledEver).map(CatalogueServiceImpl::view);
   }
 
   @Override
@@ -485,7 +496,8 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.model(),
         kind.warrantyMonths(),
         kind.requiresSerialAtSale(),
-        taxCategory);
+        taxCategory,
+        Checks.optionalText(c.tmdaRegistrationNumber(), "tmdaRegistrationNumber", 60));
   }
 
   /** The pharmacy's standard VAT rate (its settings, read once per transaction). */
@@ -612,6 +624,7 @@ class CatalogueServiceImpl implements CatalogueService {
         p.isRequiresSerialAtSale(),
         p.getTaxCategory() == null
             ? tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(p.getTaxRatePercent())
-            : p.getTaxCategory());
+            : p.getTaxCategory(),
+        p.getTmdaRegistrationNumber());
   }
 }

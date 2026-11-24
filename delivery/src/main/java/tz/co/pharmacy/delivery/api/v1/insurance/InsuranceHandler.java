@@ -25,6 +25,7 @@ import tz.co.pharmacy.application.checkout.ports.inbound.CheckoutLine;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.RequiresFeature;
@@ -200,7 +201,8 @@ public class InsuranceHandler {
             ? null
             : Checks.oneOf(ClaimStatus.class, status, "status");
     return ApiResponse.ok(
-        insurance.claims(payerUid, filter, Pages.of(cursor, limit)), "Claims retrieved");
+        insurance.claims(payerUid, filter, Pages.of(cursor, limit)).map(HealthFields::claim),
+        "Claims retrieved");
   }
 
   @RequiresFeature(PlanFeature.INSURANCE)
@@ -210,6 +212,7 @@ public class InsuranceHandler {
     return ApiResponse.ok(
         insurance
             .claim(uid)
+            .map(HealthFields::claim)
             .orElseThrow(() -> Refusal.notFound("claim_not_found", "No such claim.")),
         "Claim retrieved");
   }
@@ -221,17 +224,18 @@ public class InsuranceHandler {
   public ApiResponse<ClaimView> adjudicate(
       @PathVariable UUID uid, @RequestBody AdjudicationRequest body) {
     return ApiResponse.ok(
-        insurance.adjudicate(
-            uid,
-            new AdjudicationCommand(
-                body.status() == null || body.status().isBlank()
-                    ? null
-                    : Checks.oneOf(ClaimStatus.class, body.status(), "status"),
-                body.lines(),
-                body.note(),
-                body.rejectedTo() == null || body.rejectedTo().isBlank()
-                    ? RejectedTo.WRITE_OFF
-                    : Checks.oneOf(RejectedTo.class, body.rejectedTo(), "rejectedTo"))),
+        HealthFields.claim(
+            insurance.adjudicate(
+                uid,
+                new AdjudicationCommand(
+                    body.status() == null || body.status().isBlank()
+                        ? null
+                        : Checks.oneOf(ClaimStatus.class, body.status(), "status"),
+                    body.lines(),
+                    body.note(),
+                    body.rejectedTo() == null || body.rejectedTo().isBlank()
+                        ? RejectedTo.WRITE_OFF
+                        : Checks.oneOf(RejectedTo.class, body.rejectedTo(), "rejectedTo")))),
         "Claim adjudicated");
   }
 
@@ -302,7 +306,8 @@ public class InsuranceHandler {
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = "finance.manage")
   public ApiResponse<List<ClaimView>> remit(@RequestBody RemittanceCommand body) {
-    return ApiResponse.created(insurance.remit(body), "Remittance recorded");
+    return ApiResponse.created(
+        insurance.remit(body).stream().map(HealthFields::claim).toList(), "Remittance recorded");
   }
 
   // ---------------------------------------------------------------- bodies

@@ -81,6 +81,12 @@ public class Sale extends TenantEntity {
   private String prescriberRegistration;
   private String prescriptionReference;
   private String patientName;
+  private java.time.LocalDate prescriptionDate;
+
+  /** The seller who dispensed the prescription or controlled lines (STD-7). */
+  private String dispensedBy;
+
+  private UUID dispensedByUid;
 
   /**
    * The tax authority's reference of the fiscal receipt. Written once, after the sale committed, by
@@ -164,11 +170,19 @@ public class Sale extends TenantEntity {
       String prescriberName,
       String prescriberRegistration,
       String prescriptionReference,
-      String patientName) {
+      String patientName,
+      java.time.LocalDate prescriptionDate) {
     this.prescriberName = prescriberName;
     this.prescriberRegistration = prescriberRegistration;
     this.prescriptionReference = prescriptionReference;
     this.patientName = patientName;
+    this.prescriptionDate = prescriptionDate;
+  }
+
+  /** Records who dispensed the sale's prescription or controlled lines (STD-7). */
+  public void dispensedBy(String name, UUID userUid) {
+    this.dispensedBy = name;
+    this.dispensedByUid = userUid;
   }
 
   public void totals(SaleTotals.Totals totals, BigDecimal paidTotal, BigDecimal changeDue) {

@@ -138,7 +138,16 @@ class ControlsSalesTest extends IntegrationTest {
     BigDecimal drift = settledDrift();
 
     // The line keeps the class the medicine had when sold.
-    Response rxSale = sell(clerk, rx, 4, "{\"prescriberName\":\"Dr Asha\"}");
+    Response rxSale =
+        sell(
+            clerk,
+            rx,
+            4,
+            """
+            {"prescriberName":"Dr Asha","prescriberRegistration":"MCT-2201",
+             "patientName":"Rehema Juma","prescriptionDate":"%s"}
+            """
+                .formatted(LocalDate.now().minusDays(2)));
     assertThat(rxSale.string("$.data.lines[0].schedule")).isEqualTo("PRESCRIPTION");
     assertThat(onHand(rx)).isEqualTo(16);
     // Reclassified OTC afterwards (straight in the table: the rule reads the sale, not this).
