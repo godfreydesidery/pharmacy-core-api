@@ -20,6 +20,23 @@ class SalesSettingsAdapter implements SalesSettings {
 
   private final SettingsService settingsService;
   private final BranchService branchService;
+  private final tz.co.pharmacy.modules.tenancy.ports.inbound.TenantService tenantService;
+
+  /** The pharmacy as the tax authority knows it: legal name, VAT registration, TIN and VRN. */
+  @Override
+  public Seller seller() {
+    var current = settingsService.current();
+    String name =
+        tz.co.pharmacy.platform.kernel.ExecutionContext.tenantUid()
+            .flatMap(tenantService::find)
+            .map(
+                tenant ->
+                    tenant.legalName() == null || tenant.legalName().isBlank()
+                        ? tenant.name()
+                        : tenant.legalName())
+            .orElse(null);
+    return new Seller(name, current.vatRegistered(), current.tin(), current.vrn());
+  }
 
   @Override
   public String invoicePrefix() {

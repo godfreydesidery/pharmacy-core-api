@@ -66,6 +66,19 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
       Checks.positive(line.quantity(), "lines[" + i + "].quantity");
       Checks.notNegative(line.unitCost(), "lines[" + i + "].unitCost");
     }
+    // Rounded to the receipt currency's minor units once the receipt is priced (chargeVat).
+    BigDecimal vat =
+        command.vatAmount() == null
+            ? Amounts.ZERO
+            : Checks.notNegative(command.vatAmount(), "vatAmount");
+    if (vat.signum() > 0 && !directory.vatRegistered()) {
+      // STD-2: input VAT is recoverable only by a VAT-registered pharmacy; for one that is not,
+      // the VAT is part of what the goods cost, in the lines' unit costs.
+      throw Refusal.invalid(
+          "vat_not_registered",
+          "The pharmacy is not VAT-registered: enter the unit costs with the VAT in them.",
+          "vatAmount");
+    }
     String invoice =
         Checks.optionalText(command.supplierInvoiceNumber(), "supplierInvoiceNumber", 64);
     if (invoice != null
@@ -90,6 +103,17 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
             directory.supplierName(supplierUid),
             invoice,
             Checks.optionalText(command.note(), "note", 1000));
+    // A receipt against an order is in the order's currency at its locked rate, unless the rate is
+    // overridden here (the supplier invoiced at another rate). Priced first: the lines round to
+    // the receipt currency's minor units.
+    Priced priced =
+        Priced.of(
+            currencies,
+            command.currency(),
+            command.exchangeRate(),
+            order == null ? null : order.getCurrency(),
+            order == null ? null : order.getExchangeRate());
+    receipt.priceIn(priced.currency(), priced.rate());
     for (int i = 0; i < lines.size(); i++) {
       ReceiptLineCommand line = lines.get(i);
       String name;
@@ -107,17 +131,12 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
           line.unitCost(),
           ReceiptTracking.serials(line));
     }
-    // A receipt against an order is in the order's currency at its locked rate, unless the rate is
-    // overridden here (the supplier invoiced at another rate).
-    Priced priced =
-        Priced.of(
-            currencies,
-            command.currency(),
-            command.exchangeRate(),
-            order == null ? null : order.getCurrency(),
-            order == null ? null : order.getExchangeRate());
-    receipt.priceIn(priced.currency(), priced.rate());
-    receipt.settleBase(currencies.toBase(receipt.getTotal(), priced.rate()));
+    receipt.chargeVat(vat);
+    receipt.settleBase(
+        currencies.toBase(receipt.linesTotal(), priced.rate()),
+        receipt.getVatTotal().signum() == 0
+            ? Amounts.ZERO
+            : currencies.toBase(receipt.getVatTotal(), priced.rate()));
     GoodsReceipt saved = receipts.save(receipt);
     events.publish(
         "goods.received",
@@ -133,7 +152,9 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
                 saved.getLines().stream().map(GoodsReceiptServiceImpl::eventLine).toList(),
                 saved.getCurrency(),
                 saved.getExchangeRate(),
-                saved.getBaseTotal()));
+                saved.getBaseTotal(),
+                saved.getVatTotal(),
+                saved.getBaseVatTotal()));
     return PurchasingViews.receipt(saved);
   }
 

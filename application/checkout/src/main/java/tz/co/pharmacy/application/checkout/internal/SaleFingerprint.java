@@ -57,6 +57,10 @@ final class SaleFingerprint {
     field(canonical, "registration", rx == null ? null : text(rx.prescriberRegistration()));
     field(canonical, "prescription", rx == null ? null : text(rx.reference()));
     field(canonical, "patient", rx == null ? null : text(rx.patientName()));
+    if (rx != null && rx.prescriptionDate() != null) {
+      // Only when given, so a request without one keeps the fingerprint it had before STD-7.
+      field(canonical, "prescriptionDate", rx.prescriptionDate().toString());
+    }
     field(canonical, "member", command.memberUid());
     field(canonical, "preauth", text(command.preauthNumber()));
     field(canonical, "diagnosis", text(command.diagnosisCode()));

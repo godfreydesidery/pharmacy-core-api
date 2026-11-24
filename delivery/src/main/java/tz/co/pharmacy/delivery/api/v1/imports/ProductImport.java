@@ -25,6 +25,7 @@ import tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.Storage;
 import tz.co.pharmacy.modules.catalogue.ports.inbound.UnitOfMeasure;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanLimit;
+import tz.co.pharmacy.platform.kernel.TaxCategory;
 
 /**
  * Products, matched on Code: a code the pharmacy has updates that product, a new code adds a
@@ -82,10 +83,10 @@ class ProductImport implements Importer<ProductImport.Plan> {
                   "gtin",
                   "Barcode (GTIN)",
                   "Msimbopau (GTIN)",
-                  "The barcode: 8 to 14 digits. Format the column as Text so Excel keeps leading"
-                      + " zeros.",
-                  "Msimbopau: tarakimu 8 hadi 14. Weka safu kuwa Text ili Excel isifute sifuri za"
-                      + " mwanzo.")
+                  "The barcode (GTIN): 8, 12, 13 or 14 digits ending in a correct check digit."
+                      + " Format the column as Text so Excel keeps leading zeros.",
+                  "Msimbopau (GTIN): tarakimu 8, 12, 13 au 14 zinazoishia na tarakimu hakiki"
+                      + " sahihi. Weka safu kuwa Text ili Excel isifute sifuri za mwanzo.")
               .about("gtin"),
           optional(
               "atcCode",
@@ -133,6 +134,12 @@ class ProductImport implements Importer<ProductImport.Plan> {
           optional("model", "Model", "Modeli", "Equipment's model.", "Modeli ya kifaa."),
           optional(
               "warrantyMonths", "Warranty (months)", "Dhamana (miezi)", "0 to 120.", "0 hadi 120."),
+          optional(
+              "tmdaRegistrationNumber",
+              "TMDA registration",
+              "Usajili wa TMDA",
+              "The TMDA registration number, if any.",
+              "Namba ya usajili wa TMDA, kama ipo."),
           required("cost", "Cost", "Gharama", "The buying price.", "Bei ya kununua.")
               .about("costPrice"),
           required("price", "Price", "Bei", "The selling price.", "Bei ya kuuza.")
@@ -144,6 +151,17 @@ class ProductImport implements Importer<ProductImport.Plan> {
                   "The VAT rate, such as 18 or 0.",
                   "Kiwango cha VAT, kama 18 au 0.")
               .about("taxRatePercent"),
+          optional(
+                  "vatCategory",
+                  "VAT category",
+                  "Aina ya VAT",
+                  "One of "
+                      + values(TaxCategory.class)
+                      + ". Empty follows VAT %: above 0 STANDARD, 0 EXEMPT.",
+                  "Mojawapo ya "
+                      + values(TaxCategory.class)
+                      + ". Tupu inafuata VAT %: zaidi ya 0 STANDARD, 0 EXEMPT.")
+              .about("taxCategory"),
           optional(
               "reorderLevel",
               "Reorder level",
@@ -187,9 +205,11 @@ class ProductImport implements Importer<ProductImport.Plan> {
         "BOX",
         "",
         null,
+        "",
         3500,
         5000,
         0,
+        "EXEMPT",
         10,
         "ROOM_TEMPERATURE",
         "Yes");
@@ -290,9 +310,21 @@ class ProductImport implements Importer<ProductImport.Plan> {
     Integer warranty =
         row.pick(
             "warrantyMonths", was, ProductView::warrantyMonths, r -> r.whole("warrantyMonths"));
+    String tmda =
+        row.pick(
+            "tmdaRegistrationNumber",
+            was,
+            ProductView::tmdaRegistrationNumber,
+            r -> r.text("tmdaRegistrationNumber"));
     BigDecimal cost = amount(row, "cost");
     BigDecimal price = amount(row, "price");
     BigDecimal vat = row.pick("vat", was, ProductView::taxRatePercent, r -> r.number("vat"));
+    // The category as written; else, with a VAT % in the file, the one that rate implies (null);
+    // else the product keeps its own.
+    TaxCategory vatCategory =
+        row.text("vatCategory") != null
+            ? row.choice("vatCategory", TaxCategory.class)
+            : row.has("vat") || was == null ? null : was.taxCategory();
     Integer reorder =
         row.pick("reorderLevel", was, ProductView::reorderLevel, r -> r.whole("reorderLevel"));
     Storage storage =
@@ -329,7 +361,9 @@ class ProductImport implements Importer<ProductImport.Plan> {
             brand,
             model,
             warranty,
-            was == null ? null : was.requiresSerialAtSale());
+            was == null ? null : was.requiresSerialAtSale(),
+            vatCategory,
+            tmda);
     return new Plan(code, existing, command, newManufacturer, active);
   }
 
@@ -394,7 +428,9 @@ class ProductImport implements Importer<ProductImport.Plan> {
         c.brand(),
         c.model(),
         c.warrantyMonths(),
-        c.requiresSerialAtSale());
+        c.requiresSerialAtSale(),
+        c.taxCategory(),
+        c.tmdaRegistrationNumber());
   }
 
   private static String key(String name) {

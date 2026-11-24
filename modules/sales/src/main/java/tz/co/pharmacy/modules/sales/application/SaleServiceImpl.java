@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.sales.application;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -84,14 +83,7 @@ class SaleServiceImpl implements SaleService {
   private final ShiftsImpl shifts;
   private final Approvals approvals;
   private final SalesProducts products;
-  private final org.springframework.transaction.PlatformTransactionManager transactionManager;
-
-  /**
-   * How long one attempt at the fiscal receipt may hold the sale before another may try: longer
-   * than the authority's slowest answer (VFD: about 30 s), short enough that a crashed instance's
-   * claim expires before the outbox delivers the event again (5 minutes).
-   */
-  static final java.time.Duration FISCAL_LEASE = java.time.Duration.ofMinutes(2);
+  private final FiscalDocumentsImpl fiscal;
 
   /** The dispensing classes that never go back on the shelf once sold. */
   private static final Set<String> RESTRICTED = Set.of("PRESCRIPTION", "CONTROLLED");
@@ -133,33 +125,8 @@ class SaleServiceImpl implements SaleService {
   @Override
   @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
   public void fiscalise(UUID saleUid) {
-    if (!fiscalReceipts.enabled()) {
-      return;
-    }
-    org.springframework.transaction.support.TransactionTemplate transaction =
-        new org.springframework.transaction.support.TransactionTemplate(transactionManager);
-    Instant now = tz.co.pharmacy.platform.kernel.Clocks.now();
-    // 1. The lease, in a short transaction of its own.
-    Sale due =
-        transaction.execute(
-            status ->
-                sales.claimFiscalReceipt(saleUid, now, now.plus(FISCAL_LEASE)) == 0
-                    ? null
-                    : sales.findByUid(saleUid).orElse(null));
-    if (due == null) {
-      return;
-    }
-    // 2. The tax authority, with no transaction and no lock held.
-    Optional<String> reference;
-    try {
-      reference = fiscalReceipts.issue(due.getNumber(), due.getTotal(), due.getTaxTotal());
-    } catch (RuntimeException failure) {
-      transaction.executeWithoutResult(status -> sales.releaseFiscalReceipt(saleUid));
-      throw failure;
-    }
-    // 3. The reference, in another short transaction.
-    transaction.executeWithoutResult(
-        status -> sales.recordFiscalReceipt(saleUid, reference.orElse(null)));
+    // STD-1: the receipt is a fiscal document, sent with a lease on it in transactions of its own.
+    fiscal.issueReceiptOf(saleUid);
   }
 
   @Override
@@ -257,6 +224,9 @@ class SaleServiceImpl implements SaleService {
           "A prescription item needs the prescriber's details.",
           "prescription");
     }
+    if (prescriptionRequired) {
+      requireFullPrescription(prescription);
+    }
 
     Sale sale =
         new Sale(
@@ -278,7 +248,13 @@ class SaleServiceImpl implements SaleService {
           Checks.optionalText(
               prescription.prescriberRegistration(), "prescription.prescriberRegistration", 100),
           Checks.optionalText(prescription.reference(), "prescription.reference", 100),
-          Checks.optionalText(prescription.patientName(), "prescription.patientName", 200));
+          Checks.optionalText(prescription.patientName(), "prescription.patientName", 200),
+          prescription.prescriptionDate());
+    }
+    if (prescriptionRequired) {
+      // STD-7: the seller holds sales.dispense_rx (checkout refuses otherwise) and is the
+      // dispenser.
+      sale.dispensedBy(ExecutionContext.actor().name(), ExecutionContext.actor().uid());
     }
 
     List<SaleTotals.LineAmounts> amounts = new ArrayList<>();
@@ -307,6 +283,10 @@ class SaleServiceImpl implements SaleService {
               unitCost,
               taxRate,
               lineAmounts);
+      saleLine.taxedAs(
+          line.taxCategory() != null
+              ? line.taxCategory()
+              : tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(taxRate));
       saleLine.classified(
           line.schedule() != null && SCHEDULES.contains(line.schedule()) ? line.schedule() : null,
           line.promotionUid(),
@@ -384,7 +364,7 @@ class SaleServiceImpl implements SaleService {
         // amount the provider confirmed, not the part left on the sale.
         BigDecimal authorized =
             payment.authorizedAmount() != null && payment.authorizedAmount().compareTo(amount) > 0
-                ? Amounts.money(payment.authorizedAmount())
+                ? Amounts.money(payment.authorizedAmount(), tenderLine.currency())
                 : amount;
         PaymentAuthorization authorization =
             paymentAuthorizations.authorize(
@@ -420,6 +400,9 @@ class SaleServiceImpl implements SaleService {
     // holds the branch's sale number and the stock.
     sale.fiscalReceiptDue(fiscalReceipts.enabled());
     Sale saved = sales.save(sale);
+    // STD-1: the receipt document, PENDING, written with the sale (only with a fiscal integration).
+    List<tz.co.pharmacy.modules.sales.ports.inbound.FiscalDocumentView> receipt =
+        fiscalReceipts.enabled() ? List.of(fiscal.view(fiscal.newReceipt(saved))) : List.of();
 
     events.publish(
         "sale.completed",
@@ -456,13 +439,13 @@ class SaleServiceImpl implements SaleService {
                                 p.getExchangeRate(),
                                 p.getBaseAmount()))
                     .toList()));
-    return view(saved);
+    return view(saved, receipt);
   }
 
   @Override
   @Transactional(readOnly = true)
   public Optional<SaleView> find(UUID uid) {
-    return sales.findByUid(uid).map(SaleServiceImpl::view);
+    return sales.findByUid(uid).map(sale -> view(sale, fiscal.documentsOf(sale.getUid())));
   }
 
   @Override
@@ -596,7 +579,15 @@ class SaleServiceImpl implements SaleService {
       }
     }
     sale.refreshReturnStatus();
+    // STD-1: a return of a sale with a fiscal receipt gets a credit note, issued after commit.
+    boolean creditNote = fiscal.creditNoteFor(sale);
+    if (creditNote) {
+      saleReturn.creditNoteDue();
+    }
     SaleReturn saved = returns.save(saleReturn);
+    if (creditNote) {
+      fiscal.newCreditNote(saved, sale);
+    }
 
     events.publish(
         "sale.returned",
@@ -939,7 +930,7 @@ class SaleServiceImpl implements SaleService {
                         "refundCurrency"));
     BigDecimal foreign =
         currencies.round(
-            saleReturn.getRefundTotal().divide(saleRate, 8, RoundingMode.HALF_EVEN), currency);
+            saleReturn.getRefundTotal().divide(saleRate, 8, Amounts.ROUNDING), currency);
     BigDecimal todayRate = currencies.rateToBase(currency, calendar.today());
     saleReturn.refundIn(
         currency, foreign, saleRate, todayRate, Amounts.money(foreign.multiply(todayRate)));
@@ -963,7 +954,60 @@ class SaleServiceImpl implements SaleService {
     return date == null ? null : date.atStartOfDay(calendar.zone()).toInstant();
   }
 
+  /**
+   * STD-7: a prescription item is dispensed against a whole prescription: the prescriber's
+   * registration number, the patient and a date neither after today nor older than {@link
+   * PrescriptionDetails#VALID_MONTHS} months (422 prescription_incomplete,
+   * prescription_date_in_future, prescription_expired). The prescriber's name is checked before it
+   * (prescription_required).
+   */
+  private void requireFullPrescription(PrescriptionDetails rx) {
+    if (blankText(rx.prescriberRegistration())) {
+      throw incomplete("prescriberRegistration", "the prescriber's registration number");
+    }
+    if (blankText(rx.patientName())) {
+      throw incomplete("patientName", "the patient's name");
+    }
+    if (rx.prescriptionDate() == null) {
+      throw incomplete("prescriptionDate", "the prescription's date");
+    }
+    LocalDate today = calendar.today();
+    if (rx.prescriptionDate().isAfter(today)) {
+      throw Refusal.invalid(
+          "prescription_date_in_future",
+          "The prescription's date is after today.",
+          "prescription.prescriptionDate");
+    }
+    LocalDate oldest = today.minusMonths(PrescriptionDetails.VALID_MONTHS);
+    if (rx.prescriptionDate().isBefore(oldest)) {
+      throw Refusal.invalid(
+              "prescription_expired",
+              "The prescription is older than "
+                  + PrescriptionDetails.VALID_MONTHS
+                  + " months; ask for a new one.",
+              "prescription.prescriptionDate")
+          .with("validMonths", PrescriptionDetails.VALID_MONTHS)
+          .with("oldestAllowed", oldest.toString());
+    }
+  }
+
+  private static Refusal incomplete(String field, String what) {
+    return Refusal.invalid(
+        "prescription_incomplete",
+        "A prescription item needs " + what + ".",
+        "prescription." + field);
+  }
+
+  private static boolean blankText(String value) {
+    return value == null || value.isBlank();
+  }
+
   static SaleView view(Sale sale) {
+    return view(sale, List.of());
+  }
+
+  static SaleView view(
+      Sale sale, List<tz.co.pharmacy.modules.sales.ports.inbound.FiscalDocumentView> documents) {
     PrescriptionDetails prescription =
         sale.getPrescriberName() == null
             ? null
@@ -971,7 +1015,8 @@ class SaleServiceImpl implements SaleService {
                 sale.getPrescriberName(),
                 sale.getPrescriberRegistration(),
                 sale.getPrescriptionReference(),
-                sale.getPatientName());
+                sale.getPatientName(),
+                sale.getPrescriptionDate());
     return new SaleView(
         sale.getUid(),
         sale.getNumber(),
@@ -1008,7 +1053,9 @@ class SaleServiceImpl implements SaleService {
                         line.returnedSerialNumbers(),
                         line.getSchedule(),
                         line.getPromotionUid(),
-                        line.getPromotionName()))
+                        line.getPromotionName(),
+                        line.category(),
+                        line.getTaxRatePercent()))
             .toList(),
         sale.getPayments().stream()
             .map(
@@ -1029,7 +1076,11 @@ class SaleServiceImpl implements SaleService {
         sale.getPriceListUid(),
         sale.getPriceListName(),
         sale.getPricePlanSource(),
-        sale.isFiscalDue());
+        sale.isFiscalDue(),
+        sale.getFiscalStatus(),
+        documents,
+        sale.getDispensedBy(),
+        false);
   }
 
   static SaleSummaryView summary(Sale sale) {
@@ -1043,7 +1094,8 @@ class SaleServiceImpl implements SaleService {
         sale.getPayments().stream().map(SalePayment::getMethod).distinct().toList(),
         sale.getStatus(),
         sale.getCashierName(),
-        sale.getCreatedAt());
+        sale.getCreatedAt(),
+        sale.getFiscalStatus());
   }
 
   static SaleReturnView returnView(SaleReturn saleReturn) {
@@ -1086,7 +1138,9 @@ class SaleServiceImpl implements SaleService {
                 new SaleRefundView(saleReturn.getRefundMethod(), saleReturn.getRefundTotal(), null))
             : saleReturn.getRefunds().stream()
                 .map(r -> new SaleRefundView(r.getMethod(), r.getAmount(), r.getReference()))
-                .toList());
+                .toList(),
+        saleReturn.getFiscalStatus(),
+        saleReturn.getFiscalReference());
   }
 
   @Override
@@ -1154,7 +1208,9 @@ class SaleServiceImpl implements SaleService {
     BigDecimal recorded = currencies.rateToBase(currency, today);
     if (sent != null && recorded != null && recorded.signum() > 0) {
       BigDecimal deviation =
-          sent.subtract(recorded).abs().divide(recorded, 6, RoundingMode.HALF_EVEN);
+          sent.subtract(recorded)
+              .abs()
+              .divide(recorded, 6, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
       if (deviation.compareTo(RATE_TOLERANCE) > 0) {
         throw Refusal.invalid(
             "exchange_rate_mismatch",

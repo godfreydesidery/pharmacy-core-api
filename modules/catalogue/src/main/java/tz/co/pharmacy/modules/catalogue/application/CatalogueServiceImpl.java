@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tz.co.pharmacy.modules.catalogue.domain.Category;
+import tz.co.pharmacy.modules.catalogue.domain.Gtin;
 import tz.co.pharmacy.modules.catalogue.domain.Manufacturer;
 import tz.co.pharmacy.modules.catalogue.domain.Product;
 import tz.co.pharmacy.modules.catalogue.events.ProductChanged;
@@ -54,7 +55,6 @@ import tz.co.pharmacy.platform.persistence.Specs;
 @RequiredArgsConstructor
 class CatalogueServiceImpl implements CatalogueService {
 
-  private static final Pattern GTIN = Pattern.compile("^\\d{8,14}$");
   private static final Pattern ATC = Pattern.compile("^[A-Z][0-9]{2}[A-Z]{0,2}[0-9]{0,2}$");
 
   private final CategoryRepository categories;
@@ -66,6 +66,7 @@ class CatalogueServiceImpl implements CatalogueService {
   private final PriceHistory priceHistory;
   private final tz.co.pharmacy.platform.approval.Approvals approvals;
   private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
+  private final tz.co.pharmacy.modules.catalogue.ports.outbound.PricingSettings settings;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -360,8 +361,19 @@ class CatalogueServiceImpl implements CatalogueService {
 
   @Override
   @Transactional(readOnly = true)
-  public List<ProductView> controlledRegisterProducts() {
-    return products.findControlledEver().stream().map(CatalogueServiceImpl::view).toList();
+  public Page<ProductView> controlledRegisterProducts(PageQuery query) {
+    List<Product> rows =
+        entityManager
+            .createQuery(
+                "select p from Product p left join fetch p.category left join fetch p.manufacturer"
+                    + " where p.everControlled = true or p.schedule = :controlled"
+                    + " order by lower(p.name), p.id",
+                Product.class)
+            .setParameter("controlled", Schedule.CONTROLLED)
+            .setFirstResult(query.offset())
+            .setMaxResults(query.limit() + 1)
+            .getResultList();
+    return Page.offset(rows, query, products::countControlledEver).map(CatalogueServiceImpl::view);
   }
 
   @Override
@@ -422,8 +434,19 @@ class CatalogueServiceImpl implements CatalogueService {
       }
     }
     String gtin = Checks.optionalText(c.gtin(), "gtin", 14);
-    if (gtin != null && !GTIN.matcher(gtin).matches()) {
-      throw Refusal.invalid("invalid_gtin", "gtin must be 8 to 14 digits (GS1 GTIN).", "gtin");
+    // STD-18: a barcode is a GS1 GTIN with its check digit (422 invalid_gtin). A product saved
+    // before the check keeps a GTIN it already has, even a wrong one, so it stays editable; the
+    // catalogue migration V16 lists those for the pharmacy to correct.
+    if (gtin != null
+        && !Gtin.valid(gtin)
+        && (existingUid == null
+            || !gtin.equals(products.findByUid(existingUid).map(Product::getGtin).orElse(null)))) {
+      throw Refusal.invalid(
+              "invalid_gtin",
+              "gtin is not a valid GTIN: 8, 12, 13 or 14 digits (EAN-8, UPC-A, EAN-13, GTIN-14)"
+                  + " ending in the right check digit.",
+              "gtin")
+          .with("gtin", gtin);
     }
     String atc = Checks.optionalText(c.atcCode(), "atcCode", 7);
     if (atc != null) {
@@ -454,6 +477,12 @@ class CatalogueServiceImpl implements CatalogueService {
           "invalid_reorder_level", "reorderLevel must be zero or more.", "reorderLevel");
     }
     ProductRules.Kind kind = ProductRules.kind(c);
+    BigDecimal sentRate = Checks.percent(c.taxRatePercent(), "taxRatePercent");
+    tz.co.pharmacy.platform.kernel.TaxCategory taxCategory =
+        c.taxCategory() != null
+            ? c.taxCategory()
+            : tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(sentRate);
+    BigDecimal taxRate = taxCategory.taxed() ? standardRate() : BigDecimal.ZERO;
     return new Product.Details(
         name,
         kind.genericName(),
@@ -468,7 +497,7 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.schedule(),
         Checks.notNegative(c.sellingPrice(), "sellingPrice"),
         Checks.notNegative(c.costPrice(), "costPrice"),
-        Checks.percent(c.taxRatePercent(), "taxRatePercent"),
+        taxRate,
         reorder,
         c.storage() == null ? Storage.ROOM_TEMPERATURE : c.storage(),
         kind.productType(),
@@ -477,7 +506,31 @@ class CatalogueServiceImpl implements CatalogueService {
         kind.brand(),
         kind.model(),
         kind.warrantyMonths(),
-        kind.requiresSerialAtSale());
+        kind.requiresSerialAtSale(),
+        taxCategory,
+        Checks.optionalText(c.tmdaRegistrationNumber(), "tmdaRegistrationNumber", 60));
+  }
+
+  /** The pharmacy's standard VAT rate (its settings, read once per transaction). */
+  private BigDecimal standardRate() {
+    BigDecimal rate = settings.standardVatRatePercent();
+    return rate == null ? BigDecimal.ZERO : Checks.percent(rate, "taxRatePercent");
+  }
+
+  @Override
+  @Transactional
+  public int applyStandardVatRate(BigDecimal ratePercent) {
+    BigDecimal rate = Checks.percent(Checks.required(ratePercent, "ratePercent"), "ratePercent");
+    // The version moves with the rate: a client holding the product's old ETag must read it again
+    // before it changes it (STD-10).
+    return entityManager
+        .createQuery(
+            "update Product p set p.taxRatePercent = :rate, p.version = p.version + 1"
+                + " where p.taxCategory = :standard"
+                + " and (p.taxRatePercent is null or p.taxRatePercent <> :rate)")
+        .setParameter("rate", rate)
+        .setParameter("standard", tz.co.pharmacy.platform.kernel.TaxCategory.STANDARD)
+        .executeUpdate();
   }
 
   void publish(Product product) {
@@ -582,6 +635,10 @@ class CatalogueServiceImpl implements CatalogueService {
         p.getBrand(),
         p.getModel(),
         p.getWarrantyMonths(),
-        p.isRequiresSerialAtSale());
+        p.isRequiresSerialAtSale(),
+        p.getTaxCategory() == null
+            ? tz.co.pharmacy.platform.kernel.TaxCategory.fromRate(p.getTaxRatePercent())
+            : p.getTaxCategory(),
+        p.getTmdaRegistrationNumber());
   }
 }

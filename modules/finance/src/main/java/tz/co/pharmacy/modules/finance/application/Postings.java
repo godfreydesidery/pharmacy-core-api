@@ -22,6 +22,7 @@ final class Postings {
   static final String MOBILE_MONEY = "1020";
   static final String RECEIVABLE = "1100";
   static final String INSURANCE_RECEIVABLE = "1110";
+  static final String VAT_RECEIVABLE = "1150";
   static final String INVENTORY = "1200";
   static final String PAYABLE = "2000";
   static final String TAX_PAYABLE = "2100";
@@ -106,16 +107,18 @@ final class Postings {
   }
 
   /**
-   * Dr inventory / Cr accounts payable, in the base currency at the receipt's rate; the payable
+   * Dr inventory (the goods, without VAT) and 1150 VAT receivable (the invoice's input VAT, STD-2)
+   * / Cr accounts payable (the total owed), in the base currency at the receipt's rate; the payable
    * notes the foreign amount owed, which a later supplier payment settles.
    */
   static List<Line> receipt(ReceiptPosting posting) {
+    BigDecimal vat = posting.vat() == null ? Amounts.ZERO : money(posting.vat());
     List<Line> lines = new ArrayList<>();
-    debit(lines, INVENTORY, posting.total());
-    credit(lines, PAYABLE, posting.total());
-    if (!lines.isEmpty()) {
-      lines.set(1, lines.get(1).noting(posting.currency(), posting.foreignTotal()));
-    }
+    debit(lines, INVENTORY, money(posting.total()).subtract(vat));
+    debit(lines, VAT_RECEIVABLE, vat);
+    List<Line> payable = new ArrayList<>();
+    credit(payable, PAYABLE, posting.total());
+    payable.forEach(line -> lines.add(line.noting(posting.currency(), posting.foreignTotal())));
     return balanced(lines);
   }
 
@@ -211,8 +214,19 @@ final class Postings {
    * never a receivable).
    */
   static List<Line> expense(ExpenseCategory category, BigDecimal amount, PaidFrom paidFrom) {
+    return expense(category, amount, Amounts.ZERO, paidFrom);
+  }
+
+  /**
+   * An expense paid with VAT in it (STD-2, a VAT-registered pharmacy): Dr the expense account
+   * (amount less the VAT) and 1150 VAT receivable (the VAT) / Cr the money account (the amount).
+   */
+  static List<Line> expense(
+      ExpenseCategory category, BigDecimal amount, BigDecimal vat, PaidFrom paidFrom) {
+    BigDecimal input = vat == null ? Amounts.ZERO : money(vat);
     List<Line> lines = new ArrayList<>();
-    debit(lines, expenseAccount(category), amount);
+    debit(lines, expenseAccount(category), money(amount).subtract(input));
+    debit(lines, VAT_RECEIVABLE, input);
     credit(lines, paidFrom.accountCode(), amount);
     return balanced(lines);
   }

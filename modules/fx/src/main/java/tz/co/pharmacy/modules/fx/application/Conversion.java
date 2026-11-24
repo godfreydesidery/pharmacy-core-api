@@ -4,11 +4,12 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.Currency;
+import tz.co.pharmacy.platform.kernel.Amounts;
 
 /**
- * Pure conversion arithmetic. A rate is kept to 10 decimals. A converted amount is rounded
- * half-even (banker's rounding, so repeated conversions do not drift) to the target currency's ISO
- * 4217 minor units: TZS and USD 2, JPY 0, KWD 3. Display totals round half-up in the clients.
+ * Pure conversion arithmetic. A rate is kept to 10 decimals. A converted amount is rounded half-up
+ * ({@link Amounts#ROUNDING}, the one rounding mode of money, as in Council Regulation (EC) 1103/97
+ * art. 5) to the target currency's ISO 4217 minor units: TZS and USD 2, UGX and JPY 0, KWD 3.
  */
 public final class Conversion {
 
@@ -18,12 +19,12 @@ public final class Conversion {
   private Conversion() {}
 
   public static int minorUnits(String currency) {
-    int digits = Currency.getInstance(currency).getDefaultFractionDigits();
-    return Math.max(digits, 0);
+    Currency.getInstance(currency);
+    return Amounts.minorUnits(currency);
   }
 
   public static BigDecimal convert(BigDecimal amount, BigDecimal rate, String to) {
-    return amount.multiply(rate, PRECISION).setScale(minorUnits(to), RoundingMode.HALF_EVEN);
+    return amount.multiply(rate, PRECISION).setScale(minorUnits(to), Amounts.ROUNDING);
   }
 
   /**

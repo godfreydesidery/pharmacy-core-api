@@ -15,4 +15,6 @@ public record SaleSummaryView(
     List<PaymentMethod> paymentMethods,
     SaleStatus status,
     String cashierName,
-    Instant createdAt) {}
+    Instant createdAt,
+    /* Its fiscal receipt's status, null without one (STD-1). */
+    FiscalStatus fiscalStatus) {}

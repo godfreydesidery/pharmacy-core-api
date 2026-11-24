@@ -19,6 +19,8 @@ Rules:
 - Migrations go in `modules/X/src/main/resources/db/migration/X/V1__X_schema.sql`, in schema `X`. Every tenant table carries `tenant_uid`, the standard columns and the RLS policy (see `TenantEntity` javadoc). Use `grant ... to ${application_role}`. Use `text` for strings, `numeric(14,2)` for money, `numeric(5,2)` for percents, `integer` for quantities, `timestamptz` and `date`, `uuid` for uids. Unique constraints that are per tenant include `tenant_uid`.
 - Hibernate runs with `ddl-auto: validate`, so the entity mapping must match the SQL exactly. Map enums with `@Enumerated(EnumType.STRING)` to `text` columns. Map child collections with `@OneToMany(mappedBy=…, cascade=ALL, orphanRemoval=true)` and `@ManyToOne(fetch=LAZY) @JoinColumn(name="…_id")`. Child rows are `TenantEntity` too.
 - Use `Refusal.*` for every rule violation, with a stable snake_case `reason`. Use `Checks.*` for input validation. Use `Amounts.*` for money arithmetic.
+- Money (Batch 9, STD-17): `Amounts.money(x)` rounds to the minor units of the pharmacy's base currency (ISO 4217: UGX 0, TZS 2), read once per transaction from the tenant registry; `Amounts.money(x, currency)` for an amount in a document's or tender's own currency (a USD purchase). One rounding mode, `Amounts.ROUNDING` (half-up), for amounts and conversions alike; rates and ratios keep 6 to 10 decimals until they become an amount.
+- Edited resources (Batch 9, STD-10): the views of rows people edit (BranchView, SettingsView, RoleView, ProductView, PriceListView, CustomerView, SupplierView) implement `platform.kernel.Versioned` with a last component `long version` (the row's `@Version`; PlanCard has `Long version`, null for Normal Sale). A service flushes before building the view it returns from a change, so the view carries the new version. Delivery sends it as `ETag` and checks `If-Match` (`delivery.edge.Preconditions`).
 - Paged lists newest first use `Keyset.page(repo, spec, query, mapper)`. Other orders use offset paging (`PageQuery.offset()`, `Page.offset(rows, query)`).
 - Publish events with `DomainEventPublisher.publish("type.name", meta -> new Foo(meta, …))` inside the writing transaction.
 - The current branch is `ExecutionContext.requireBranch()`. The current tenant is `ExecutionContext.requireTenant()` (or `TenantContext`). A report's branches are `ExecutionContext.reportBranches()`, where `null` means all.
@@ -65,6 +67,7 @@ interface TenantService {
       settings as the new tenant. Publishes tenant.registered. Refuses a duplicate code: 409 duplicate_code. */
   TenantView register(RegisterTenantCommand command);
   Optional<TenantView> find(UUID tenantUid);          // registry read, any scope
+  Optional<String> baseCurrency(UUID tenantUid);      // registry read, any scope (money's minor units)
   Page<TenantView> list(String q, PageQuery query);   // platform scope; branchCount may be 0 when not in tenant scope
   TenantView suspend(UUID tenantUid, String reason);
   TenantView reactivate(UUID tenantUid);
@@ -84,6 +87,17 @@ interface SettingsService {                              // current tenant
 record TenantRegistered(EventMetadata metadata, UUID tenantUid, String code, String name) implements DomainEvent {}  // "tenant.registered"
 ```
 Note: `register` runs at platform scope (no tenant). The `TenantRegistered` metadata must carry the new tenant: publish it inside the `TenantSwitch.within(...)` block.
+
+VAT registration (Batch 9a, STD-2; tenancy V15):
+```java
+// ChangeSettingsCommand += Boolean vatRegistered, String tin, String vrn (null keeps, blank clears);
+//   the fifteen-argument constructor stays. 422 invalid_tin (9 digits; dashes and spaces dropped, kept as digits),
+//   invalid_vrn (8-15 of [0-9A-Z-], starting with a digit; upper-cased). Formats checked loosely: verify with TRA.
+// SettingsView += boolean vatRegistered, String tin, String vrn. defaultTaxRatePercent is the standard VAT rate:
+//   what a STANDARD product is sold at while the pharmacy is registered (new pharmacies: 18.00, registered).
+// events: StandardVatRateChanged(metadata, BigDecimal ratePercent) "settings.standard_vat_rate_changed", published
+//   when defaultTaxRatePercent changes; composition TaxReactions -> CatalogueService.applyStandardVatRate.
+```
 
 ## access (`tz.co.pharmacy.modules.access`)
 
@@ -220,6 +234,17 @@ record ProductChanged(EventMetadata metadata, UUID productUid, String name, Stri
 // pharmacy's maxDiscountPercent needs approval DEEP_PROMOTION (amount = percentOff); deletePromotion is replaced by
 // PromotionView switchOffPromotion(UUID uid) (never deleted; V11 revokes delete from the application role).
 // ports.outbound: PricingSettings { BigDecimal maxDiscountPercent(); }
+```
+
+Batch 9a (VAT categories, STD-2; catalogue V14):
+```java
+// ProductCommand += TaxCategory taxCategory (platform.kernel: STANDARD | ZERO_RATED | EXEMPT); the 23-argument
+//   constructor stays (null). Null follows taxRatePercent: above 0 STANDARD, else EXEMPT. The stored rate is derived:
+//   STANDARD -> PricingSettings.standardVatRatePercent() (the pharmacy's standard rate), ZERO_RATED / EXEMPT -> 0.
+// ProductView += TaxCategory taxCategory; taxRatePercent = the rate it is sold at while the pharmacy is registered.
+int applyStandardVatRate(BigDecimal ratePercent);  // every STANDARD product to the new standard rate
+// ports.outbound: PricingSettings += default BigDecimal standardVatRatePercent() (composition: settings' rate).
+// Imports and exports: a "VAT category" column (empty follows VAT %; a file without either keeps the product's).
 ```
 
 Batch 4 (the owner's controls of 23 Nov 2026, FRD-6):
@@ -412,6 +437,18 @@ record GoodsReceived(EventMetadata metadata, UUID receiptUid, String number, UUI
 }
 ```
 
+Batch 9a (input VAT, STD-2; purchasing V7):
+```java
+// RecordReceiptCommand += BigDecimal vatAmount: the invoice's VAT, in the receipt currency, on top of the lines
+//   (whose costs exclude it). total = lines + VAT (what is owed); baseTotal = base(lines) + base(VAT), each rounded
+//   once, so the stock's base value is unchanged by VAT. 422 vat_not_registered when the pharmacy is not registered
+//   (its VAT belongs in the unit costs). The seven-argument constructor stays (no VAT).
+// GoodsReceiptView += BigDecimal vatTotal, baseVatTotal. GoodsReceived += BigDecimal vatTotal, baseVatTotal (null
+//   in older events: none). purchasesTotal (and the reporting purchase fact) exclude the input VAT.
+// ports.outbound: PurchasingDirectory += default boolean vatRegistered().
+// Not yet: a supplier return does not reverse the input VAT of the goods sent back (a debit note); verify.
+```
+
 ## receiving (`tz.co.pharmacy.application.receiving`, application service)
 
 ```java
@@ -538,6 +575,57 @@ void fiscalise(UUID saleUid);   // after commit: lease (sales.fiscal_claimed_unt
 //   FiscalReceipts += default boolean enabled() (NoFiscalReceipts: false).
 // composition: FiscalReactions (sale.completed -> fiscalise), only with a fiscal provider other than none.
 // SaleLine and SalePayment are @AuditIgnore (PERF-7).
+```
+
+**Fiscal documents and VAT (Batch 9a, STD-1, STD-2; sales V16).** Replaces the Batch 7 lease on the sale:
+```java
+// sales.fiscal_documents: RECEIPT | CREDIT_NOTE | Z_REPORT, PENDING -> ISSUED | FAILED, the provider's receipt number,
+//   verification code, QR payload, the branch's global and daily counters (sales.fiscal_counters, one upsert when a
+//   document is first sent, kept for every retry), issued_at, attempts, last_error, a 2-minute lease (claimed_until).
+//   A RECEIPT is written PENDING in the sale's transaction (one insert, only with a fiscal provider on); a CREDIT_NOTE
+//   in the return's, when its sale has a receipt. Every later change is SQL of its own (FiscalDocumentRepository).
+// sales.sales.fiscal_status, sales.sale_returns.fiscal_status / fiscal_reference: the document's status beside it.
+//   sales.sales.fiscal_reference stays, filled from the receipt's number; fiscal_due stays (true until ISSUED).
+void fiscalise(UUID saleUid);   // the receipt: lease, counters, port with no transaction open, then the answer
+interface FiscalDocuments {
+  boolean enabled();
+  void fiscaliseReturn(UUID returnUid);            // the credit note; waits (throws) until the sale's receipt is ISSUED
+  FiscalDocumentView retry(UUID documentUid);      // FAILED (or PENDING) -> sent now; 404 fiscal_document_not_found,
+                                                   // 409 fiscal_document_issued, 422 fiscal_not_enabled
+  List<FiscalDocumentView> ofSale(UUID saleUid);   // receipt, then credit notes (current branch)
+  FiscalDocumentView closeDay(UUID branchUid, LocalDate day);   // the branch's Z report of its local day (default
+                                                   // today): closes every ISSUED receipt / credit note of that day or
+                                                   // before not yet in a Z; once per branch and day; 422 invalid_day
+  List<BranchDay> daysToClose(UUID branchUid);     // past days with documents no Z closed (the job's work)
+  int resend(Duration olderThan, int limit);       // PENDING documents whose lease is free (the job)
+  Page<FiscalDocumentView> zReports(UUID branchUid, PageQuery query);
+}
+record FiscalDocumentView(UUID uid, FiscalDocumentKind kind, FiscalStatus status, String provider, UUID branchUid,
+    UUID sourceUid, String sourceNumber, UUID saleUid, LocalDate businessDate, String sellerTin, String sellerVrn,
+    BigDecimal total, BigDecimal taxTotal, String receiptNumber, String verificationCode, String qrPayload,
+    Long globalCounter, Integer dailyCounter, Instant issuedAt, int attempts, String lastError, Instant createdAt,
+    ZFigures z /* Z reports: receipts, credit notes, their totals and tax, net per VAT category */) {}
+// SaleView += FiscalStatus fiscalStatus, List<FiscalDocumentView> fiscalDocuments (read with the sale; empty in lists).
+// SaleSummaryView += FiscalStatus fiscalStatus. SaleReturnView += FiscalStatus fiscalStatus, String fiscalReference.
+// SaleLineView += TaxCategory taxCategory, BigDecimal taxRatePercent. SaleLineCommand += TaxCategory taxCategory
+//   (sales.sale_lines.tax_category; null on older lines: the rate implies it).
+// SalesReports += List<VatCategoryLine> vatByCategory(LocalDate from, LocalDate to, ZoneId zone): per category the
+//   net and VAT of the sales and returns, every branch (the VAT report's split).
+// ports.outbound:
+interface FiscalReceipts { FiscalAnswer issue(FiscalRequest request);   // throws: not answered (PENDING, retried)
+                           default boolean enabled(); default String provider(); }
+record FiscalRequest(UUID documentUid /* idempotency key */, FiscalDocumentKind kind, String number, UUID branchUid,
+    String branchCode, LocalDate businessDate, Instant occurredAt, Seller seller /* name, TIN, VRN, vatRegistered */,
+    String customerName, List<Line> lines /* description, qty, unit price, discount, TaxCategory, rate, net, tax,
+    total */, List<Payment> payments /* method, base amount; change off the cash */, Totals totals /* net, tax, total,
+    net per category */, long globalCounter, Integer dailyCounter, String originalReceiptNumber, ZReport z) {}
+record FiscalAnswer(boolean issued, String receiptNumber, String verificationCode, String qrPayload, String refusal) {}
+//   SalesSettings += default Seller seller() (legal name, vatRegistered, TIN, VRN).
+// composition: NoFiscalReceipts (none, the default), SimulatedFiscalReceipts (simulator: sim, local, test profiles only;
+//   deterministic numbers SIM-<branch>-R<GC>, -C<GC>, -Z<yyyymmdd>; TIN 000000000 refused), SimulatedFiscalReceiptsRefused
+//   (stops the start elsewhere); FiscalReactions += sale.returned -> fiscaliseReturn; FiscalSchedule
+//   ("fiscal-documents", every 15 minutes, SingleRunner, recorded in platform.job_runs): resend, then close past days.
+// A real TRA VFD adapter: implement FiscalReceipts with TRA's specification, enabled by its own provider value.
 ```
 
 **The till's server side (Batch 8, WEB-2, WEB-9).** Added to the above:
@@ -667,6 +755,20 @@ record BalanceMismatch(String accountCode, LocalDate day, UUID branchUid, BigDec
                        BigDecimal readModelDebit, BigDecimal readModelCredit) {}
 // ports.outbound, implemented in composition (LedgerSourcesAdapter)
 interface LedgerSources { List<UnpostedDocument> recorded(Instant from, Instant before); }
+```
+
+Input VAT (Batch 9a, STD-2; finance V9). The default chart gains **1150 VAT Receivable** (ASSET); a chart that lacks a
+default account gets it on its next posting (`ChartOfAccounts.ensure` counts the default codes):
+```java
+// Postings.receipt: Dr 1200 (total - vat) and 1150 (vat) / Cr 2000 (total, noting the foreign amount).
+// Postings.expense: Dr the expense account (amount - vat) and 1150 (vat) / Cr the money account (amount).
+// ReceiptPosting += BigDecimal vat (base); the five- and seven-argument constructors stay (no VAT).
+// ExpenseCommand += BigDecimal vatAmount (422 vat_exceeds_amount, vat_not_registered); ExpenseView += vatAmount;
+//   ExpenseRecorded += vatAmount (reporting books the expense without it).
+// VatSummary += BigDecimal inputVat (1150 debits - credits), netOutputVat (2100 credits - debits);
+//   netPayable = netOutputVat - inputVat (negative: a credit to carry forward or claim).
+// ports.outbound: VatRegistration { boolean vatRegistered(); } (composition: settings).
+// Not yet: partial exemption (apportioning input VAT between taxable and exempt sales); verify with an accountant.
 ```
 
 ## reporting (`tz.co.pharmacy.modules.reporting`)
@@ -841,4 +943,71 @@ record SealedColumn(String table, String column, Purpose purpose, boolean tenant
                                                    // a bean per sealed column, declared by its module (access, notifications, integrations)
 class SealedValues { Map<String, Long> count(SealedColumn c); Batch reseal(SealedColumn c, long afterId, int limit); }
 interface KeyRotation { Status status(); boolean start(); }   // bound in composition (KeyResealJob): GET /api/v1/platform/keys, POST .../reseal
+```
+
+## Batch 9-b: personal-data rights, dispensing records, TMDA (STD-5, STD-7, STD-8)
+
+```java
+// partners.ports.inbound (migration partners V8: customer_consents, data_subject_requests, customers.anonymised_at)
+enum ConsentPurpose { SMS_RECEIPTS, MARKETING, INSURER_SHARING }   // allowedWithoutRecord(): SMS_RECEIPTS only
+record ConsentView(UUID uid, ConsentPurpose purpose, Instant givenAt, String givenBy, Instant withdrawnAt,
+                   String withdrawnBy, String note, boolean inForce) {}
+record ConsentsView(List<Current> current, List<ConsentView> history) {
+  record Current(ConsentPurpose purpose, String status /* GIVEN, WITHDRAWN, NONE */, Instant since, boolean effective) {}
+}
+interface CustomerConsents {
+  ConsentsView consents(UUID customerUid);                                        // 404 customer_not_found
+  ConsentsView record(UUID customerUid, ConsentPurpose p, boolean given, String note); // 409 customer_anonymised
+  void apply(UUID customerUid, Map<ConsentPurpose, Boolean> choices);             // only the changes are recorded
+  boolean allows(UUID customerUid, ConsentPurpose p);                             // every customer-message sender asks
+}
+enum RequestKind { ACCESS, CORRECTION, ERASURE, OBJECTION, RESTRICTION }
+enum RequestStatus { OPEN, COMPLETED, REFUSED }
+record DataSubjectRequestView(UUID uid, String number /* DSR-000001 */, RequestKind kind, RequestStatus status,
+                              UUID customerUid, String customerCode, String customerName, Instant receivedAt,
+                              LocalDate dueOn, Instant completedAt, String completedBy, String outcome, String note,
+                              boolean overdue, Instant createdAt, String createdBy) {}
+interface DataSubjectRequests {
+  int DUE_DAYS = 30;                                                              // verify with counsel (C7)
+  DataSubjectRequestView log(RequestKind k, UUID customerUid, LocalDate receivedOn, String note);
+  Page<DataSubjectRequestView> list(RequestStatus s, RequestKind k, UUID customerUid, PageQuery q);
+  Optional<DataSubjectRequestView> find(UUID uid);
+  void requireOpen(UUID requestUid, RequestKind k, UUID customerUid);             // 404 request_not_found, 409 request_closed, 422 request_mismatch
+  DataSubjectRequestView complete(UUID requestUid, RequestKind k, UUID customerUid, String outcome); // null uid: logged and completed now
+  DataSubjectRequestView complete(UUID requestUid, String outcome);
+  DataSubjectRequestView refuse(UUID requestUid, String reason);
+}
+interface PersonalData {                     // implemented in composition (PersonalDataService), SQL across the modules' tables
+  record Export(String fileName, byte[] zip, DataSubjectRequestView request) {}
+  Export export(UUID customerUid, UUID requestUid);                               // audited DATA_SUBJECT_EXPORT
+  DataSubjectRequestView anonymise(UUID customerUid, UUID requestUid, String note); // 422 subject_has_balance, subject_under_legal_hold; 409 customer_anonymised
+}
+// CustomerView gains Instant anonymisedAt; CustomerService.change refuses an anonymised customer (409 customer_anonymised).
+
+// sales.ports.inbound (migration sales V17 prescription_date, dispensed_by, dispensed_by_uid; V18 index by customer)
+record PrescriptionDetails(String prescriberName, String prescriberRegistration, String reference, String patientName,
+                           LocalDate prescriptionDate) { int VALID_MONTHS = 6; }   // the 4-argument constructor stays
+// SaleView gains String dispensedBy, boolean prescriptionWithheld; withoutHealthDetails().
+// SaleService.record refuses 422 prescription_incomplete, prescription_date_in_future, prescription_expired.
+// Checkout refuses 403 dispense_not_allowed (member products) without sales.dispense_rx.
+
+// catalogue.ports.inbound (migration catalogue V15 tmda_registration_number)
+// ProductCommand and ProductView gain String tmdaRegistrationNumber (last; the old ProductCommand constructor stays).
+// CatalogueService.controlledRegisterProducts(PageQuery) returns a Page, by name (was a List).
+
+// insurance.ports.inbound: ClaimView.withoutDiagnosis().
+
+// inventory.ports.inbound (migration inventory V14 adverse_reactions)
+interface AdverseReactions {
+  enum Sex { FEMALE, MALE }  enum Seriousness { SERIOUS, NOT_SERIOUS }
+  enum SeriousReason { DEATH, LIFE_THREATENING, HOSPITALISATION, DISABILITY, CONGENITAL_ANOMALY, OTHER_MEDICALLY_IMPORTANT }
+  enum Outcome { RECOVERED, RECOVERING, NOT_RECOVERED, RECOVERED_WITH_SEQUELAE, FATAL, UNKNOWN }
+  record ReportCommand(...);  record AdverseReactionView(...);                    // see the source
+  AdverseReactionView report(ReportCommand c);                                    // ADR-000001; 422 onset_in_future, serious_reason_required, invalid_therapy_dates
+  Page<AdverseReactionView> list(String q, Set<UUID> branches, PageQuery q);
+  Optional<AdverseReactionView> find(UUID uid);
+}
+
+// access: Permissions.SALES_DISPENSE_RX, HEALTH_VIEW, ADR_REPORT (migration access V19 backfills them).
+// delivery: HealthFields (health.view) hides prescriptions, register patients and diagnosis codes.
 ```

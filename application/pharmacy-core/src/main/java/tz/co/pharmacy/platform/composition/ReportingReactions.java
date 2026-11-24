@@ -89,7 +89,8 @@ public class ReportingReactions {
             event.metadata().eventId(),
             event.metadata().occurredAt(),
             event.branchUid(),
-            LedgerReactions.baseTotal(event));
+            // The goods' cost: the receipt without its recoverable input VAT (STD-2).
+            LedgerReactions.baseTotal(event).subtract(LedgerReactions.baseVat(event)));
     EventScopes.run(event.metadata(), SERVICE, () -> projections.purchase(fact));
   }
 
@@ -102,7 +103,10 @@ public class ReportingReactions {
             event.expenseDate(),
             event.branchUid(),
             event.category(),
-            event.amount());
+            // The expense without its recoverable input VAT (STD-2), as the ledger books it.
+            event.vatAmount() == null
+                ? event.amount()
+                : event.amount().subtract(event.vatAmount()));
     EventScopes.run(event.metadata(), SERVICE, () -> projections.expense(fact));
   }
 

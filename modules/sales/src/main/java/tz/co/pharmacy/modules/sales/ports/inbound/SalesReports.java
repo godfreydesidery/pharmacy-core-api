@@ -60,4 +60,22 @@ public interface SalesReports {
       BigDecimal refunded,
       BigDecimal cashToHandOver,
       BigDecimal cashTendered) {}
+
+  /**
+   * The VAT report's split (STD-2): per VAT category, the net (VAT excluded) and the VAT of the
+   * pharmacy's sales and of its returns between the days (in {@code zone}), every branch, as the
+   * ledger's VAT is. Every category is listed, at zero when nothing was sold under it. A line sold
+   * before categories were kept counts under the one its rate implies.
+   */
+  List<VatCategoryLine> vatByCategory(LocalDate from, LocalDate to, java.time.ZoneId zone);
+
+  /** One VAT category: sales, returns, and what is left ({@code net}, {@code tax}). */
+  record VatCategoryLine(
+      tz.co.pharmacy.platform.kernel.TaxCategory category,
+      BigDecimal salesNet,
+      BigDecimal salesTax,
+      BigDecimal returnsNet,
+      BigDecimal returnsTax,
+      BigDecimal net,
+      BigDecimal tax) {}
 }

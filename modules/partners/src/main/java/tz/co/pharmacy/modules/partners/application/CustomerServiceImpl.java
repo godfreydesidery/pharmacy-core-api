@@ -60,7 +60,12 @@ class CustomerServiceImpl implements CustomerService {
         customers
             .findByUid(uid)
             .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    if (customer.isAnonymised()) {
+      throw anonymised();
+    }
     customer.change(details(c, customer.isActive()));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    customers.flush();
     return view(customer);
   }
 
@@ -85,6 +90,13 @@ class CustomerServiceImpl implements CustomerService {
         c.paymentTerms() == null ? PaymentTerms.NET_30 : c.paymentTerms());
   }
 
+  /** 409 customer_anonymised: an anonymised customer is no longer a person on record. */
+  static Refusal anonymised() {
+    return Refusal.conflict(
+        "customer_anonymised",
+        "This customer's personal data was anonymised; the record can no longer be changed.");
+  }
+
   private static String optionalEmail(String email) {
     return email == null || email.isBlank() ? null : Checks.email(email, "email");
   }
@@ -103,6 +115,8 @@ class CustomerServiceImpl implements CustomerService {
         c.getAddress(),
         c.isActive(),
         c.getCreatedAt(),
-        c.getPaymentTerms());
+        c.getPaymentTerms(),
+        c.getAnonymisedAt(),
+        c.getVersion());
   }
 }

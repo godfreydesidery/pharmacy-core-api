@@ -58,6 +58,8 @@ class SupplierServiceImpl implements SupplierService {
             .findByUid(uid)
             .orElseThrow(() -> Refusal.notFound("supplier_not_found", "No such supplier."));
     supplier.change(details(c, supplier.isActive(), supplier.getLeadTimeDays()));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    suppliers.flush();
     return view(supplier);
   }
 
@@ -102,6 +104,7 @@ class SupplierServiceImpl implements SupplierService {
         s.getAddress(),
         s.isActive(),
         s.getCreatedAt(),
-        s.getLeadTimeDays());
+        s.getLeadTimeDays(),
+        s.getVersion());
   }
 }

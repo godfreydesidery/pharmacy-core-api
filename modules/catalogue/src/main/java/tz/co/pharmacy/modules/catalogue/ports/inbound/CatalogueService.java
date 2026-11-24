@@ -46,10 +46,17 @@ public interface CatalogueService {
 
   /**
    * The products of the controlled-drugs register, by name: every product CONTROLLED now or at any
-   * time before (FRD-6).
+   * time before (FRD-6), a page at a time (STD-7: the register is no longer one capped list).
    */
-  List<ProductView> controlledRegisterProducts();
+  tz.co.pharmacy.platform.kernel.Page<ProductView> controlledRegisterProducts(
+      tz.co.pharmacy.platform.kernel.PageQuery query);
 
   /** Whether the product is CONTROLLED now or ever was. */
   boolean everControlled(UUID productUid);
+
+  /**
+   * Sells every STANDARD product of the pharmacy at its new standard VAT rate (STD-2): the rate
+   * {@link ProductView#taxRatePercent()} shows and checkout charges. Returns how many changed.
+   */
+  int applyStandardVatRate(java.math.BigDecimal ratePercent);
 }

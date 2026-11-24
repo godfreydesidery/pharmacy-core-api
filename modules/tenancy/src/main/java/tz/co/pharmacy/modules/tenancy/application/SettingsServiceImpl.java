@@ -25,10 +25,55 @@ class SettingsServiceImpl implements SettingsService {
 
   private final SettingsRepository settings;
   private final TenantRepository tenants;
+  private final tz.co.pharmacy.platform.bus.DomainEventPublisher events;
 
-  SettingsServiceImpl(SettingsRepository settings, TenantRepository tenants) {
+  SettingsServiceImpl(
+      SettingsRepository settings,
+      TenantRepository tenants,
+      tz.co.pharmacy.platform.bus.DomainEventPublisher events) {
     this.settings = settings;
     this.tenants = tenants;
+    this.events = events;
+  }
+
+  /**
+   * A Tanzanian TIN: 9 digits, often written 123-456-789 (TRA; verify for other countries). Spaces
+   * and dashes are dropped before the check.
+   */
+  static final java.util.regex.Pattern TIN = java.util.regex.Pattern.compile("^[0-9]{9}$");
+
+  /**
+   * A VRN, checked loosely: 8 to 15 letters, digits and dashes, starting with a digit, such as
+   * 40-012345-A (TRA's printed form; verify). Upper-cased, spaces dropped.
+   */
+  static final java.util.regex.Pattern VRN =
+      java.util.regex.Pattern.compile("^[0-9][0-9A-Z-]{7,14}$");
+
+  /** The TIN as kept (digits only), blank to clear, null to keep; 422 invalid_tin otherwise. */
+  static String tin(String value) {
+    if (value == null || value.isBlank()) {
+      return value;
+    }
+    String digits = value.replaceAll("[\\s-]", "");
+    if (!TIN.matcher(digits).matches()) {
+      throw Refusal.invalid("invalid_tin", "A TIN is 9 digits, such as 123-456-789.", "tin");
+    }
+    return digits;
+  }
+
+  /** The VRN as kept (upper case), blank to clear, null to keep; 422 invalid_vrn otherwise. */
+  static String vrn(String value) {
+    if (value == null || value.isBlank()) {
+      return value;
+    }
+    String code = value.replaceAll("\\s", "").toUpperCase(java.util.Locale.ROOT);
+    if (!VRN.matcher(code).matches()) {
+      throw Refusal.invalid(
+          "invalid_vrn",
+          "A VRN is 8 to 15 letters, digits and dashes, such as 40-012345-A.",
+          "vrn");
+    }
+    return code;
   }
 
   /**
@@ -69,6 +114,7 @@ class SettingsServiceImpl implements SettingsService {
     TransactionSynchronizationManager.unbindResourceIfPossible(
         MEMO + TenantContext.requireTenant());
     TenantSettings row = row();
+    java.math.BigDecimal rateBefore = row.getDefaultTaxRatePercent();
     String prefix =
         command.invoicePrefix() == null
             ? null
@@ -104,6 +150,7 @@ class SettingsServiceImpl implements SettingsService {
             : Checks.percent(command.maxDiscountPercent(), "maxDiscountPercent"),
         command.expiryAlertDays(),
         command.lowStockAlerts());
+    row.changeVat(command.vatRegistered(), tin(command.tin()), vrn(command.vrn()));
     row.changeSmsReceipts(command.smsReceipts());
     row.changePricesIncludeTax(command.pricesIncludeTax());
     row.changeLook(look(command.look()));
@@ -127,6 +174,16 @@ class SettingsServiceImpl implements SettingsService {
         command.requireOpenShift());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
+    java.math.BigDecimal rate = row.getDefaultTaxRatePercent();
+    if (rate != null && (rateBefore == null || rate.compareTo(rateBefore) != 0)) {
+      // The catalogue sells every STANDARD product at the new rate (after this commits).
+      events.publish(
+          "settings.standard_vat_rate_changed",
+          metadata ->
+              new tz.co.pharmacy.modules.tenancy.events.StandardVatRateChanged(metadata, rate));
+    }
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    settings.flush();
     return view(tenant, row);
   }
 
@@ -206,6 +263,10 @@ class SettingsServiceImpl implements SettingsService {
         row.isRequireTwoFactor(),
         row.getApprovalLimit(),
         row.getReturnWindowDays(),
-        row.isRequireOpenShift());
+        row.isRequireOpenShift(),
+        row.isVatRegistered(),
+        row.getTin(),
+        row.getVrn(),
+        row.getVersion());
   }
 }

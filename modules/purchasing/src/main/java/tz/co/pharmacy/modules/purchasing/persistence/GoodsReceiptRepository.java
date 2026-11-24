@@ -16,12 +16,12 @@ public interface GoodsReceiptRepository
   Optional<GoodsReceipt> findByUid(UUID uid);
 
   @Query(
-      "select coalesce(sum(r.baseTotal), 0) from GoodsReceipt r"
+      "select coalesce(sum(r.baseTotal - r.baseVatTotal), 0) from GoodsReceipt r"
           + " where r.createdAt >= :from and r.createdAt < :to")
   BigDecimal totalBetween(Instant from, Instant to);
 
   @Query(
-      "select coalesce(sum(r.baseTotal), 0) from GoodsReceipt r"
+      "select coalesce(sum(r.baseTotal - r.baseVatTotal), 0) from GoodsReceipt r"
           + " where r.branchUid in :branchUids and r.createdAt >= :from and r.createdAt < :to")
   BigDecimal totalBetween(Collection<UUID> branchUids, Instant from, Instant to);
 

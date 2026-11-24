@@ -6,6 +6,7 @@ import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.PurchaseOrderLineView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.PurchaseOrderView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.ReceiptLineView;
+import tz.co.pharmacy.platform.kernel.Amounts;
 
 /** Maps the module's entities to its views. */
 final class PurchasingViews {
@@ -15,7 +16,9 @@ final class PurchasingViews {
   /** A unit cost in the base currency, kept to 4 decimals so stock valuation does not drift. */
   static java.math.BigDecimal baseUnitCost(
       java.math.BigDecimal unitCost, java.math.BigDecimal exchangeRate) {
-    return unitCost.multiply(exchangeRate).setScale(4, java.math.RoundingMode.HALF_EVEN);
+    return unitCost
+        .multiply(exchangeRate)
+        .setScale(4, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
   }
 
   static PurchaseOrderView order(PurchaseOrder order) {
@@ -78,6 +81,8 @@ final class PurchasingViews {
         receipt.getCreatedBy(),
         receipt.getCurrency(),
         receipt.getExchangeRate().stripTrailingZeros(),
-        receipt.getBaseTotal());
+        receipt.getBaseTotal(),
+        receipt.getVatTotal() == null ? Amounts.ZERO : receipt.getVatTotal(),
+        receipt.getBaseVatTotal() == null ? Amounts.ZERO : receipt.getBaseVatTotal());
   }
 }

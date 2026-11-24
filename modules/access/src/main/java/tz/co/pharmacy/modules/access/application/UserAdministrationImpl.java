@@ -343,6 +343,8 @@ class UserAdministrationImpl implements UserAdministration {
         name,
         Checks.optionalText(command.description(), "description", 300),
         permissions(command.permissions()));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    roles.flush();
     return AccessViews.role(role);
   }
 

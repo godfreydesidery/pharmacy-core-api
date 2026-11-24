@@ -51,6 +51,22 @@ public final class Permissions {
    */
   public static final String DATA_EXPORT = "data.export";
 
+  /**
+   * Selling a PRESCRIPTION or CONTROLLED medicine: the seller is the dispenser and is recorded on
+   * the sale (adversarial review STD-7; Pharmacy Council rules, to verify).
+   */
+  public static final String SALES_DISPENSE_RX = "sales.dispense_rx";
+
+  /**
+   * Reading health details: a sale's prescription (patient, prescriber), the controlled-drugs
+   * register's patients, insurance diagnosis codes and adverse-reaction reports (STD-5). Sensitive
+   * personal data under the PDPA; reads of a prescription's detail are audited.
+   */
+  public static final String HEALTH_VIEW = "health.view";
+
+  /** Reporting an adverse drug reaction (pharmacovigilance, TMDA; STD-8). */
+  public static final String ADR_REPORT = "adr.report";
+
   private static final List<PermissionView> CATALOGUE =
       List.of(
           new PermissionView(PLATFORM_MANAGE, "platform", "Manage tenants and root administrators"),
@@ -94,7 +110,13 @@ public final class Permissions {
               APPROVALS_GRANT,
               "administration",
               "Approve others' actions above the pharmacy's limit (refunds, write-offs, discounts)"),
-          new PermissionView(DATA_EXPORT, "administration", "Export people's data in bulk"));
+          new PermissionView(DATA_EXPORT, "administration", "Export people's data in bulk"),
+          new PermissionView(SALES_DISPENSE_RX, "sales", "Dispense prescription medicines"),
+          new PermissionView(
+              HEALTH_VIEW,
+              "pharmacy",
+              "View health details: prescriptions, patients, diagnoses, adverse reactions"),
+          new PermissionView(ADR_REPORT, "pharmacy", "Report adverse drug reactions"));
 
   /** Every permission code. */
   public static final Set<String> ALL =
@@ -135,6 +157,13 @@ public final class Permissions {
    * <p>{@link #DATA_EXPORT} did not take one: access V18 gives it to every existing pharmacy's
    * built-in Administrator, Branch Manager and Accountant, exactly as these presets do, so the
    * built-in roles differ from the presets no more than before and there is nothing new to offer.
+   *
+   * <p>Nor did {@link #SALES_DISPENSE_RX}, {@link #HEALTH_VIEW} and {@link #ADR_REPORT} (STD-5,
+   * STD-7, STD-8): access V19 gives them to every existing pharmacy's built-in Administrator,
+   * Branch Manager and Pharmacist, as these presets do. The one difference it leaves is on purpose:
+   * every role that could sell keeps selling prescription medicines (the built-in Cashier
+   * included), and the notice offers to take that off the Cashier where the pharmacy has not
+   * decided yet.
    */
   public static final String PRESETS_VERSION = "2026-11-23";
 
@@ -169,7 +198,10 @@ public final class Permissions {
               PARTNERS_MANAGE,
               PURCHASING_VIEW,
               PURCHASING_RECEIVE,
-              REPORTS_VIEW);
+              REPORTS_VIEW,
+              SALES_DISPENSE_RX,
+              HEALTH_VIEW,
+              ADR_REPORT);
       case "CASHIER" ->
           ordered(
               DASHBOARD_VIEW,

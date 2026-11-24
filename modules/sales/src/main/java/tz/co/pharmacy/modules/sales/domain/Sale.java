@@ -81,6 +81,12 @@ public class Sale extends TenantEntity {
   private String prescriberRegistration;
   private String prescriptionReference;
   private String patientName;
+  private java.time.LocalDate prescriptionDate;
+
+  /** The seller who dispensed the prescription or controlled lines (STD-7). */
+  private String dispensedBy;
+
+  private UUID dispensedByUid;
 
   /**
    * The tax authority's reference of the fiscal receipt. Written once, after the sale committed, by
@@ -93,6 +99,14 @@ public class Sale extends TenantEntity {
   /** Whether the fiscal receipt is still to be issued (a fiscal integration is on). */
   @Column(nullable = false, updatable = false)
   private boolean fiscalDue;
+
+  /**
+   * The status of its fiscal receipt document (STD-1), null when it has none; written with the
+   * document, by SQL of its own, as {@link #fiscalReference}.
+   */
+  @Enumerated(EnumType.STRING)
+  @Column(updatable = false)
+  private tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus fiscalStatus;
 
   private String cashierName;
 
@@ -156,11 +170,19 @@ public class Sale extends TenantEntity {
       String prescriberName,
       String prescriberRegistration,
       String prescriptionReference,
-      String patientName) {
+      String patientName,
+      java.time.LocalDate prescriptionDate) {
     this.prescriberName = prescriberName;
     this.prescriberRegistration = prescriberRegistration;
     this.prescriptionReference = prescriptionReference;
     this.patientName = patientName;
+    this.prescriptionDate = prescriptionDate;
+  }
+
+  /** Records who dispensed the sale's prescription or controlled lines (STD-7). */
+  public void dispensedBy(String name, UUID userUid) {
+    this.dispensedBy = name;
+    this.dispensedByUid = userUid;
   }
 
   public void totals(SaleTotals.Totals totals, BigDecimal paidTotal, BigDecimal changeDue) {
@@ -175,6 +197,8 @@ public class Sale extends TenantEntity {
   /** A new sale whose fiscal receipt is issued after it commits (PERF-1). */
   public void fiscalReceiptDue(boolean due) {
     this.fiscalDue = due;
+    this.fiscalStatus =
+        due ? tz.co.pharmacy.modules.sales.ports.inbound.FiscalStatus.PENDING : null;
   }
 
   /** After a return: RETURNED once every unit came back, otherwise PARTIALLY_RETURNED. */

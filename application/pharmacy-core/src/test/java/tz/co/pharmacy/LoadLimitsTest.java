@@ -523,7 +523,9 @@ class LoadLimitsTest extends IntegrationTest {
     assertThat(orders.handlerRoundTrips()).isLessThanOrEqualTo(4);
     assertThat(receipts.handlerRoundTrips()).isLessThanOrEqualTo(4);
     assertThat(touching(shifts, "sales.sales")).isLessThanOrEqualTo(3);
-    assertThat(shifts.handlerRoundTrips()).isLessThanOrEqualTo(7);
+    // 7, plus the one read of the pharmacy's base currency that money rounding makes per
+    // transaction (STD-17, TenantMoneyScale): constant, not one per shift.
+    assertThat(shifts.handlerRoundTrips()).isLessThanOrEqualTo(8);
 
     Response list = till.get("/api/v1/shifts?limit=25").expect(200);
     assertThat(list.read("$.data.items.length()", Integer.class)).isEqualTo(6);

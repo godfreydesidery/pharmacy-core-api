@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -24,6 +25,7 @@ import tz.co.pharmacy.application.checkout.ports.inbound.SellableProduct;
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentCommand;
@@ -42,6 +44,7 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.audit.AuditLog;
 
 /** The POS and sales history of the branch named by X-Branch-Id (contract section 11). */
 @RestController
@@ -51,6 +54,7 @@ public class SalesHandler {
 
   private final Checkout checkout;
   private final SaleService saleService;
+  private final AuditLog audit;
 
   /**
    * Active products with their price and quantity on hand here, such as {@code ?q=para}. With
@@ -112,20 +116,21 @@ public class SalesHandler {
       }
     }
     return ApiResponse.created(
-        checkout.checkout(
-            new CheckoutCommand(
-                key,
-                body.customerUid(),
-                body.discountPercent(),
-                lines,
-                payments,
-                body.prescription(),
-                body.memberUid(),
-                body.preauthNumber(),
-                body.diagnosisCode(),
-                body.balanceToAccount(),
-                body.excessToAccount(),
-                body.pricePlan())),
+        HealthFields.sale(
+            checkout.checkout(
+                new CheckoutCommand(
+                    key,
+                    body.customerUid(),
+                    body.discountPercent(),
+                    lines,
+                    payments,
+                    body.prescription(),
+                    body.memberUid(),
+                    body.preauthNumber(),
+                    body.diagnosisCode(),
+                    body.balanceToAccount(),
+                    body.excessToAccount(),
+                    body.pricePlan()))),
         "Sale completed");
   }
 
@@ -169,12 +174,17 @@ public class SalesHandler {
   public ApiResponse<SaleView> get(@PathVariable UUID uid) {
     // A sale of another branch is not found: a user limited to one branch sees only its sales.
     UUID branch = ExecutionContext.requireBranch();
-    return ApiResponse.ok(
+    SaleView sale =
         saleService
             .find(uid)
-            .filter(sale -> branch.equals(sale.branchUid()))
-            .orElseThrow(() -> Refusal.notFound("sale_not_found", "No such sale.")),
-        "Sale retrieved");
+            .filter(found -> branch.equals(found.branchUid()))
+            .orElseThrow(() -> Refusal.notFound("sale_not_found", "No such sale."));
+    if (sale.prescription() != null && HealthFields.visible()) {
+      // STD-5: who read a prescription's detail (patient, prescriber) is recorded.
+      audit.record(
+          "PRESCRIPTION_VIEWED", "Sale", sale.uid(), null, Map.of("number", sale.number()));
+    }
+    return ApiResponse.ok(HealthFields.sale(sale), "Sale retrieved");
   }
 
   /** Units of a sale coming back; they return to the batch they were sold from. */

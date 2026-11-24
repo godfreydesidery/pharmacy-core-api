@@ -59,6 +59,9 @@ class PurchaseOrderServiceImpl implements PurchaseOrderService {
             directory.supplierName(supplierUid),
             command.expectedDate(),
             Checks.optionalText(command.note(), "note", 1000));
+    // Priced first: the lines round to the order currency's minor units.
+    Priced priced = Priced.of(currencies, command.currency(), command.exchangeRate(), null, null);
+    order.priceIn(priced.currency(), priced.rate());
     for (int i = 0; i < lines.size(); i++) {
       OrderLineCommand line = lines.get(i);
       String name;
@@ -69,8 +72,6 @@ class PurchaseOrderServiceImpl implements PurchaseOrderService {
       }
       order.addLine(line.productUid(), name, line.quantity(), line.unitCost());
     }
-    Priced priced = Priced.of(currencies, command.currency(), command.exchangeRate(), null, null);
-    order.priceIn(priced.currency(), priced.rate());
     order.settleBase(currencies.toBase(order.getTotal(), priced.rate()));
     return PurchasingViews.order(orders.save(order));
   }

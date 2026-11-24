@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -46,6 +47,7 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 public class CatalogueHandler {
 
   private final CatalogueService catalogue;
+  private final tz.co.pharmacy.delivery.edge.Preconditions preconditions;
 
   // categories
 
@@ -183,11 +185,35 @@ public class CatalogueHandler {
         "Product retrieved");
   }
 
+  /**
+   * The body's {@code version}, or {@code If-Match} with the product's ETag (or both): a change
+   * made from another version is refused, 412 precondition_failed for If-Match, 409 stale_version
+   * for the body's.
+   */
   @PutMapping("/products/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  @org.springframework.transaction.annotation.Transactional
   public ApiResponse<ProductView> changeProduct(
-      @PathVariable UUID uid, @RequestBody ProductRequest body) {
-    long version = Checks.required(body.version(), "version");
+      @PathVariable UUID uid,
+      @RequestHeader(value = tz.co.pharmacy.delivery.edge.Preconditions.IF_MATCH, required = false)
+          String ifMatch,
+      @RequestBody ProductRequest body) {
+    if (body == null) {
+      throw Refusal.malformed("A product is required.");
+    }
+    long[] current = new long[1];
+    preconditions.ifMatch(
+        ifMatch,
+        () ->
+            current[0] =
+                catalogue
+                    .product(uid)
+                    .orElseThrow(() -> Refusal.notFound("product_not_found", "No such product."))
+                    .version());
+    long version =
+        body.version() == null && ifMatch != null && !ifMatch.isBlank()
+            ? current[0]
+            : Checks.required(body.version(), "version");
     boolean active = body.active() == null || body.active();
     return ApiResponse.ok(
         catalogue.changeProduct(uid, body.toCommand(), active, version), "Product changed");
@@ -224,7 +250,11 @@ public class CatalogueHandler {
       String brand,
       String model,
       Integer warrantyMonths,
-      Boolean requiresSerialAtSale) {
+      Boolean requiresSerialAtSale,
+      /* STANDARD, ZERO_RATED or EXEMPT; empty follows taxRatePercent (STD-2). */
+      String taxCategory,
+      /* The TMDA registration number (STD-8), optional. */
+      String tmdaRegistrationNumber) {
 
     ProductCommand toCommand() {
       return new ProductCommand(
@@ -254,7 +284,12 @@ public class CatalogueHandler {
           brand,
           model,
           warrantyMonths,
-          requiresSerialAtSale);
+          requiresSerialAtSale,
+          blank(taxCategory)
+              ? null
+              : Checks.oneOf(
+                  tz.co.pharmacy.platform.kernel.TaxCategory.class, taxCategory, "taxCategory"),
+          tmdaRegistrationNumber);
     }
 
     private static boolean blank(String value) {

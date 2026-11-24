@@ -32,4 +32,55 @@ public record SaleView(
     /* CUSTOMER: the customer's own plan (not Normal Sale); CHOSEN: switched at the till. */
     String pricePlanSource,
     /* The fiscal receipt is still to be issued (it is issued after the sale commits). */
-    boolean fiscalDue) {}
+    boolean fiscalDue,
+    /* Its fiscal receipt's status (STD-1): PENDING, ISSUED or FAILED; null without one. */
+    FiscalStatus fiscalStatus,
+    /*
+     * Its fiscal documents, the receipt then the credit notes of its returns, with the authority's
+     * numbers, verification codes and QR payloads (read with the sale; empty in lists).
+     */
+    List<FiscalDocumentView> fiscalDocuments,
+    /* Who dispensed its prescription or controlled lines (the seller, holding sales.dispense_rx). */
+    String dispensedBy,
+    /*
+     * The sale has a prescription, but the caller may not read health details (health.view):
+     * prescription is null.
+     */
+    boolean prescriptionWithheld) {
+
+  /** The sale as a caller without health.view sees it: no prescription, a mark that one exists. */
+  public SaleView withoutHealthDetails() {
+    if (prescription == null) {
+      return this;
+    }
+    return new SaleView(
+        uid,
+        number,
+        branchUid,
+        branchName,
+        customerUid,
+        customerName,
+        status,
+        discountPercent,
+        subtotal,
+        discountTotal,
+        taxTotal,
+        total,
+        paidTotal,
+        changeDue,
+        lines,
+        payments,
+        null,
+        fiscalReference,
+        cashierName,
+        createdAt,
+        priceListUid,
+        priceListName,
+        pricePlanSource,
+        fiscalDue,
+        fiscalStatus,
+        fiscalDocuments,
+        dispensedBy,
+        true);
+  }
+}

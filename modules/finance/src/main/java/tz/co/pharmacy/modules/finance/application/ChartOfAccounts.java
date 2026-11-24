@@ -30,6 +30,8 @@ class ChartOfAccounts {
           new Seed("1020", "Mobile Money", AccountType.ASSET),
           new Seed("1100", "Accounts Receivable", AccountType.ASSET),
           new Seed("1110", "Insurance Receivable", AccountType.ASSET),
+          // STD-2: input VAT paid to suppliers, recoverable from TRA against output VAT (2100).
+          new Seed("1150", "VAT Receivable", AccountType.ASSET),
           new Seed("1200", "Inventory", AccountType.ASSET),
           new Seed("2000", "Accounts Payable", AccountType.LIABILITY),
           new Seed("2100", "Tax Payable", AccountType.LIABILITY),
@@ -58,10 +60,21 @@ class ChartOfAccounts {
     this.jdbc = new JdbcTemplate(dataSource);
   }
 
-  /** Seeds the default chart in the current tenant unless it is already complete. */
+  /** The default chart's codes, as a SQL array literal. */
+  private static final String DEFAULT_CODES =
+      "{" + String.join(",", DEFAULT.stream().map(Seed::code).toList()) + "}";
+
+  /**
+   * Seeds the default chart in the current tenant unless every default account is there: a chart
+   * from before an account was added to the defaults (1150 VAT Receivable) gets it on first use.
+   */
   @Transactional(propagation = Propagation.MANDATORY)
   void ensure() {
-    Integer present = jdbc.queryForObject("select count(*) from finance.accounts", Integer.class);
+    Integer present =
+        jdbc.queryForObject(
+            "select count(*) from finance.accounts where code = any(cast(? as text[]))",
+            Integer.class,
+            DEFAULT_CODES);
     if (present != null && present >= DEFAULT.size()) {
       return;
     }

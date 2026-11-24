@@ -29,11 +29,15 @@ public class BranchHandler {
 
   private final BranchService branches;
   private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
+  private final tz.co.pharmacy.delivery.edge.Preconditions preconditions;
 
   public BranchHandler(
-      BranchService branches, tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
+      BranchService branches,
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache,
+      tz.co.pharmacy.delivery.edge.Preconditions preconditions) {
     this.branches = branches;
     this.accessCache = accessCache;
+    this.preconditions = preconditions;
   }
 
   /** Every branch of the tenant, for any member: the branch switcher needs them. */
@@ -41,6 +45,19 @@ public class BranchHandler {
   @Access(scope = AccessScope.TENANT)
   public ApiResponse<List<BranchView>> list() {
     return ApiResponse.ok(branches.list(), "Branches retrieved");
+  }
+
+  /** One branch, with its ETag (the version a change names in If-Match). */
+  @GetMapping("/{branchUid}")
+  @Access(scope = AccessScope.TENANT)
+  public ApiResponse<BranchView> branch(@PathVariable UUID branchUid) {
+    return ApiResponse.ok(find(branchUid), "Branch retrieved");
+  }
+
+  private BranchView find(UUID branchUid) {
+    return branches
+        .find(branchUid)
+        .orElseThrow(() -> Refusal.notFound("branch_not_found", "No such branch."));
   }
 
   @CountsAgainst(PlanLimit.BRANCHES)
@@ -53,8 +70,15 @@ public class BranchHandler {
 
   @PutMapping("/{branchUid}")
   @Access(scope = AccessScope.TENANT, permission = Permissions.BRANCHES_MANAGE)
+  @org.springframework.transaction.annotation.Transactional
   public ApiResponse<BranchView> change(
-      @PathVariable UUID branchUid, @RequestBody BranchRequest body) {
+      @PathVariable UUID branchUid,
+      @org.springframework.web.bind.annotation.RequestHeader(
+              value = tz.co.pharmacy.delivery.edge.Preconditions.IF_MATCH,
+              required = false)
+          String ifMatch,
+      @RequestBody BranchRequest body) {
+    preconditions.ifMatch(ifMatch, () -> find(branchUid).version());
     BranchView changed =
         branches.change(branchUid, command(body), body.active() == null || body.active());
     // A closed branch is refused at the next request, on every instance (PERF-9).

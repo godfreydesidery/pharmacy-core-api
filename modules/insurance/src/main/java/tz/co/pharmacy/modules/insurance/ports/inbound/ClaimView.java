@@ -27,4 +27,34 @@ public record ClaimView(
     Instant createdAt,
     UUID customerUid,
     String batchNumber,
-    String note) {}
+    String note) {
+
+  /** The claim without its diagnosis code, for a caller who may not read health details. */
+  public ClaimView withoutDiagnosis() {
+    if (diagnosisCode == null) {
+      return this;
+    }
+    return new ClaimView(
+        uid,
+        number,
+        payerUid,
+        payerName,
+        memberUid,
+        memberNumber,
+        patientName,
+        saleUid,
+        saleNumber,
+        preauthNumber,
+        null,
+        claimed,
+        approved,
+        paid,
+        status,
+        batchUid,
+        lines,
+        createdAt,
+        customerUid,
+        batchNumber,
+        note);
+  }
+}

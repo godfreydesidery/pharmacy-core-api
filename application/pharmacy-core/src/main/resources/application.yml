@@ -160,6 +160,11 @@ pharmacy:
     # Root administrators must add an authenticator app at their next sign-in (NIST 800-63B AAL2
     # for privileged accounts). Only the local and test profiles turn it off.
     require-2fa-for-root: ${PHARMACY_REQUIRE_2FA_FOR_ROOT:true}
+  http:
+    # A change of an edited resource (product, customer, supplier, role, branch, price list,
+    # settings) without If-Match is allowed (older clients); true answers it 428
+    # precondition_required. A stale If-Match is always 412 precondition_failed (STD-10).
+    require-if-match: ${PHARMACY_REQUIRE_IF_MATCH:false}
   edge:
     cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
     # Fair share: requests one pharmacy may have in progress at once (keep it under the database
@@ -230,7 +235,12 @@ pharmacy:
     payments:
       provider: ${PHARMACY_PAYMENTS_PROVIDER:manual}
     fiscal:
+      # STD-1: none (no fiscal documents), simulator (sim, local and test profiles only), or a
+      # real adapter's own value (TRA VFD needs TRA's specification and the pharmacy's credentials).
       provider: ${PHARMACY_FISCAL_PROVIDER:none}
+      # The fiscal job: sends PENDING documents again after resend-after, closes past days (Z).
+      job-cron: ${PHARMACY_FISCAL_JOB_CRON:0 */15 * * * *}
+      resend-after: ${PHARMACY_FISCAL_RESEND_AFTER:PT10M}
   notifications:
     # The log providers write only a masked address and the length: a message may carry a reset
     # link or a sign-in code. The local and test profiles log the whole message.
@@ -274,8 +284,11 @@ pharmacy:
 
 # The API map is for development: off on a server unless PHARMACY_SWAGGER_ENABLED=true.
 springdoc:
+  # Sorted keys: docs/openapi.json is this document, compared in the build (OpenApiDocumentTest).
+  writer-with-order-by-keys: true
   api-docs:
     enabled: ${PHARMACY_SWAGGER_ENABLED:false}
+    version: openapi_3_1
   swagger-ui:
     enabled: ${PHARMACY_SWAGGER_ENABLED:false}
 

@@ -83,10 +83,12 @@ final class Problems {
       case 403 -> "Forbidden";
       case 404 -> "Not found";
       case 409 -> "Conflict";
+      case 412 -> "Precondition failed";
       case 413 -> "Payload too large";
       case 415 -> "Unsupported media type";
       case 422 -> "Unprocessable request";
       case 423 -> "Locked";
+      case 428 -> "Precondition required";
       case 429 -> "Too many requests";
       case 503 -> "Service unavailable";
       default -> "Error";

@@ -68,8 +68,18 @@ public class Product extends TenantEntity {
   @Column(precision = 14, scale = 2)
   private BigDecimal costPrice;
 
+  /**
+   * The VAT rate it is sold at while the pharmacy is VAT-registered: the pharmacy's standard rate
+   * for a STANDARD product (kept in step when the standard rate changes), 0 otherwise. Kept for the
+   * clients that read the rate; {@link #taxCategory} decides it.
+   */
   @Column(precision = 5, scale = 2)
   private BigDecimal taxRatePercent;
+
+  /** How VAT treats it (STD-2): STANDARD, ZERO_RATED or EXEMPT. */
+  @Enumerated(EnumType.STRING)
+  private tz.co.pharmacy.platform.kernel.TaxCategory taxCategory =
+      tz.co.pharmacy.platform.kernel.TaxCategory.EXEMPT;
 
   private int reorderLevel;
 
@@ -91,6 +101,9 @@ public class Product extends TenantEntity {
   private String model;
   private Integer warrantyMonths;
   private boolean requiresSerialAtSale;
+
+  /** The TMDA marketing authorisation (registration) number, when the pharmacy records it. */
+  private String tmdaRegistrationNumber;
 
   public Product(Details details) {
     change(details);
@@ -114,6 +127,7 @@ public class Product extends TenantEntity {
     this.sellingPrice = details.sellingPrice();
     this.costPrice = details.costPrice();
     this.taxRatePercent = details.taxRatePercent();
+    this.taxCategory = details.taxCategory();
     this.reorderLevel = details.reorderLevel();
     this.storage = details.storage();
     this.productType = details.productType();
@@ -123,6 +137,7 @@ public class Product extends TenantEntity {
     this.model = details.model();
     this.warrantyMonths = details.warrantyMonths();
     this.requiresSerialAtSale = details.requiresSerialAtSale();
+    this.tmdaRegistrationNumber = details.tmdaRegistrationNumber();
   }
 
   public void activate(boolean active) {
@@ -153,5 +168,7 @@ public class Product extends TenantEntity {
       String brand,
       String model,
       Integer warrantyMonths,
-      boolean requiresSerialAtSale) {}
+      boolean requiresSerialAtSale,
+      tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
+      String tmdaRegistrationNumber) {}
 }

@@ -177,7 +177,9 @@ public interface PricingService {
       boolean active,
       LocalDate validFrom,
       LocalDate validTo,
-      long priced) {}
+      long priced,
+      /* The plan's version (null for Normal Sale), for If-Match when the plan is changed. */
+      Long version) {}
 
   /** {@code price} null: not priced in the plan. */
   record PlanItemRow(
@@ -303,7 +305,10 @@ public interface PricingService {
       List<ItemView> items,
       UUID payerUid,
       String payerName,
-      int itemCount) {}
+      int itemCount,
+      /* The plan's version: the ETag of /price-lists/{uid} and what If-Match names. */
+      long version)
+      implements tz.co.pharmacy.platform.kernel.Versioned {}
 
   record ItemView(UUID productUid, String productName, int minQuantity, BigDecimal price) {}
 

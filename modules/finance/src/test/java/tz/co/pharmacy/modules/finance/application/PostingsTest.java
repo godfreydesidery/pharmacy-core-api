@@ -80,6 +80,39 @@ class PostingsTest {
   }
 
   @Test
+  void inputVatGoesToVatReceivable() {
+    // STD-2: goods 10,000 and VAT 1,800 on the invoice, in USD at 2,650 noted on the payable.
+    List<Postings.Line> receipt =
+        Postings.receipt(
+            new ReceiptPosting(
+                UUID.randomUUID(),
+                "GRN-HQ-000002",
+                UUID.randomUUID(),
+                LocalDate.now(),
+                new BigDecimal("11800.00"),
+                "USD",
+                new BigDecimal("4.45"),
+                new BigDecimal("1800.00")));
+    assertThat(sum(receipt, true)).isEqualByComparingTo(sum(receipt, false));
+    assertThat(amount(receipt, "1200", true)).isEqualByComparingTo("10000.00");
+    assertThat(amount(receipt, "1150", true)).isEqualByComparingTo("1800.00");
+    assertThat(amount(receipt, "2000", false)).isEqualByComparingTo("11800.00");
+    assertThat(receipt.stream().filter(l -> l.accountCode().equals("2000")).findFirst())
+        .hasValueSatisfying(payable -> assertThat(payable.currency()).isEqualTo("USD"));
+
+    List<Postings.Line> power =
+        Postings.expense(
+            ExpenseCategory.UTILITIES,
+            new BigDecimal("11800.00"),
+            new BigDecimal("1800.00"),
+            PaidFrom.CASH);
+    assertThat(sum(power, true)).isEqualByComparingTo(sum(power, false));
+    assertThat(amount(power, "6010", true)).isEqualByComparingTo("10000.00");
+    assertThat(amount(power, "1150", true)).isEqualByComparingTo("1800.00");
+    assertThat(amount(power, "1000", false)).isEqualByComparingTo("11800.00");
+  }
+
+  @Test
   void anUnbalancedEntryIsRefused() {
     assertThatThrownBy(
             () ->

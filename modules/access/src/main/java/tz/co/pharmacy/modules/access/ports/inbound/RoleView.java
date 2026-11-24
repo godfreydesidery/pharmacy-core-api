@@ -9,4 +9,7 @@ public record RoleView(
     String name,
     String description,
     boolean system,
-    List<String> permissions) {}
+    List<String> permissions,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

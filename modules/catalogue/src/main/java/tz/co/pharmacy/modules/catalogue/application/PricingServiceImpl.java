@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.catalogue.application;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -151,7 +150,7 @@ class PricingServiceImpl implements PricingService {
       // A save that names no items keeps the plan's own: a client that listed the plans (which
       // come without their items, PERF-11) cannot empty a plan by saving its name or dates. A
       // plan's prices are removed one by one (DELETE /pricing-plans/{plan}/prices/{product}).
-      PriceList saved = lists.save(list);
+      PriceList saved = lists.saveAndFlush(list);
       return view(saved, names(saved.getItems().stream().map(PriceListItem::getProductUid)));
     }
     List<PriceListItem> items = new ArrayList<>();
@@ -188,7 +187,7 @@ class PricingServiceImpl implements PricingService {
     list.getItems()
         .forEach(i -> before.put(i.getProductUid() + ":" + i.getMinQuantity(), i.getPrice()));
     list.items(items);
-    PriceList saved = lists.save(list);
+    PriceList saved = lists.saveAndFlush(list);
     Map<String, BigDecimal> after = new HashMap<>();
     saved
         .getItems()
@@ -804,7 +803,8 @@ class PricingServiceImpl implements PricingService {
             true,
             null,
             null,
-            medicines));
+            medicines,
+            null));
     Map<Long, long[]> counts = counts();
     for (PriceList l : lists.plansByName()) {
       cards.add(
@@ -820,7 +820,8 @@ class PricingServiceImpl implements PricingService {
               l.isActive(),
               l.getValidFrom(),
               l.getValidTo(),
-              counts.getOrDefault(l.getId(), new long[2])[1]));
+              counts.getOrDefault(l.getId(), new long[2])[1],
+              l.getVersion()));
     }
     return cards;
   }
@@ -1011,11 +1012,12 @@ class PricingServiceImpl implements PricingService {
     return uids;
   }
 
-  /** {@code price} moved by {@code percent} (negative for less), rounded to cents. */
+  /**
+   * {@code price} moved by {@code percent} (negative for less), rounded to the pharmacy's minor
+   * units (cents, or whole shillings in a UGX pharmacy).
+   */
   private static BigDecimal adjust(BigDecimal price, BigDecimal percent) {
-    return price
-        .multiply(HUNDRED.add(percent))
-        .divide(HUNDRED, 2, RoundingMode.HALF_UP)
+    return Amounts.money(price.multiply(HUNDRED.add(percent)).movePointLeft(2))
         .max(BigDecimal.ZERO);
   }
 
@@ -1043,7 +1045,8 @@ class PricingServiceImpl implements PricingService {
         null,
         l.getPayerUid(),
         l.getPayerName(),
-        (int) itemCount);
+        (int) itemCount,
+        l.getVersion());
   }
 
   private static PriceListView view(PriceList l, Map<UUID, String> names) {
@@ -1068,7 +1071,8 @@ class PricingServiceImpl implements PricingService {
             .toList(),
         l.getPayerUid(),
         l.getPayerName(),
-        l.getItems().size());
+        l.getItems().size(),
+        l.getVersion());
   }
 
   private static PromotionView view(
