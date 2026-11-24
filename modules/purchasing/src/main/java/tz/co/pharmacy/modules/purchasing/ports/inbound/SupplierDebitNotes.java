@@ -11,7 +11,7 @@ import java.util.UUID;
  */
 public interface SupplierDebitNotes {
 
-  record DebitNoteView(
+  record SupplierDebitNoteView(
       UUID uid,
       String number,
       UUID branchUid,
@@ -31,22 +31,23 @@ public interface SupplierDebitNotes {
    * currency. 404 goods_receipt_not_found; 422 invalid_amount, vat_not_registered (VAT while not
    * registered), debit_note_base_currency_only (a receipt in a foreign currency).
    */
-  DebitNoteView record(
+  SupplierDebitNoteView record(
       UUID goodsReceiptUid, BigDecimal net, BigDecimal vat, String reason, String reference);
 
-  List<DebitNoteView> ofReceipt(UUID goodsReceiptUid);
+  List<SupplierDebitNoteView> ofReceipt(UUID goodsReceiptUid);
 
   /** A product's value on a receipt, base currency, for splitting its input VAT. */
-  record LineValue(UUID productUid, BigDecimal value) {}
+  record ReceiptLineValue(UUID productUid, BigDecimal value) {}
 
   /** The input VAT (base) of one receipt or debit note, with its receipt's lines. */
-  record InputVat(UUID documentUid, String number, BigDecimal vat, List<LineValue> lines) {}
+  record ReceiptInputVat(
+      UUID documentUid, String number, BigDecimal vat, List<ReceiptLineValue> lines) {}
 
   /** The debit notes made in [from, to): their net and VAT. */
-  record Totals(BigDecimal net, BigDecimal vat) {}
+  record SupplierDebitNoteTotals(BigDecimal net, BigDecimal vat) {}
 
-  Totals totals(Instant from, Instant to);
+  SupplierDebitNoteTotals totals(Instant from, Instant to);
 
   /** Receipts and supplier debit notes made in [from, to) with VAT, and their receipts' lines. */
-  List<InputVat> inputVat(Instant from, Instant to);
+  List<ReceiptInputVat> inputVat(Instant from, Instant to);
 }

@@ -23,7 +23,7 @@ public interface VatApportionments {
    * What a run measured. {@code ratioPercent} is the reclaimable share of the residual input VAT.
    * For an ANNUAL run every figure covers the financial year that ends with {@code period}.
    */
-  record Measure(
+  record VatApportionmentMeasure(
       YearMonth period,
       String kind,
       String method,
@@ -40,7 +40,7 @@ public interface VatApportionments {
    * share. {@code adjustment}: what was posted to 5150 (for ANNUAL, the year's non-reclaimable less
    * what the monthly runs posted).
    */
-  record Run(
+  record VatApportionmentRun(
       UUID uid,
       String period,
       String kind,
@@ -57,14 +57,14 @@ public interface VatApportionments {
       String journalNumber,
       Instant createdAt) {}
 
-  Optional<Run> find(YearMonth period, String kind);
+  Optional<VatApportionmentRun> find(YearMonth period, String kind);
 
   /** Records and posts the run once per month and kind, booked on {@code bookOn}. */
-  Run record(Measure measure, LocalDate bookOn);
+  VatApportionmentRun record(VatApportionmentMeasure measure, LocalDate bookOn);
 
   /** Input VAT on expenses dated in [from, to] (all of it residual: overheads serve both). */
   BigDecimal expenseInputVat(LocalDate from, LocalDate to);
 
   /** The runs whose month falls in [from, to], newest first. */
-  List<Run> runs(LocalDate from, LocalDate to);
+  List<VatApportionmentRun> runs(LocalDate from, LocalDate to);
 }

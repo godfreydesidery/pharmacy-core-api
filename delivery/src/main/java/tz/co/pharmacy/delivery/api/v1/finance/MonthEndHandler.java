@@ -29,14 +29,14 @@ public class MonthEndHandler {
 
   @PostMapping("/expiry-provision/runs")
   @Access(scope = AccessScope.TENANT, permission = Permissions.FINANCE_MANAGE)
-  public ApiResponse<ExpiryProvisions.Run> expiryProvision() {
+  public ApiResponse<ExpiryProvisions.ExpiryProvisionRun> expiryProvision() {
     return ApiResponse.ok(
         months.expiryProvision(months.lastCompleteMonth()), "Expiry write-down measured");
   }
 
   @PostMapping("/vat-apportionment/runs")
   @Access(scope = AccessScope.TENANT, permission = Permissions.FINANCE_MANAGE)
-  public ApiResponse<List<VatApportionments.Run>> vatApportionment() {
+  public ApiResponse<List<VatApportionments.VatApportionmentRun>> vatApportionment() {
     return ApiResponse.ok(
         months.vatApportionment(months.lastCompleteMonth()), "VAT apportionment measured");
   }

@@ -29,7 +29,7 @@ class MonthEndBooksTest {
   void bands() {
     UUID branch = UUID.randomUUID();
     LocalDate end = LocalDate.of(2026, 11, 30);
-    List<ExpiryProvisions.BranchMeasure> measured =
+    List<ExpiryProvisions.ProvisionBranchMeasure> measured =
         MonthEndBooks.measure(
             List.of(
                 exposure(branch, end, "100.00"), // expires on the day: expired
@@ -40,10 +40,10 @@ class MonthEndBooksTest {
                 exposure(branch, null, "3200.00")),
             DEFAULT,
             end);
-    ExpiryProvisions.BranchMeasure only = measured.getFirst();
+    ExpiryProvisions.ProvisionBranchMeasure only = measured.getFirst();
     assertThat(only.stockAtCost()).isEqualByComparingTo("6300");
     assertThat(only.bands())
-        .extracting(ExpiryProvisions.BandMeasure::costAtRisk)
+        .extracting(ExpiryProvisions.ProvisionBandMeasure::costAtRisk)
         .usingElementComparator(BigDecimal::compareTo)
         .containsExactly(new BigDecimal("100"), new BigDecimal("200"), new BigDecimal("1200"));
     // 100 + 100 + 300.
@@ -89,17 +89,26 @@ class MonthEndBooksTest {
     assertThat(MonthEndBooks.split(vat("7.00"), categories)[2]).isEqualByComparingTo("7");
   }
 
+  @Test
+  @DisplayName("the jobs measure a pharmacy on its month's first seven days only")
+  void dueDays() {
+    assertThat(MonthEndSchedule.due(LocalDate.of(2026, 12, 1))).isTrue();
+    assertThat(MonthEndSchedule.due(LocalDate.of(2026, 12, 7))).isTrue();
+    assertThat(MonthEndSchedule.due(LocalDate.of(2026, 12, 8))).isFalse();
+    assertThat(MonthEndSchedule.due(LocalDate.of(2026, 11, 24))).isFalse();
+  }
+
   private static StockQueries.ExpiryExposure exposure(UUID branch, LocalDate expiry, String cost) {
     return new StockQueries.ExpiryExposure(branch, expiry, new BigDecimal(cost));
   }
 
-  private static SupplierDebitNotes.LineValue line(UUID product, String value) {
-    return new SupplierDebitNotes.LineValue(product, new BigDecimal(value));
+  private static SupplierDebitNotes.ReceiptLineValue line(UUID product, String value) {
+    return new SupplierDebitNotes.ReceiptLineValue(product, new BigDecimal(value));
   }
 
-  private static SupplierDebitNotes.InputVat vat(
-      String vat, SupplierDebitNotes.LineValue... lines) {
-    return new SupplierDebitNotes.InputVat(
+  private static SupplierDebitNotes.ReceiptInputVat vat(
+      String vat, SupplierDebitNotes.ReceiptLineValue... lines) {
+    return new SupplierDebitNotes.ReceiptInputVat(
         UUID.randomUUID(), "GRN-1", new BigDecimal(vat), List.of(lines));
   }
 }

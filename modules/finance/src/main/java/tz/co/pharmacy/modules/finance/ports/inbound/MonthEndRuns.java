@@ -14,11 +14,11 @@ public interface MonthEndRuns {
   YearMonth lastCompleteMonth();
 
   /** The expiry write-down of {@code period} (STD-3), under the pharmacy's rule at the time. */
-  ExpiryProvisions.Run expiryProvision(YearMonth period);
+  ExpiryProvisions.ExpiryProvisionRun expiryProvision(YearMonth period);
 
   /**
    * The VAT apportionment of {@code period} (STD-2): the MONTHLY run, and in the financial year's
    * last month the ANNUAL true-up too (automatic method). Nothing for a pharmacy not registered.
    */
-  List<VatApportionments.Run> vatApportionment(YearMonth period);
+  List<VatApportionments.VatApportionmentRun> vatApportionment(YearMonth period);
 }

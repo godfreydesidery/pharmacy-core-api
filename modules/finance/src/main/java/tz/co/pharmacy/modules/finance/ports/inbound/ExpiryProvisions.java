@@ -17,45 +17,48 @@ import java.util.UUID;
 public interface ExpiryProvisions {
 
   /** A band of the rule as it was used: up to {@code daysToExpiry} days, {@code percent} off. */
-  record Band(int daysToExpiry, BigDecimal percent) {}
+  record ProvisionRuleBand(int daysToExpiry, BigDecimal percent) {}
 
   /** What one band held at one branch at cost, and its provision. */
-  record BandMeasure(
+  record ProvisionBandMeasure(
       int daysToExpiry, BigDecimal percent, BigDecimal costAtRisk, BigDecimal provision) {}
 
   /** One branch's stock at cost and its provision by band. */
-  record BranchMeasure(
-      UUID branchUid, BigDecimal stockAtCost, BigDecimal provision, List<BandMeasure> bands) {}
+  record ProvisionBranchMeasure(
+      UUID branchUid,
+      BigDecimal stockAtCost,
+      BigDecimal provision,
+      List<ProvisionBandMeasure> bands) {}
 
   /** One month's run. {@code journalNumber} null when nothing changed (nothing posted). */
-  record Run(
+  record ExpiryProvisionRun(
       UUID uid,
       String period,
       LocalDate measuredOn,
       boolean enabled,
-      List<Band> bands,
+      List<ProvisionRuleBand> bands,
       BigDecimal stockAtCost,
       BigDecimal provision,
       BigDecimal previousProvision,
       BigDecimal adjustment,
       String journalNumber,
-      List<BranchMeasure> branches,
+      List<ProvisionBranchMeasure> branches,
       Instant createdAt) {}
 
-  Optional<Run> find(YearMonth period);
+  Optional<ExpiryProvisionRun> find(YearMonth period);
 
   /**
    * Records the month's measure and posts the change from the previous run's provision, once per
    * month: a second call for the month returns the first run. Disabled, the provision is 0 and an
    * earlier one is released.
    */
-  Run record(
+  ExpiryProvisionRun record(
       YearMonth period,
       LocalDate measuredOn,
       boolean enabled,
-      List<Band> bands,
-      List<BranchMeasure> branches);
+      List<ProvisionRuleBand> bands,
+      List<ProvisionBranchMeasure> branches);
 
   /** The runs whose month falls in [from, to], newest first. */
-  List<Run> list(LocalDate from, LocalDate to);
+  List<ExpiryProvisionRun> list(LocalDate from, LocalDate to);
 }

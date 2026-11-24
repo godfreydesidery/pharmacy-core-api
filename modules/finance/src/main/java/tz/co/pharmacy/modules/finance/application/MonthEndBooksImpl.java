@@ -53,7 +53,7 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional(readOnly = true)
-  public Optional<ExpiryProvisions.Run> find(YearMonth period) {
+  public Optional<ExpiryProvisions.ExpiryProvisionRun> find(YearMonth period) {
     return jdbc
         .query(
             "select " + PROVISION_COLUMNS + " from finance.expiry_provisions where period = ?",
@@ -65,20 +65,20 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional
-  public ExpiryProvisions.Run record(
+  public ExpiryProvisions.ExpiryProvisionRun record(
       YearMonth period,
       LocalDate measuredOn,
       boolean enabled,
-      List<Band> bands,
-      List<BranchMeasure> branches) {
+      List<ProvisionRuleBand> bands,
+      List<ProvisionBranchMeasure> branches) {
     lock("expiry-provision:" + period);
-    Optional<ExpiryProvisions.Run> done = find(period);
+    Optional<ExpiryProvisions.ExpiryProvisionRun> done = find(period);
     if (done.isPresent()) {
       return done.get();
     }
     BigDecimal stock = Amounts.ZERO;
     BigDecimal provision = Amounts.ZERO;
-    for (BranchMeasure branch : branches) {
+    for (ProvisionBranchMeasure branch : branches) {
       stock = stock.add(Amounts.money(branch.stockAtCost()));
       provision = provision.add(Amounts.money(branch.provision()));
     }
@@ -135,7 +135,7 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional(readOnly = true)
-  public List<ExpiryProvisions.Run> list(LocalDate from, LocalDate to) {
+  public List<ExpiryProvisions.ExpiryProvisionRun> list(LocalDate from, LocalDate to) {
     return jdbc.query(
         "select "
             + PROVISION_COLUMNS
@@ -146,9 +146,9 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
         Date.valueOf(to));
   }
 
-  private static String rule(List<Band> bands) {
+  private static String rule(List<ProvisionRuleBand> bands) {
     StringBuilder rule = new StringBuilder();
-    for (Band band : bands) {
+    for (ProvisionRuleBand band : bands) {
       if (!rule.isEmpty()) {
         rule.append(';');
       }
@@ -159,20 +159,21 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
     return rule.toString();
   }
 
-  private ExpiryProvisions.Run provision(ResultSet rs, int i) throws SQLException {
-    List<Band> bands =
+  private ExpiryProvisions.ExpiryProvisionRun provision(ResultSet rs, int i) throws SQLException {
+    List<ProvisionRuleBand> bands =
         rs.getString("rule").isBlank()
             ? List.of()
             : java.util.Arrays.stream(rs.getString("rule").split(";"))
                 .map(
                     pair ->
-                        new Band(
+                        new ProvisionRuleBand(
                             Integer.parseInt(pair.split(":")[0]),
                             new BigDecimal(pair.split(":")[1]).setScale(2, RoundingMode.HALF_UP)))
                 .toList();
-    List<BranchMeasure> branches =
-        JSON.readValue(rs.getString("branches"), new TypeReference<List<BranchMeasure>>() {});
-    return new ExpiryProvisions.Run(
+    List<ProvisionBranchMeasure> branches =
+        JSON.readValue(
+            rs.getString("branches"), new TypeReference<List<ProvisionBranchMeasure>>() {});
+    return new ExpiryProvisions.ExpiryProvisionRun(
         rs.getObject("uid", UUID.class),
         YearMonth.from(rs.getDate("period").toLocalDate()).toString(),
         rs.getDate("measured_on").toLocalDate(),
@@ -196,7 +197,7 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional(readOnly = true)
-  public Optional<VatApportionments.Run> find(YearMonth period, String kind) {
+  public Optional<VatApportionments.VatApportionmentRun> find(YearMonth period, String kind) {
     return jdbc
         .query(
             "select "
@@ -211,10 +212,11 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional
-  public VatApportionments.Run record(Measure measure, LocalDate bookOn) {
+  public VatApportionments.VatApportionmentRun record(
+      VatApportionmentMeasure measure, LocalDate bookOn) {
     YearMonth period = measure.period();
     lock("vat-apportionment:" + period + ":" + measure.kind());
-    Optional<VatApportionments.Run> done = find(period, measure.kind());
+    Optional<VatApportionments.VatApportionmentRun> done = find(period, measure.kind());
     if (done.isPresent()) {
       return done.get();
     }
@@ -292,7 +294,7 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
 
   @Override
   @Transactional(readOnly = true)
-  public List<VatApportionments.Run> runs(LocalDate from, LocalDate to) {
+  public List<VatApportionments.VatApportionmentRun> runs(LocalDate from, LocalDate to) {
     return jdbc.query(
         "select "
             + APPORTIONMENT_COLUMNS
@@ -303,8 +305,9 @@ class MonthEndBooksImpl implements ExpiryProvisions, VatApportionments {
         Date.valueOf(to));
   }
 
-  private VatApportionments.Run apportionment(ResultSet rs, int i) throws SQLException {
-    return new VatApportionments.Run(
+  private VatApportionments.VatApportionmentRun apportionment(ResultSet rs, int i)
+      throws SQLException {
+    return new VatApportionments.VatApportionmentRun(
         rs.getObject("uid", UUID.class),
         YearMonth.from(rs.getDate("period").toLocalDate()).toString(),
         rs.getString("kind"),

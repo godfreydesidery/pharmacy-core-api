@@ -123,7 +123,8 @@ public class StatementsHandler {
    */
   @GetMapping("/expiry-provision")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
-  public ApiResponse<List<tz.co.pharmacy.modules.finance.ports.inbound.ExpiryProvisions.Run>>
+  public ApiResponse<
+          List<tz.co.pharmacy.modules.finance.ports.inbound.ExpiryProvisions.ExpiryProvisionRun>>
       expiryProvision(
           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
               LocalDate from,
@@ -138,7 +139,8 @@ public class StatementsHandler {
   /** The VAT apportionment runs (STD-2) whose month falls in the range, newest first. */
   @GetMapping("/vat-apportionment")
   @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
-  public ApiResponse<List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.Run>>
+  public ApiResponse<
+          List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.VatApportionmentRun>>
       vatApportionment(
           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
               LocalDate from,
@@ -172,7 +174,8 @@ public class StatementsHandler {
       BigDecimal inputVatBeforeApportionment,
       BigDecimal nonReclaimableInputVat,
       BigDecimal reclaimableInputVat,
-      List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.Run> apportionments,
+      List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.VatApportionmentRun>
+          apportionments,
       DebitNoteTotals debitNotes) {}
 
   /** Stock at cost and at retail for one branch. */

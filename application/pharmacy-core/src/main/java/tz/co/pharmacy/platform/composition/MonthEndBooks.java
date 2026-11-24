@@ -96,7 +96,7 @@ class MonthEndBooks implements MonthEndRuns {
   // ------------------------------------------------------------------ expiry write-down
 
   @Override
-  public ExpiryProvisions.Run expiryProvision(YearMonth period) {
+  public ExpiryProvisions.ExpiryProvisionRun expiryProvision(YearMonth period) {
     var done = provisions.find(period);
     if (done.isPresent()) {
       return done.get();
@@ -111,12 +111,14 @@ class MonthEndBooks implements MonthEndRuns {
         period,
         measuredOn,
         rule.expiryProvisionEnabled(),
-        bands.stream().map(b -> new ExpiryProvisions.Band(b.daysToExpiry(), b.percent())).toList(),
+        bands.stream()
+            .map(b -> new ExpiryProvisions.ProvisionRuleBand(b.daysToExpiry(), b.percent()))
+            .toList(),
         measure(stock.stockByExpiry(), bands, measuredOn));
   }
 
   /** Each branch's stock at cost and, per band, its cost at risk and provision. */
-  static List<ExpiryProvisions.BranchMeasure> measure(
+  static List<ExpiryProvisions.ProvisionBranchMeasure> measure(
       List<StockQueries.ExpiryExposure> exposures,
       List<ProvisionBand> bands,
       LocalDate measuredOn) {
@@ -143,21 +145,21 @@ class MonthEndBooks implements MonthEndRuns {
         }
       }
     }
-    List<ExpiryProvisions.BranchMeasure> branches = new ArrayList<>();
+    List<ExpiryProvisions.ProvisionBranchMeasure> branches = new ArrayList<>();
     stockAt.forEach(
         (branch, cost) -> {
           BigDecimal[] byBand = atRisk.get(branch);
-          List<ExpiryProvisions.BandMeasure> measured = new ArrayList<>();
+          List<ExpiryProvisions.ProvisionBandMeasure> measured = new ArrayList<>();
           BigDecimal total = Amounts.ZERO;
           for (int i = 0; i < bands.size(); i++) {
             BigDecimal provision =
                 Amounts.money(byBand[i].multiply(bands.get(i).percent()).divide(HUNDRED));
             total = total.add(provision);
             measured.add(
-                new ExpiryProvisions.BandMeasure(
+                new ExpiryProvisions.ProvisionBandMeasure(
                     bands.get(i).daysToExpiry(), bands.get(i).percent(), byBand[i], provision));
           }
-          branches.add(new ExpiryProvisions.BranchMeasure(branch, cost, total, measured));
+          branches.add(new ExpiryProvisions.ProvisionBranchMeasure(branch, cost, total, measured));
         });
     return branches;
   }
@@ -165,9 +167,9 @@ class MonthEndBooks implements MonthEndRuns {
   // ------------------------------------------------------------------ VAT apportionment
 
   @Override
-  public List<VatApportionments.Run> vatApportionment(YearMonth period) {
+  public List<VatApportionments.VatApportionmentRun> vatApportionment(YearMonth period) {
     SettingsView rule = settings.current();
-    List<VatApportionments.Run> runs = new ArrayList<>();
+    List<VatApportionments.VatApportionmentRun> runs = new ArrayList<>();
     if (!rule.vatRegistered()) {
       return runs;
     }
@@ -194,7 +196,7 @@ class MonthEndBooks implements MonthEndRuns {
   }
 
   /** The months first..last measured as one (a month, or the financial year). */
-  private VatApportionments.Measure measure(
+  private VatApportionments.VatApportionmentMeasure measure(
       SettingsView rule, YearMonth first, YearMonth last, String kind) {
     ZoneId zone = calendar.zone();
     LocalDate from = first.atDay(1);
@@ -216,7 +218,7 @@ class MonthEndBooks implements MonthEndRuns {
         automatic
             ? ratio(taxable, exempt, roundUp)
             : rule.vatFixedRecoverablePercent().setScale(4, RoundingMode.HALF_UP);
-    return new VatApportionments.Measure(
+    return new VatApportionments.VatApportionmentMeasure(
         last,
         kind,
         rule.vatApportionmentMethod().name(),
@@ -252,7 +254,7 @@ class MonthEndBooks implements MonthEndRuns {
   private BigDecimal[] splitPurchases(LocalDate from, LocalDate to, ZoneId zone) {
     Instant start = from.atStartOfDay(zone).toInstant();
     Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
-    List<SupplierDebitNotes.InputVat> documents = purchases.inputVat(start, end);
+    List<SupplierDebitNotes.ReceiptInputVat> documents = purchases.inputVat(start, end);
     Set<UUID> products = new HashSet<>();
     documents.forEach(d -> d.lines().forEach(l -> products.add(l.productUid())));
     Map<UUID, TaxCategory> categories = new HashMap<>();
@@ -264,7 +266,7 @@ class MonthEndBooks implements MonthEndRuns {
     BigDecimal taxable = Amounts.ZERO;
     BigDecimal exempt = Amounts.ZERO;
     BigDecimal residual = Amounts.ZERO;
-    for (SupplierDebitNotes.InputVat document : documents) {
+    for (SupplierDebitNotes.ReceiptInputVat document : documents) {
       BigDecimal[] parts = split(document, categories);
       taxable = taxable.add(parts[0]);
       exempt = exempt.add(parts[1]);
@@ -278,12 +280,12 @@ class MonthEndBooks implements MonthEndRuns {
    * the three parts add up to the VAT exactly.
    */
   static BigDecimal[] split(
-      SupplierDebitNotes.InputVat document, Map<UUID, TaxCategory> categories) {
+      SupplierDebitNotes.ReceiptInputVat document, Map<UUID, TaxCategory> categories) {
     BigDecimal vat = Amounts.money(document.vat());
     BigDecimal taxableValue = Amounts.ZERO;
     BigDecimal exemptValue = Amounts.ZERO;
     BigDecimal all = Amounts.ZERO;
-    for (SupplierDebitNotes.LineValue line : document.lines()) {
+    for (SupplierDebitNotes.ReceiptLineValue line : document.lines()) {
       all = all.add(line.value());
       TaxCategory category = categories.get(line.productUid());
       if (category == TaxCategory.EXEMPT) {

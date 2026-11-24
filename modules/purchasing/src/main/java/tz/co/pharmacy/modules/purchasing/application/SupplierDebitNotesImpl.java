@@ -61,7 +61,7 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
 
   @Override
   @Transactional
-  public DebitNoteView record(
+  public SupplierDebitNoteView record(
       UUID goodsReceiptUid, BigDecimal net, BigDecimal vat, String reason, String reference) {
     GoodsReceipt receipt =
         receipts
@@ -118,7 +118,7 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
 
   @Override
   @Transactional(readOnly = true)
-  public List<DebitNoteView> ofReceipt(UUID goodsReceiptUid) {
+  public List<SupplierDebitNoteView> ofReceipt(UUID goodsReceiptUid) {
     return notes.findByGoodsReceiptUidOrderByIdAsc(goodsReceiptUid).stream()
         .map(SupplierDebitNotesImpl::view)
         .toList();
@@ -126,12 +126,12 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
 
   @Override
   @Transactional(readOnly = true)
-  public Totals totals(Instant from, Instant to) {
+  public SupplierDebitNoteTotals totals(Instant from, Instant to) {
     return jdbc.queryForObject(
         "select coalesce(sum(net), 0) as net, coalesce(sum(vat), 0) as vat"
             + " from purchasing.supplier_debit_notes where created_at >= ? and created_at < ?",
         (rs, i) ->
-            new Totals(
+            new SupplierDebitNoteTotals(
                 Amounts.money(rs.getBigDecimal("net")), Amounts.money(rs.getBigDecimal("vat"))),
         Timestamp.from(from),
         Timestamp.from(to));
@@ -143,8 +143,8 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
    */
   @Override
   @Transactional(readOnly = true)
-  public List<InputVat> inputVat(Instant from, Instant to) {
-    Map<UUID, List<LineValue>> lines = new LinkedHashMap<>();
+  public List<ReceiptInputVat> inputVat(Instant from, Instant to) {
+    Map<UUID, List<ReceiptLineValue>> lines = new LinkedHashMap<>();
     List<Object[]> documents = new ArrayList<>();
     jdbc.query(
         "select d.uid, d.number, d.vat, d.receipt_uid from ("
@@ -176,7 +176,7 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
                       + " join purchasing.goods_receipts r on r.id = l.goods_receipt_id"
                       + " where r.uid = ? group by l.product_uid",
                   (rs, i) ->
-                      new LineValue(
+                      new ReceiptLineValue(
                           rs.getObject("product_uid", UUID.class),
                           Amounts.money(rs.getBigDecimal("value"))),
                   uid));
@@ -184,7 +184,7 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
     return documents.stream()
         .map(
             d ->
-                new InputVat(
+                new ReceiptInputVat(
                     (UUID) d[0],
                     (String) d[1],
                     Amounts.money((BigDecimal) d[2]),
@@ -192,8 +192,8 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
         .toList();
   }
 
-  private static DebitNoteView view(SupplierDebitNote note) {
-    return new DebitNoteView(
+  private static SupplierDebitNoteView view(SupplierDebitNote note) {
+    return new SupplierDebitNoteView(
         note.getUid(),
         note.getNumber(),
         note.getBranchUid(),

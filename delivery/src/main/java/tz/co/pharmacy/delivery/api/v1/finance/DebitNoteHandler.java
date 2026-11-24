@@ -70,7 +70,7 @@ public class DebitNoteHandler {
   @PostMapping("/goods-receipts/{receiptUid}/debit-notes")
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.TENANT, permission = Permissions.FINANCE_MANAGE)
-  public ApiResponse<SupplierDebitNotes.DebitNoteView> supplierDebitNote(
+  public ApiResponse<SupplierDebitNotes.SupplierDebitNoteView> supplierDebitNote(
       @PathVariable UUID receiptUid, @RequestBody SupplierDebitNoteRequest body) {
     if (body == null) {
       throw Refusal.malformed("An amount and a reason are required.");
@@ -87,7 +87,7 @@ public class DebitNoteHandler {
 
   @GetMapping("/goods-receipts/{receiptUid}/debit-notes")
   @Access(scope = AccessScope.TENANT, permission = Permissions.FINANCE_VIEW)
-  public ApiResponse<List<SupplierDebitNotes.DebitNoteView>> supplierDebitNotes(
+  public ApiResponse<List<SupplierDebitNotes.SupplierDebitNoteView>> supplierDebitNotes(
       @PathVariable UUID receiptUid) {
     return ApiResponse.ok(suppliers.ofReceipt(receiptUid), "Supplier debit notes retrieved");
   }

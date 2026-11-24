@@ -73,7 +73,9 @@ class ManagedLoginsTest extends IntegrationTest {
     String signIn = created.string("$.data.signIn");
     String temporary = created.string("$.data.temporaryPassword");
     assertThat(signIn).isEqualTo("juma@" + code.toLowerCase());
-    assertThat(temporary).matches("^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$").doesNotContainPattern("[0O1IL5S8B]");
+    assertThat(temporary)
+        .matches("^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
+        .doesNotContainPattern("[0O1IL5S8B]");
     assertThat(created.read("$.data.member.managed", Boolean.class)).isTrue();
     assertThat(created.string("$.data.member.contactEmail")).isEqualTo("juma.ali@mail.test");
     assertThat(created.read("$.data.member.passwordChangeRequired", Boolean.class)).isTrue();

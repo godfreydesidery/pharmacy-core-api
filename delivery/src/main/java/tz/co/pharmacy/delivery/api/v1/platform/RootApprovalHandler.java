@@ -84,7 +84,7 @@ public class RootApprovalHandler {
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   @Access(scope = AccessScope.PLATFORM, permission = Permissions.PLATFORM_MANAGE)
-  public ApiResponse<RootApprovalView> request(@RequestBody RequestBody_ body) {
+  public ApiResponse<RootApprovalView> request(@RequestBody RootApprovalRequest body) {
     if (body == null) {
       throw Refusal.malformed("An action, a pharmacy and a reason are required.");
     }
@@ -223,7 +223,8 @@ public class RootApprovalHandler {
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)
-  public record RequestBody_(String action, UUID tenantUid, String reason, String confirmCode) {}
+  public record RootApprovalRequest(
+      String action, UUID tenantUid, String reason, String confirmCode) {}
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ApproveBody(String password, String code) {}

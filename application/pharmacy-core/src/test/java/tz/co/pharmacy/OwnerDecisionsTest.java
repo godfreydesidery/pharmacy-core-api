@@ -180,7 +180,8 @@ class OwnerDecisionsTest extends IntegrationTest {
     opening(product, "C", "2027-06-15", 40, 100);
     opening(product, "D", "2028-12-01", 10, 100);
 
-    ExpiryProvisions.Run march = inTenant(() -> months.expiryProvision(YearMonth.of(2027, 3)));
+    ExpiryProvisions.ExpiryProvisionRun march =
+        inTenant(() -> months.expiryProvision(YearMonth.of(2027, 3)));
     assertThat(march.stockAtCost()).isEqualByComparingTo("7000");
     // 1000 × 100% + 1000 × 50% + 4000 × 25%.
     assertThat(march.provision()).isEqualByComparingTo("2500");
@@ -188,7 +189,7 @@ class OwnerDecisionsTest extends IntegrationTest {
     assertThat(march.journalNumber()).startsWith("JV-2027-");
     assertThat(march.branches()).hasSize(1);
     assertThat(march.branches().getFirst().bands())
-        .extracting(ExpiryProvisions.BandMeasure::costAtRisk)
+        .extracting(ExpiryProvisions.ProvisionBandMeasure::costAtRisk)
         .usingElementComparator(java.math.BigDecimal::compareTo)
         .containsExactly(
             new java.math.BigDecimal("1000"),
@@ -208,13 +209,14 @@ class OwnerDecisionsTest extends IntegrationTest {
             "{\"expiryProvisionBands\":[{\"daysToExpiry\":0,\"percent\":100},"
                 + "{\"daysToExpiry\":60,\"percent\":40}]}")
         .expect(200);
-    ExpiryProvisions.Run april = inTenant(() -> months.expiryProvision(YearMonth.of(2027, 4)));
+    ExpiryProvisions.ExpiryProvisionRun april =
+        inTenant(() -> months.expiryProvision(YearMonth.of(2027, 4)));
     // At 30 Apr: A and B expired (2000 × 100%), C has 46 days (4000 × 40%), D none.
     assertThat(april.provision()).isEqualByComparingTo("3600");
     assertThat(april.previousProvision()).isEqualByComparingTo("2500");
     assertThat(april.adjustment()).isEqualByComparingTo("1100");
     assertThat(april.bands())
-        .extracting(ExpiryProvisions.Band::daysToExpiry)
+        .extracting(ExpiryProvisions.ProvisionRuleBand::daysToExpiry)
         .containsExactly(0, 60);
     assertThat(ledger("1210")).isEqualTo(-3600.0);
     Response report =
@@ -226,7 +228,8 @@ class OwnerDecisionsTest extends IntegrationTest {
 
     // Turned off: the provision is released.
     admin.put("/api/v1/settings", "{\"expiryProvisionEnabled\":false}").expect(200);
-    ExpiryProvisions.Run may = inTenant(() -> months.expiryProvision(YearMonth.of(2027, 5)));
+    ExpiryProvisions.ExpiryProvisionRun may =
+        inTenant(() -> months.expiryProvision(YearMonth.of(2027, 5)));
     assertThat(may.provision()).isEqualByComparingTo("0");
     assertThat(may.adjustment()).isEqualByComparingTo("-3600");
     assertThat(ledger("1210")).isEqualTo(0.0);
@@ -304,9 +307,10 @@ class OwnerDecisionsTest extends IntegrationTest {
             "/api/v1/settings",
             "{\"vatApportionmentMethod\":\"FIXED\",\"vatFixedRecoverablePercent\":50}")
         .expect(200);
-    List<VatApportionments.Run> fixed = inTenant(() -> months.vatApportionment(month));
+    List<VatApportionments.VatApportionmentRun> fixed =
+        inTenant(() -> months.vatApportionment(month));
     assertThat(fixed).hasSize(1);
-    VatApportionments.Run monthly = fixed.getFirst();
+    VatApportionments.VatApportionmentRun monthly = fixed.getFirst();
     assertThat(monthly.kind()).isEqualTo("MONTHLY");
     assertThat(monthly.directExemptVat()).isEqualByComparingTo("230");
     assertThat(monthly.directTaxableVat()).isEqualByComparingTo("140");
@@ -323,9 +327,12 @@ class OwnerDecisionsTest extends IntegrationTest {
                 + month.getMonthValue()
                 + "}")
         .expect(200);
-    List<VatApportionments.Run> runs = inTenant(() -> months.vatApportionment(month));
-    assertThat(runs).extracting(VatApportionments.Run::kind).containsExactly("MONTHLY", "ANNUAL");
-    VatApportionments.Run annual = runs.get(1);
+    List<VatApportionments.VatApportionmentRun> runs =
+        inTenant(() -> months.vatApportionment(month));
+    assertThat(runs)
+        .extracting(VatApportionments.VatApportionmentRun::kind)
+        .containsExactly("MONTHLY", "ANNUAL");
+    VatApportionments.VatApportionmentRun annual = runs.get(1);
     assertThat(annual.ratioPercent()).isEqualByComparingTo("25");
     assertThat(annual.taxableSales()).isEqualByComparingTo("1000");
     assertThat(annual.exemptSales()).isEqualByComparingTo("3000");

@@ -1,7 +1,6 @@
 package tz.co.pharmacy.platform.composition;
 
 import java.time.LocalDate;
-import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -78,7 +77,7 @@ class MonthEndSchedule {
     int done = 0;
     for (TenantView tenant : activeTenants(PROVISION)) {
       try {
-        ExpiryProvisions.Run measured =
+        ExpiryProvisions.ExpiryProvisionRun measured =
             inTenant(
                 PROVISION,
                 tenant.uid(),
@@ -98,7 +97,7 @@ class MonthEndSchedule {
     int done = 0;
     for (TenantView tenant : activeTenants(APPORTIONMENT)) {
       try {
-        List<VatApportionments.Run> runs =
+        List<VatApportionments.VatApportionmentRun> runs =
             inTenant(
                 APPORTIONMENT,
                 tenant.uid(),
@@ -116,9 +115,12 @@ class MonthEndSchedule {
 
   /** On the first days of the pharmacy's own month. */
   private boolean due() {
-    LocalDate today = calendar.today();
-    return today.getDayOfMonth() <= CATCH_UP_DAYS
-        && YearMonth.from(today).minusMonths(1).equals(months.lastCompleteMonth());
+    return due(calendar.today());
+  }
+
+  /** Whether {@code today} (the pharmacy's) is one of its month's first days. */
+  static boolean due(LocalDate today) {
+    return today.getDayOfMonth() <= CATCH_UP_DAYS;
   }
 
   private List<TenantView> activeTenants(String service) {
