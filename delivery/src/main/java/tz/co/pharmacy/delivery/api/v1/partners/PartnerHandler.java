@@ -313,8 +313,9 @@ public class PartnerHandler {
 
     /**
      * A walk-in customer added at the till with {@code partners.create_at_till} only: a name, a
-     * phone and an email, type RETAIL, active. Anything else is 422 {@code field_not_allowed},
-     * naming the field; it is for someone who manages customers.
+     * phone and an email, type RETAIL, active, and what the customer agreed to about SMS receipts
+     * and marketing when asked (owner, 24 Nov 2026). Anything else, insurer sharing included, is
+     * 422 {@code field_not_allowed}, naming the field; it is for someone who manages customers.
      */
     void requireWalkIn() {
       if (!blank(type) && !CustomerType.RETAIL.name().equalsIgnoreCase(type.trim())) {
@@ -338,15 +339,27 @@ public class PartnerHandler {
       if (!blank(paymentTerms)) {
         throw notAllowed("paymentTerms");
       }
-      if (consents != null && !consents.isEmpty()) {
-        throw notAllowed("consents");
+      if (consents != null) {
+        consents
+            .keySet()
+            .forEach(
+                purpose -> {
+                  if (!TILL_CONSENTS.contains(String.valueOf(purpose).trim().toUpperCase())) {
+                    throw notAllowed("consents");
+                  }
+                });
       }
     }
+
+    /** The consents the till may record when it adds a customer. */
+    private static final java.util.Set<String> TILL_CONSENTS =
+        java.util.Set.of(ConsentPurpose.SMS_RECEIPTS.name(), ConsentPurpose.MARKETING.name());
 
     private static Refusal notAllowed(String field) {
       return Refusal.invalid(
           "field_not_allowed",
-          "At the till a customer gets a name, a phone and an email only; "
+          "At the till a customer gets a name, a phone, an email and their SMS receipts and"
+              + " marketing consent only; "
               + field
               + " is set by someone who manages customers.",
           field);
