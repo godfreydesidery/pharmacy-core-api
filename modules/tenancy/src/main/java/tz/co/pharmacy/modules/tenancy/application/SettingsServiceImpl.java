@@ -9,8 +9,10 @@ import tz.co.pharmacy.modules.tenancy.domain.TenantSettings;
 import tz.co.pharmacy.modules.tenancy.persistence.SettingsRepository;
 import tz.co.pharmacy.modules.tenancy.persistence.TenantRepository;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.ChangeSettingsCommand;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.ProvisionBand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsView;
+import tz.co.pharmacy.modules.tenancy.ports.inbound.VatApportionmentMethod;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.persistence.TenantContext;
@@ -26,11 +28,14 @@ class SettingsServiceImpl implements SettingsService {
   private final SettingsRepository settings;
   private final TenantRepository tenants;
   private final tz.co.pharmacy.platform.bus.DomainEventPublisher events;
+  private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
 
   SettingsServiceImpl(
       SettingsRepository settings,
       TenantRepository tenants,
-      tz.co.pharmacy.platform.bus.DomainEventPublisher events) {
+      tz.co.pharmacy.platform.bus.DomainEventPublisher events,
+      tz.co.pharmacy.platform.persistence.audit.AuditLog audit) {
+    this.audit = audit;
     this.settings = settings;
     this.tenants = tenants;
     this.events = events;
@@ -114,6 +119,7 @@ class SettingsServiceImpl implements SettingsService {
     TransactionSynchronizationManager.unbindResourceIfPossible(
         MEMO + TenantContext.requireTenant());
     TenantSettings row = row();
+    SettingsView before = view(tenant(), row);
     java.math.BigDecimal rateBefore = row.getDefaultTaxRatePercent();
     String prefix =
         command.invoicePrefix() == null
@@ -172,6 +178,21 @@ class SettingsServiceImpl implements SettingsService {
             : tz.co.pharmacy.platform.kernel.Amounts.money(command.approvalLimit()),
         command.returnWindowDays(),
         command.requireOpenShift());
+    row.changeDecisions(
+        command.sharedCounterPcs(),
+        command.expiryProvisionEnabled(),
+        command.expiryProvisionBands() == null ? null : bands(command.expiryProvisionBands()),
+        method(command.vatApportionmentMethod()),
+        recoverablePercent(command.vatFixedRecoverablePercent()),
+        yearEndMonth(command.vatYearEndMonth()),
+        command.vatRatioRoundUp());
+    if ("FIXED".equals(row.getVatApportionmentMethod())
+        && row.getVatFixedRecoverablePercent() == null) {
+      throw Refusal.invalid(
+          "recoverable_percent_required",
+          "The fixed method needs the recoverable percentage agreed with TRA or the accountant.",
+          "vatFixedRecoverablePercent");
+    }
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
     java.math.BigDecimal rate = row.getDefaultTaxRatePercent();
@@ -184,7 +205,155 @@ class SettingsServiceImpl implements SettingsService {
     }
     // Flushed, so the view carries the version this change gave the row (its new ETag).
     settings.flush();
-    return view(tenant, row);
+    SettingsView after = view(tenant, row);
+    audited(before, after);
+    return after;
+  }
+
+  /**
+   * Records what changed, old and new, field by field (the owner asked that the write-down and VAT
+   * rules be audited; every setting is, at no extra cost). Nothing changed records nothing.
+   */
+  private void audited(SettingsView before, SettingsView after) {
+    java.util.Map<String, Object> old = new java.util.LinkedHashMap<>();
+    java.util.Map<String, Object> now = new java.util.LinkedHashMap<>();
+    for (var component : SettingsView.class.getRecordComponents()) {
+      if (component.getName().equals("version")) {
+        continue;
+      }
+      try {
+        Object a = component.getAccessor().invoke(before);
+        Object b = component.getAccessor().invoke(after);
+        if (!same(a, b)) {
+          old.put(component.getName(), printable(a));
+          now.put(component.getName(), printable(b));
+        }
+      } catch (ReflectiveOperationException unreadable) {
+        throw new IllegalStateException(unreadable);
+      }
+    }
+    if (!now.isEmpty()) {
+      audit.record("SETTINGS_CHANGED", "TenantSettings", TenantContext.requireTenant(), old, now);
+    }
+  }
+
+  private static boolean same(Object a, Object b) {
+    if (a instanceof java.math.BigDecimal x && b instanceof java.math.BigDecimal y) {
+      return x.compareTo(y) == 0;
+    }
+    return java.util.Objects.equals(a, b);
+  }
+
+  private static Object printable(Object value) {
+    if (value == null) {
+      return "";
+    }
+    return value instanceof Boolean || value instanceof Number ? value : value.toString();
+  }
+
+  /**
+   * The bands as kept ({@code days:percent;...}), refused with 422 invalid_provision_bands unless
+   * there are 1 to 5, days run 0 to 730 strictly upwards and the percentages, 0 to 100, do not rise
+   * as the days do (stock further from expiry is never written down more).
+   */
+  static String bands(java.util.List<ProvisionBand> bands) {
+    if (bands.isEmpty() || bands.size() > TenantSettings.MAX_PROVISION_BANDS) {
+      throw badBands("Give 1 to " + TenantSettings.MAX_PROVISION_BANDS + " bands.");
+    }
+    StringBuilder kept = new StringBuilder();
+    int lastDays = -1;
+    java.math.BigDecimal lastPercent = null;
+    for (ProvisionBand band : bands) {
+      if (band == null || band.percent() == null) {
+        throw badBands("Each band needs its days to expiry and a percentage.");
+      }
+      java.math.BigDecimal percent = band.percent().setScale(2, java.math.RoundingMode.HALF_UP);
+      if (band.daysToExpiry() < 0
+          || band.daysToExpiry() > TenantSettings.MAX_PROVISION_DAYS
+          || band.daysToExpiry() <= lastDays) {
+        throw badBands(
+            "Days to expiry run from 0 (already expired) to "
+                + TenantSettings.MAX_PROVISION_DAYS
+                + ", each band later than the one before.");
+      }
+      if (percent.signum() < 0
+          || percent.compareTo(java.math.BigDecimal.valueOf(100)) > 0
+          || (lastPercent != null && percent.compareTo(lastPercent) > 0)) {
+        throw badBands(
+            "Percentages run from 0 to 100 and do not rise for stock further from expiry.");
+      }
+      if (!kept.isEmpty()) {
+        kept.append(';');
+      }
+      kept.append(band.daysToExpiry())
+          .append(':')
+          .append(percent.stripTrailingZeros().toPlainString());
+      lastDays = band.daysToExpiry();
+      lastPercent = percent;
+    }
+    return kept.toString();
+  }
+
+  private static Refusal badBands(String detail) {
+    return Refusal.invalid("invalid_provision_bands", detail, "expiryProvisionBands")
+        .with("maxBands", TenantSettings.MAX_PROVISION_BANDS)
+        .with("maxDays", TenantSettings.MAX_PROVISION_DAYS);
+  }
+
+  /** The kept bands read back. */
+  static java.util.List<ProvisionBand> bands(String kept) {
+    if (kept == null || kept.isBlank()) {
+      return java.util.List.of();
+    }
+    java.util.List<ProvisionBand> bands = new java.util.ArrayList<>();
+    for (String pair : kept.split(";")) {
+      String[] parts = pair.split(":");
+      bands.add(
+          new ProvisionBand(
+              Integer.parseInt(parts[0]),
+              new java.math.BigDecimal(parts[1]).setScale(2, java.math.RoundingMode.HALF_UP)));
+    }
+    return java.util.List.copyOf(bands);
+  }
+
+  private static String method(String method) {
+    if (method == null) {
+      return null;
+    }
+    try {
+      return VatApportionmentMethod.valueOf(method.trim().toUpperCase(java.util.Locale.ROOT))
+          .name();
+    } catch (IllegalArgumentException unknown) {
+      throw Refusal.invalid(
+          "invalid_apportionment_method",
+          "The VAT apportionment method is AUTOMATIC or FIXED.",
+          "vatApportionmentMethod");
+    }
+  }
+
+  private static java.math.BigDecimal recoverablePercent(java.math.BigDecimal percent) {
+    if (percent == null) {
+      return null;
+    }
+    if (percent.signum() < 0 || percent.compareTo(java.math.BigDecimal.valueOf(100)) > 0) {
+      throw Refusal.invalid(
+              "invalid_recoverable_percent",
+              "The recoverable percentage is between 0 and 100.",
+              "vatFixedRecoverablePercent")
+          .with("min", 0)
+          .with("max", 100);
+    }
+    return percent.setScale(2, java.math.RoundingMode.HALF_UP);
+  }
+
+  private static Integer yearEndMonth(Integer month) {
+    if (month != null && (month < 1 || month > 12)) {
+      throw Refusal.invalid(
+          "invalid_year_end_month",
+          "The financial year ends in a month from 1 (January) to 12 (December).",
+          "vatYearEndMonth");
+    }
+    return month;
   }
 
   /**
@@ -267,6 +436,13 @@ class SettingsServiceImpl implements SettingsService {
         row.isVatRegistered(),
         row.getTin(),
         row.getVrn(),
+        row.isSharedCounterPcs(),
+        row.isExpiryProvisionEnabled(),
+        bands(row.getExpiryProvisionBands()),
+        VatApportionmentMethod.valueOf(row.getVatApportionmentMethod()),
+        row.getVatFixedRecoverablePercent(),
+        row.getVatYearEndMonth(),
+        row.isVatRatioRoundUp(),
         row.getVersion());
   }
 }

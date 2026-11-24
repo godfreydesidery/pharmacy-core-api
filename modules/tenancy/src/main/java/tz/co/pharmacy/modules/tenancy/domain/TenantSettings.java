@@ -65,6 +65,67 @@ public class TenantSettings extends TenantEntity {
   /** The pharmacy's VAT Registration Number (TRA), upper case, or null. */
   private String vrn;
 
+  /**
+   * Shared counter PCs (WEB-5, owner's decision of 24 Nov 2026): the web keeps the session for the
+   * browser's life only, and parked sales end with the pharmacy's business day.
+   */
+  private boolean sharedCounterPcs;
+
+  /** The monthly expiry write-down (STD-3) is on. */
+  private boolean expiryProvisionEnabled;
+
+  /** Its bands as {@code days:percent} pairs joined by {@code ;}, days ascending. */
+  private String expiryProvisionBands;
+
+  /** AUTOMATIC or FIXED (STD-2 partial exemption). */
+  private String vatApportionmentMethod;
+
+  /** The recoverable percentage under FIXED; null otherwise allowed. */
+  private BigDecimal vatFixedRecoverablePercent;
+
+  /** The financial year's last month (1 to 12). */
+  private int vatYearEndMonth;
+
+  /** The automatic ratio is rounded up to the next whole percent. */
+  private boolean vatRatioRoundUp;
+
+  /** The rule an admin may set: at most five bands, days 0 to 730. */
+  public static final int MAX_PROVISION_BANDS = 5;
+
+  public static final int MAX_PROVISION_DAYS = 730;
+
+  /** Null keeps each; the service checks the bands and the method. */
+  public void changeDecisions(
+      Boolean sharedCounterPcs,
+      Boolean expiryProvisionEnabled,
+      String expiryProvisionBands,
+      String vatApportionmentMethod,
+      BigDecimal vatFixedRecoverablePercent,
+      Integer vatYearEndMonth,
+      Boolean vatRatioRoundUp) {
+    if (sharedCounterPcs != null) {
+      this.sharedCounterPcs = sharedCounterPcs;
+    }
+    if (expiryProvisionEnabled != null) {
+      this.expiryProvisionEnabled = expiryProvisionEnabled;
+    }
+    if (expiryProvisionBands != null) {
+      this.expiryProvisionBands = expiryProvisionBands;
+    }
+    if (vatApportionmentMethod != null) {
+      this.vatApportionmentMethod = vatApportionmentMethod;
+    }
+    if (vatFixedRecoverablePercent != null) {
+      this.vatFixedRecoverablePercent = vatFixedRecoverablePercent;
+    }
+    if (vatYearEndMonth != null) {
+      this.vatYearEndMonth = vatYearEndMonth;
+    }
+    if (vatRatioRoundUp != null) {
+      this.vatRatioRoundUp = vatRatioRoundUp;
+    }
+  }
+
   /** The looks a pharmacy can choose. */
   public static final java.util.List<String> LOOKS = java.util.List.of("PREMIUM", "CLASSIC");
 
@@ -171,6 +232,14 @@ public class TenantSettings extends TenantEntity {
     settings.returnWindowDays = 7;
     // A new pharmacy ties cash to a cashier from its first sale (owner's decision, 23 Nov 2026).
     settings.requireOpenShift = true;
+    // The owner's decisions of 24 Nov 2026: shared PCs off; the expiry write-down on (IAS 2 needs
+    // stock at no more than what it will fetch); the taxable share of sales for mixed input VAT.
+    settings.sharedCounterPcs = false;
+    settings.expiryProvisionEnabled = true;
+    settings.expiryProvisionBands = "0:100;30:50;90:25";
+    settings.vatApportionmentMethod = "AUTOMATIC";
+    settings.vatYearEndMonth = 12;
+    settings.vatRatioRoundUp = true;
     return settings;
   }
 
