@@ -2207,6 +2207,30 @@
         },
         "type" : "object"
       },
+      "ApiResponseListTillEventSummary" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/TillEventSummary"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListUnpostedDocument" : {
         "properties" : {
           "code" : {
@@ -4316,6 +4340,27 @@
         },
         "type" : "object"
       },
+      "ApiResponseTillEventView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/TillEventView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseTillPlans" : {
         "properties" : {
           "code" : {
@@ -4641,7 +4686,17 @@
             "format" : "uuid",
             "type" : "string"
           },
+          "ip" : {
+            "type" : "string"
+          },
           "label" : {
+            "type" : "string"
+          },
+          "outcome" : {
+            "type" : "string"
+          },
+          "sessionUid" : {
+            "format" : "uuid",
             "type" : "string"
           },
           "tenantUid" : {
@@ -4650,6 +4705,9 @@
           },
           "uid" : {
             "format" : "uuid",
+            "type" : "string"
+          },
+          "userAgent" : {
             "type" : "string"
           }
         },
@@ -5747,6 +5805,52 @@
         "properties" : {
           "creditLimit" : {
             "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "CreditNoteCommand" : {
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "date" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "number" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "CreditNoteView" : {
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "appliedToReceipt" : {
+            "type" : "number"
+          },
+          "baseAmount" : {
+            "type" : "number"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "date" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "number" : {
+            "type" : "string"
+          },
+          "recordedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "recordedBy" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -10608,6 +10712,9 @@
           "baseUnitCost" : {
             "type" : "number"
           },
+          "baseValue" : {
+            "type" : "number"
+          },
           "batchNumber" : {
             "type" : "string"
           },
@@ -10722,6 +10829,24 @@
           },
           "showNotice" : {
             "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "RecordTillEvent" : {
+        "properties" : {
+          "kind" : {
+            "type" : "string"
+          },
+          "lines" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -12261,6 +12386,9 @@
             "format" : "int32",
             "type" : "integer"
           },
+          "sensitiveDigest" : {
+            "type" : "boolean"
+          },
           "smsReceipts" : {
             "type" : "boolean"
           },
@@ -12328,6 +12456,9 @@
           "returnWindowDays" : {
             "format" : "int32",
             "type" : "integer"
+          },
+          "sensitiveDigest" : {
+            "type" : "boolean"
           },
           "smsReceipts" : {
             "type" : "boolean"
@@ -13067,6 +13198,9 @@
           "createdByName" : {
             "type" : "string"
           },
+          "credit" : {
+            "$ref" : "#/components/schemas/CreditNoteView"
+          },
           "goodsReceiptNumber" : {
             "type" : "string"
           },
@@ -13087,6 +13221,9 @@
             "type" : "string"
           },
           "reason" : {
+            "type" : "string"
+          },
+          "status" : {
             "type" : "string"
           },
           "supplierName" : {
@@ -13111,17 +13248,31 @@
           "balance" : {
             "type" : "number"
           },
+          "from" : {
+            "format" : "date",
+            "type" : "string"
+          },
           "lines" : {
             "items" : {
               "$ref" : "#/components/schemas/StatementLine"
             },
             "type" : "array"
           },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "opening" : {
+            "type" : "number"
+          },
           "supplierName" : {
             "type" : "string"
           },
           "supplierUid" : {
             "format" : "uuid",
+            "type" : "string"
+          },
+          "to" : {
+            "format" : "date",
             "type" : "string"
           }
         },
@@ -13364,6 +13515,67 @@
           },
           "source" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "TillEventSummary" : {
+        "properties" : {
+          "branchUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "cashierName" : {
+            "type" : "string"
+          },
+          "cashierUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "day" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "events" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "lines" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "value" : {
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "TillEventView" : {
+        "properties" : {
+          "day" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "lines" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "shiftUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "uid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "value" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -30509,6 +30721,71 @@
         "x-scope" : "TENANT_OPTIONAL_BRANCH"
       }
     },
+    "/api/v1/reports/till-events" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `reports.view`.",
+        "operationId" : "TillEventHandler_summary",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListTillEventSummary"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "till-event-handler" ],
+        "x-permission" : "reports.view",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      }
+    },
     "/api/v1/reports/trial-balance" : {
       "get" : {
         "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `finance.view`; plan feature ADVANCED_REPORTS.",
@@ -33708,6 +33985,13 @@
           }
         }, {
           "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
           "name" : "cursor",
           "required" : false,
           "schema" : {
@@ -33879,6 +34163,78 @@
         "tags" : [ "supplier-return-handler" ],
         "x-permission" : "purchasing.view",
         "x-scope" : "BRANCH"
+      }
+    },
+    "/api/v1/supplier-returns/{uid}/credit-note" : {
+      "post" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `finance.manage`; safe to retry with Idempotency-Key.",
+        "operationId" : "SupplierReturnHandler_credit",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "$ref" : "#/components/parameters/idempotencyKey"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreditNoteCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseSupplierReturnView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "supplier-return-handler" ],
+        "x-idempotent" : true,
+        "x-permission" : "finance.manage",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
       }
     },
     "/api/v1/suppliers" : {
@@ -34483,6 +34839,37 @@
             "format" : "uuid",
             "type" : "string"
           }
+        }, {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -34522,6 +34909,67 @@
         "tags" : [ "supplier-accounts-handler" ],
         "x-permission" : "finance.view",
         "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      }
+    },
+    "/api/v1/till-events" : {
+      "post" : {
+        "description" : "**Access:** scope BRANCH; permission `sales.sell`.",
+        "operationId" : "TillEventHandler_record",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branchRequired"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RecordTillEvent"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseTillEventView"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "till-event-handler" ],
+        "x-permission" : "sales.sell",
+        "x-scope" : "BRANCH"
       }
     },
     "/api/v1/tracking-modes" : {
