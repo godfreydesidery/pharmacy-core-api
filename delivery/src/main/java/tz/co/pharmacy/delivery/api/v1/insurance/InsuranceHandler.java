@@ -289,6 +289,8 @@ public class InsuranceHandler {
     byte[] body = insurance.exportBatch(uid, json ? "JSON" : "CSV");
     audit.record(
         "CLAIM_BATCH_EXPORTED", "ClaimBatch", uid, null, Map.of("format", json ? "JSON" : "CSV"));
+    // Its own entry: the edge writes no second DATA_EXPORTED for it (STD-22).
+    tz.co.pharmacy.delivery.edge.ExportAudit.recorded();
     return ResponseEntity.ok()
         .contentType(
             json
