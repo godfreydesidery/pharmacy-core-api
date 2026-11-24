@@ -223,6 +223,105 @@
         },
         "type" : "object"
       },
+      "AdverseReactionView" : {
+        "properties" : {
+          "batchNumber" : {
+            "type" : "string"
+          },
+          "branchUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "customerUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "dose" : {
+            "type" : "string"
+          },
+          "indication" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "number" : {
+            "type" : "string"
+          },
+          "onsetDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "outcome" : {
+            "enum" : [ "RECOVERED", "RECOVERING", "NOT_RECOVERED", "RECOVERED_WITH_SEQUELAE", "FATAL", "UNKNOWN" ],
+            "type" : "string"
+          },
+          "patientAge" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "patientName" : {
+            "type" : "string"
+          },
+          "patientSex" : {
+            "enum" : [ "FEMALE", "MALE" ],
+            "type" : "string"
+          },
+          "patientWeightKg" : {
+            "type" : "number"
+          },
+          "productName" : {
+            "type" : "string"
+          },
+          "productUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "reaction" : {
+            "type" : "string"
+          },
+          "reporterName" : {
+            "type" : "string"
+          },
+          "reporterPhone" : {
+            "type" : "string"
+          },
+          "reporterProfession" : {
+            "type" : "string"
+          },
+          "route" : {
+            "type" : "string"
+          },
+          "seriousReason" : {
+            "enum" : [ "DEATH", "LIFE_THREATENING", "HOSPITALISATION", "DISABILITY", "CONGENITAL_ANOMALY", "OTHER_MEDICALLY_IMPORTANT" ],
+            "type" : "string"
+          },
+          "seriousness" : {
+            "enum" : [ "SERIOUS", "NOT_SERIOUS" ],
+            "type" : "string"
+          },
+          "therapyStarted" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "therapyStopped" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "uid" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "AgeingRow" : {
         "properties" : {
           "current" : {
@@ -269,6 +368,18 @@
         },
         "type" : "object"
       },
+      "AnonymiseRequest" : {
+        "properties" : {
+          "note" : {
+            "type" : "string"
+          },
+          "requestUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseAccountView" : {
         "properties" : {
           "code" : {
@@ -276,6 +387,27 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/AccountView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseAdverseReactionView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AdverseReactionView"
           },
           "message" : {
             "type" : "string"
@@ -479,6 +611,27 @@
         },
         "type" : "object"
       },
+      "ApiResponseConsentsView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ConsentsView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseCoverageQuote" : {
         "properties" : {
           "code" : {
@@ -570,6 +723,27 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/DataExportView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseDataSubjectRequestView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/DataSubjectRequestView"
           },
           "message" : {
             "type" : "string"
@@ -738,6 +912,27 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/FileView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseFiscalDocumentView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/FiscalDocumentView"
           },
           "message" : {
             "type" : "string"
@@ -1244,30 +1439,6 @@
         },
         "type" : "object"
       },
-      "ApiResponseListControlledProduct" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/ControlledProduct"
-            },
-            "type" : "array"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
       "ApiResponseListCurrencyView" : {
         "properties" : {
           "code" : {
@@ -1300,6 +1471,30 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/FileView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseListFiscalDocumentView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/FiscalDocumentView"
             },
             "type" : "array"
           },
@@ -2294,6 +2489,27 @@
         },
         "type" : "object"
       },
+      "ApiResponsePageAdverseReactionView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageAdverseReactionView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponsePageAuditEntryView" : {
         "properties" : {
           "code" : {
@@ -2357,6 +2573,27 @@
         },
         "type" : "object"
       },
+      "ApiResponsePageControlledProduct" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageControlledProduct"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponsePageCustomerView" : {
         "properties" : {
           "code" : {
@@ -2364,6 +2601,27 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PageCustomerView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePageDataSubjectRequestView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageDataSubjectRequestView"
           },
           "message" : {
             "type" : "string"
@@ -2448,6 +2706,27 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PageExpiringBatchView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePageFiscalDocumentView" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageFiscalDocumentView"
           },
           "message" : {
             "type" : "string"
@@ -4205,13 +4484,13 @@
         },
         "type" : "object"
       },
-      "ApiResponseVatSummary" : {
+      "ApiResponseVatReport" : {
         "properties" : {
           "code" : {
             "type" : "string"
           },
           "data" : {
-            "$ref" : "#/components/schemas/VatSummary"
+            "$ref" : "#/components/schemas/VatReport"
           },
           "message" : {
             "type" : "string"
@@ -5154,6 +5433,19 @@
         },
         "type" : "object"
       },
+      "CloseDayRequest" : {
+        "properties" : {
+          "branchUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "day" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "CloseRequest" : {
         "properties" : {
           "countedCash" : {
@@ -5217,6 +5509,70 @@
           },
           "token" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConsentRequest" : {
+        "properties" : {
+          "given" : {
+            "type" : "boolean"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "purpose" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConsentView" : {
+        "properties" : {
+          "givenAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "givenBy" : {
+            "type" : "string"
+          },
+          "inForce" : {
+            "type" : "boolean"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "purpose" : {
+            "enum" : [ "SMS_RECEIPTS", "MARKETING", "INSURER_SHARING" ],
+            "type" : "string"
+          },
+          "uid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "withdrawnAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "withdrawnBy" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConsentsView" : {
+        "properties" : {
+          "current" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Current"
+            },
+            "type" : "array"
+          },
+          "history" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ConsentView"
+            },
+            "type" : "array"
           }
         },
         "type" : "object"
@@ -5413,6 +5769,25 @@
         },
         "type" : "object"
       },
+      "Current" : {
+        "properties" : {
+          "effective" : {
+            "type" : "boolean"
+          },
+          "purpose" : {
+            "enum" : [ "SMS_RECEIPTS", "MARKETING", "INSURER_SHARING" ],
+            "type" : "string"
+          },
+          "since" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "CustomerRequest" : {
         "properties" : {
           "active" : {
@@ -5420,6 +5795,12 @@
           },
           "address" : {
             "type" : "string"
+          },
+          "consents" : {
+            "additionalProperties" : {
+              "type" : "boolean"
+            },
+            "type" : "object"
           },
           "creditLimit" : {
             "type" : "number"
@@ -5454,6 +5835,10 @@
             "type" : "boolean"
           },
           "address" : {
+            "type" : "string"
+          },
+          "anonymisedAt" : {
+            "format" : "date-time",
             "type" : "string"
           },
           "code" : {
@@ -5596,6 +5981,67 @@
             "type" : "string"
           },
           "status" : {
+            "type" : "string"
+          },
+          "uid" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "DataSubjectRequestView" : {
+        "properties" : {
+          "completedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "completedBy" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "createdBy" : {
+            "type" : "string"
+          },
+          "customerCode" : {
+            "type" : "string"
+          },
+          "customerName" : {
+            "type" : "string"
+          },
+          "customerUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "dueOn" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "kind" : {
+            "enum" : [ "ACCESS", "CORRECTION", "ERASURE", "OBJECTION", "RESTRICTION" ],
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "number" : {
+            "type" : "string"
+          },
+          "outcome" : {
+            "type" : "string"
+          },
+          "overdue" : {
+            "type" : "boolean"
+          },
+          "receivedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "OPEN", "COMPLETED", "REFUSED" ],
             "type" : "string"
           },
           "uid" : {
@@ -5953,6 +6399,9 @@
           },
           "reference" : {
             "type" : "string"
+          },
+          "vatAmount" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -5996,6 +6445,9 @@
           "uid" : {
             "format" : "uuid",
             "type" : "string"
+          },
+          "vatAmount" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -6108,6 +6560,92 @@
         },
         "type" : "object"
       },
+      "FiscalDocumentView" : {
+        "properties" : {
+          "attempts" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "branchUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "businessDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "dailyCounter" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "globalCounter" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "issuedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "kind" : {
+            "enum" : [ "RECEIPT", "CREDIT_NOTE", "Z_REPORT" ],
+            "type" : "string"
+          },
+          "lastError" : {
+            "type" : "string"
+          },
+          "provider" : {
+            "type" : "string"
+          },
+          "qrPayload" : {
+            "type" : "string"
+          },
+          "receiptNumber" : {
+            "type" : "string"
+          },
+          "saleUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "sellerTin" : {
+            "type" : "string"
+          },
+          "sellerVrn" : {
+            "type" : "string"
+          },
+          "sourceNumber" : {
+            "type" : "string"
+          },
+          "sourceUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "ISSUED", "FAILED" ],
+            "type" : "string"
+          },
+          "taxTotal" : {
+            "type" : "number"
+          },
+          "total" : {
+            "type" : "number"
+          },
+          "uid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "verificationCode" : {
+            "type" : "string"
+          },
+          "z" : {
+            "$ref" : "#/components/schemas/ZFigures"
+          }
+        },
+        "type" : "object"
+      },
       "FormulaItemCommand" : {
         "properties" : {
           "ingredientUid" : {
@@ -6162,6 +6700,9 @@
           "supplierUid" : {
             "format" : "uuid",
             "type" : "string"
+          },
+          "vatAmount" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -6169,6 +6710,9 @@
       "GoodsReceiptView" : {
         "properties" : {
           "baseTotal" : {
+            "type" : "number"
+          },
+          "baseVatTotal" : {
             "type" : "number"
           },
           "branchUid" : {
@@ -6223,6 +6767,9 @@
           "uid" : {
             "format" : "uuid",
             "type" : "string"
+          },
+          "vatTotal" : {
+            "type" : "number"
           }
         },
         "type" : "object"
@@ -7044,6 +7591,25 @@
         },
         "type" : "object"
       },
+      "LogRequest" : {
+        "properties" : {
+          "customerUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "receivedOn" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ManagedLoginRequest" : {
         "properties" : {
           "allBranches" : {
@@ -7566,6 +8132,14 @@
         },
         "type" : "object"
       },
+      "OutcomeRequest" : {
+        "properties" : {
+          "outcome" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "OutputCommand" : {
         "properties" : {
           "batchNumber" : {
@@ -7702,6 +8276,27 @@
         },
         "type" : "object"
       },
+      "PageAdverseReactionView" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/AdverseReactionView"
+            },
+            "type" : "array"
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalCapped" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "PageAuditEntryView" : {
         "properties" : {
           "items" : {
@@ -7765,11 +8360,53 @@
         },
         "type" : "object"
       },
+      "PageControlledProduct" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ControlledProduct"
+            },
+            "type" : "array"
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalCapped" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "PageCustomerView" : {
         "properties" : {
           "items" : {
             "items" : {
               "$ref" : "#/components/schemas/CustomerView"
+            },
+            "type" : "array"
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalCapped" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "PageDataSubjectRequestView" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DataSubjectRequestView"
             },
             "type" : "array"
           },
@@ -7875,6 +8512,27 @@
           "items" : {
             "items" : {
               "$ref" : "#/components/schemas/ExpiringBatchView"
+            },
+            "type" : "array"
+          },
+          "nextCursor" : {
+            "type" : "string"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalCapped" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "PageFiscalDocumentView" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/FiscalDocumentView"
             },
             "type" : "array"
           },
@@ -9038,6 +9696,10 @@
           "prescriberRegistration" : {
             "type" : "string"
           },
+          "prescriptionDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
           "reference" : {
             "type" : "string"
           }
@@ -9383,8 +10045,14 @@
           "strength" : {
             "type" : "string"
           },
+          "taxCategory" : {
+            "type" : "string"
+          },
           "taxRatePercent" : {
             "type" : "number"
+          },
+          "tmdaRegistrationNumber" : {
+            "type" : "string"
           },
           "trackingMode" : {
             "type" : "string"
@@ -9493,8 +10161,15 @@
           "strength" : {
             "type" : "string"
           },
+          "taxCategory" : {
+            "enum" : [ "STANDARD", "ZERO_RATED", "EXEMPT" ],
+            "type" : "string"
+          },
           "taxRatePercent" : {
             "type" : "number"
+          },
+          "tmdaRegistrationNumber" : {
+            "type" : "string"
           },
           "trackingMode" : {
             "enum" : [ "BATCH_EXPIRY", "BATCH", "SERIAL", "QUANTITY" ],
@@ -9913,9 +10588,6 @@
       },
       "ReasonRequest" : {
         "properties" : {
-          "kind" : {
-            "type" : "string"
-          },
           "reason" : {
             "type" : "string"
           }
@@ -10190,6 +10862,9 @@
           "batchNumber" : {
             "type" : "string"
           },
+          "dispensedBy" : {
+            "type" : "string"
+          },
           "note" : {
             "type" : "string"
           },
@@ -10200,6 +10875,10 @@
             "type" : "string"
           },
           "prescriberRegistration" : {
+            "type" : "string"
+          },
+          "prescriptionDate" : {
+            "format" : "date",
             "type" : "string"
           },
           "prescriptionReference" : {
@@ -10226,6 +10905,9 @@
           "uid" : {
             "format" : "uuid",
             "type" : "string"
+          },
+          "withheld" : {
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -10426,6 +11108,80 @@
             "type" : "string"
           },
           "text" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ReportRequest" : {
+        "properties" : {
+          "batchNumber" : {
+            "type" : "string"
+          },
+          "customerUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "dose" : {
+            "type" : "string"
+          },
+          "indication" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "onsetDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "outcome" : {
+            "type" : "string"
+          },
+          "patientAge" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "patientName" : {
+            "type" : "string"
+          },
+          "patientSex" : {
+            "type" : "string"
+          },
+          "patientWeightKg" : {
+            "type" : "number"
+          },
+          "productUid" : {
+            "format" : "uuid",
+            "type" : "string"
+          },
+          "reaction" : {
+            "type" : "string"
+          },
+          "reporterName" : {
+            "type" : "string"
+          },
+          "reporterPhone" : {
+            "type" : "string"
+          },
+          "reporterProfession" : {
+            "type" : "string"
+          },
+          "route" : {
+            "type" : "string"
+          },
+          "seriousReason" : {
+            "type" : "string"
+          },
+          "seriousness" : {
+            "type" : "string"
+          },
+          "therapyStarted" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "therapyStopped" : {
+            "format" : "date",
             "type" : "string"
           }
         },
@@ -10779,6 +11535,13 @@
           "tax" : {
             "type" : "number"
           },
+          "taxCategory" : {
+            "enum" : [ "STANDARD", "ZERO_RATED", "EXEMPT" ],
+            "type" : "string"
+          },
+          "taxRatePercent" : {
+            "type" : "number"
+          },
           "uid" : {
             "format" : "uuid",
             "type" : "string"
@@ -10916,6 +11679,13 @@
           "createdBy" : {
             "type" : "string"
           },
+          "fiscalReference" : {
+            "type" : "string"
+          },
+          "fiscalStatus" : {
+            "enum" : [ "PENDING", "ISSUED", "FAILED" ],
+            "type" : "string"
+          },
           "fxDifference" : {
             "type" : "number"
           },
@@ -10982,6 +11752,10 @@
           "customerName" : {
             "type" : "string"
           },
+          "fiscalStatus" : {
+            "enum" : [ "PENDING", "ISSUED", "FAILED" ],
+            "type" : "string"
+          },
           "itemCount" : {
             "format" : "int32",
             "type" : "integer"
@@ -11045,10 +11819,23 @@
           "discountTotal" : {
             "type" : "number"
           },
+          "dispensedBy" : {
+            "type" : "string"
+          },
+          "fiscalDocuments" : {
+            "items" : {
+              "$ref" : "#/components/schemas/FiscalDocumentView"
+            },
+            "type" : "array"
+          },
           "fiscalDue" : {
             "type" : "boolean"
           },
           "fiscalReference" : {
+            "type" : "string"
+          },
+          "fiscalStatus" : {
+            "enum" : [ "PENDING", "ISSUED", "FAILED" ],
             "type" : "string"
           },
           "lines" : {
@@ -11071,6 +11858,9 @@
           },
           "prescription" : {
             "$ref" : "#/components/schemas/PrescriptionDetails"
+          },
+          "prescriptionWithheld" : {
+            "type" : "boolean"
           },
           "priceListName" : {
             "type" : "string"
@@ -11368,6 +12158,10 @@
           "strength" : {
             "type" : "string"
           },
+          "taxCategory" : {
+            "enum" : [ "STANDARD", "ZERO_RATED", "EXEMPT" ],
+            "type" : "string"
+          },
           "taxRatePercent" : {
             "type" : "number"
           },
@@ -11547,6 +12341,15 @@
           },
           "smsReceipts" : {
             "type" : "boolean"
+          },
+          "tin" : {
+            "type" : "string"
+          },
+          "vatRegistered" : {
+            "type" : "boolean"
+          },
+          "vrn" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -11610,9 +12413,18 @@
           "timezone" : {
             "type" : "string"
           },
+          "tin" : {
+            "type" : "string"
+          },
+          "vatRegistered" : {
+            "type" : "boolean"
+          },
           "version" : {
             "format" : "int64",
             "type" : "integer"
+          },
+          "vrn" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -13092,11 +13904,50 @@
         },
         "type" : "object"
       },
-      "VatSummary" : {
+      "VatCategoryLine" : {
         "properties" : {
+          "category" : {
+            "enum" : [ "STANDARD", "ZERO_RATED", "EXEMPT" ],
+            "type" : "string"
+          },
+          "net" : {
+            "type" : "number"
+          },
+          "returnsNet" : {
+            "type" : "number"
+          },
+          "returnsTax" : {
+            "type" : "number"
+          },
+          "salesNet" : {
+            "type" : "number"
+          },
+          "salesTax" : {
+            "type" : "number"
+          },
+          "tax" : {
+            "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "VatReport" : {
+        "properties" : {
+          "categories" : {
+            "items" : {
+              "$ref" : "#/components/schemas/VatCategoryLine"
+            },
+            "type" : "array"
+          },
           "from" : {
             "format" : "date",
             "type" : "string"
+          },
+          "inputVat" : {
+            "type" : "number"
+          },
+          "netOutputVat" : {
+            "type" : "number"
           },
           "netPayable" : {
             "type" : "number"
@@ -13253,6 +14104,40 @@
           }
         },
         "type" : "object"
+      },
+      "ZFigures" : {
+        "properties" : {
+          "creditNotes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "creditNotesTax" : {
+            "type" : "number"
+          },
+          "creditNotesTotal" : {
+            "type" : "number"
+          },
+          "exemptNet" : {
+            "type" : "number"
+          },
+          "receipts" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "receiptsTax" : {
+            "type" : "number"
+          },
+          "receiptsTotal" : {
+            "type" : "number"
+          },
+          "standardNet" : {
+            "type" : "number"
+          },
+          "zeroRatedNet" : {
+            "type" : "number"
+          }
+        },
+        "type" : "object"
       }
     },
     "securitySchemes" : {
@@ -13314,6 +14199,252 @@
         "tags" : [ "ledger-handler" ],
         "x-permission" : "finance.view",
         "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/adverse-reactions" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `health.view`.",
+        "operationId" : "AdverseReactionHandler_list",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "in" : "query",
+          "name" : "q",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageAdverseReactionView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "adverse-reaction-handler" ],
+        "x-permission" : "health.view",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      },
+      "post" : {
+        "description" : "**Access:** scope BRANCH; permission `adr.report`.",
+        "operationId" : "AdverseReactionHandler_report",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branchRequired"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAdverseReactionView"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "adverse-reaction-handler" ],
+        "x-permission" : "adr.report",
+        "x-scope" : "BRANCH"
+      }
+    },
+    "/api/v1/adverse-reactions/{uid}" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `health.view`.",
+        "operationId" : "AdverseReactionHandler_report_1",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAdverseReactionView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "adverse-reaction-handler" ],
+        "x-permission" : "health.view",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      }
+    },
+    "/api/v1/adverse-reactions/{uid}/export" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; all of `health.view`, `adr.report`.",
+        "operationId" : "AdverseReactionHandler_export",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "format" : "byte",
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "adverse-reaction-handler" ],
+        "x-permission" : "",
+        "x-permission-all-of" : [ "health.view", "adr.report" ],
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
       }
     },
     "/api/v1/approvals" : {
@@ -15884,13 +17015,28 @@
           "$ref" : "#/components/parameters/tenant"
         }, {
           "$ref" : "#/components/parameters/branchRequired"
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseListControlledProduct"
+                  "$ref" : "#/components/schemas/ApiResponsePageControlledProduct"
                 }
               }
             },
@@ -16598,6 +17744,21 @@
           }
         }, {
           "$ref" : "#/components/parameters/ifMatch"
+        }, {
+          "in" : "query",
+          "name" : "dataSubjectRequest",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean"
+          }
+        }, {
+          "in" : "query",
+          "name" : "requestUid",
+          "required" : false,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
         } ],
         "requestBody" : {
           "content" : {
@@ -16666,6 +17827,193 @@
         },
         "tags" : [ "partner-handler" ],
         "x-if-match" : true,
+        "x-permission" : "partners.manage",
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/customers/{uid}/anonymise" : {
+      "post" : {
+        "description" : "**Access:** scope TENANT; all of `partners.manage`, `data.export`.",
+        "operationId" : "PrivacyHandler_anonymise",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnonymiseRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "",
+        "x-permission-all-of" : [ "partners.manage", "data.export" ],
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/customers/{uid}/consents" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT; permission `partners.view`.",
+        "operationId" : "PartnerHandler_customerConsents",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseConsentsView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "partner-handler" ],
+        "x-permission" : "partners.view",
+        "x-scope" : "TENANT"
+      },
+      "post" : {
+        "description" : "**Access:** scope TENANT; permission `partners.manage`.",
+        "operationId" : "PartnerHandler_recordConsent",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ConsentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseConsentsView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "partner-handler" ],
         "x-permission" : "partners.manage",
         "x-scope" : "TENANT"
       }
@@ -16757,6 +18105,73 @@
         "tags" : [ "partner-handler" ],
         "x-if-match" : true,
         "x-permission" : "partners.credit_limit",
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/customers/{uid}/data-export" : {
+      "post" : {
+        "description" : "**Access:** scope TENANT; all of `partners.view`, `data.export`, `health.view`.",
+        "operationId" : "PrivacyHandler_export",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "requestUid",
+          "required" : false,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "format" : "byte",
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "",
+        "x-permission-all-of" : [ "partners.view", "data.export", "health.view" ],
         "x-scope" : "TENANT"
       }
     },
@@ -18203,6 +19618,196 @@
         },
         "tags" : [ "supplier-payment-handler" ],
         "x-idempotent" : true,
+        "x-permission" : "finance.manage",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      }
+    },
+    "/api/v1/fiscal/documents/{uid}/retry" : {
+      "post" : {
+        "description" : "**Access:** scope BRANCH; permission `sales.sell`.",
+        "operationId" : "FiscalHandler_retry",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branchRequired"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFiscalDocumentView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "fiscal-handler" ],
+        "x-permission" : "sales.sell",
+        "x-scope" : "BRANCH"
+      }
+    },
+    "/api/v1/fiscal/z-reports" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `finance.view`.",
+        "operationId" : "FiscalHandler_zReports",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "in" : "query",
+          "name" : "branchUid",
+          "required" : false,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageFiscalDocumentView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "fiscal-handler" ],
+        "x-permission" : "finance.view",
+        "x-scope" : "TENANT_OPTIONAL_BRANCH"
+      },
+      "post" : {
+        "description" : "**Access:** scope TENANT_OPTIONAL_BRANCH; permission `finance.manage`.",
+        "operationId" : "FiscalHandler_closeDay",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branch"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CloseDayRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseFiscalDocumentView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "fiscal-handler" ],
         "x-permission" : "finance.manage",
         "x-scope" : "TENANT_OPTIONAL_BRANCH"
       }
@@ -25834,6 +27439,336 @@
         "x-scope" : "TENANT"
       }
     },
+    "/api/v1/privacy/requests" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT; permission `data.export`.",
+        "operationId" : "PrivacyHandler_list",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "kind",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "customerUid",
+          "required" : false,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePageDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "data.export",
+        "x-scope" : "TENANT"
+      },
+      "post" : {
+        "description" : "**Access:** scope TENANT; permission `data.export`.",
+        "operationId" : "PrivacyHandler_log",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LogRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "Created"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "data.export",
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/privacy/requests/{uid}" : {
+      "get" : {
+        "description" : "**Access:** scope TENANT; permission `data.export`.",
+        "operationId" : "PrivacyHandler_request",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "data.export",
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/privacy/requests/{uid}/complete" : {
+      "post" : {
+        "description" : "**Access:** scope TENANT; permission `data.export`.",
+        "operationId" : "PrivacyHandler_complete",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OutcomeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "data.export",
+        "x-scope" : "TENANT"
+      }
+    },
+    "/api/v1/privacy/requests/{uid}/refuse" : {
+      "post" : {
+        "description" : "**Access:** scope TENANT; permission `data.export`.",
+        "operationId" : "PrivacyHandler_refuse",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/approval"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReasonRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseDataSubjectRequestView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "privacy-handler" ],
+        "x-permission" : "data.export",
+        "x-scope" : "TENANT"
+      }
+    },
     "/api/v1/product-types" : {
       "get" : {
         "description" : "**Access:** scope TENANT; permission `catalogue.view`.",
@@ -28740,7 +30675,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseVatSummary"
+                  "$ref" : "#/components/schemas/ApiResponseVatReport"
                 }
               }
             },
@@ -29690,6 +31625,63 @@
           }
         },
         "tags" : [ "sales-handler" ],
+        "x-permission" : "sales.view",
+        "x-scope" : "BRANCH"
+      }
+    },
+    "/api/v1/sales/{uid}/fiscal-documents" : {
+      "get" : {
+        "description" : "**Access:** scope BRANCH; permission `sales.view`.",
+        "operationId" : "FiscalHandler_ofSale",
+        "parameters" : [ {
+          "$ref" : "#/components/parameters/tenant"
+        }, {
+          "$ref" : "#/components/parameters/branchRequired"
+        }, {
+          "in" : "path",
+          "name" : "uid",
+          "required" : true,
+          "schema" : {
+            "format" : "uuid",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListFiscalDocumentView"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "401" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "No valid session (`unauthenticated`)."
+          },
+          "403" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description" : "Not allowed: the permission, tenant or branch (`forbidden`…)."
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "tags" : [ "fiscal-handler" ],
         "x-permission" : "sales.view",
         "x-scope" : "BRANCH"
       }
