@@ -163,4 +163,26 @@ class CodeRulesTest {
         .resideInAPackage("tz.co.pharmacy.delivery.api.v1..")
         .check(CLASSES);
   }
+
+  @Test
+  @DisplayName(
+      "the local stack runs the PostgreSQL major the tests and production run (18), backups alike")
+  void localStackRunsProductionPostgres() throws java.io.IOException {
+    java.nio.file.Path root = java.nio.file.Path.of("..").toAbsolutePath().normalize();
+    String pom = java.nio.file.Files.readString(root.resolve("pom.xml"));
+    java.util.regex.Matcher binaries =
+        java.util.regex.Pattern.compile("<embedded-postgres-binaries.version>(\\d+)\\.")
+            .matcher(pom);
+    org.assertj.core.api.Assertions.assertThat(binaries.find()).isTrue();
+    String major = binaries.group(1);
+    org.assertj.core.api.Assertions.assertThat(major).isEqualTo("18");
+    String compose = java.nio.file.Files.readString(root.resolve("docker-compose.yml"));
+    org.assertj.core.api.Assertions.assertThat(compose)
+        .containsPattern("(?m)^\\s*image: postgres:" + major + "\\s*$")
+        // Version 18 images keep their data under /var/lib/postgresql/<major>.
+        .containsPattern("(?m):/var/lib/postgresql\\s*$");
+    org.assertj.core.api.Assertions.assertThat(
+            java.nio.file.Files.readString(root.resolve("docs/runbook/backup-restore.md")))
+        .contains("`postgres:" + major + "-alpine`");
+  }
 }
