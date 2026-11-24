@@ -281,7 +281,7 @@ public class InsuranceHandler {
   @GetMapping("/insurance/batches/{uid}/export")
   @Access(
       scope = AccessScope.TENANT,
-      allOf = {"finance.view", Permissions.DATA_EXPORT, HealthFields.PERMISSION})
+      allOf = {"finance.view", Permissions.INSURANCE_CLAIMS_EXPORT})
   public ResponseEntity<byte[]> export(
       @PathVariable UUID uid, @RequestParam(required = false) String format) {
     boolean json =

@@ -38,6 +38,16 @@ class SecurityLeftoversTest extends IntegrationTest {
   private static final HttpClient HTTP = HttpClient.newHttpClient();
 
   @Autowired DataSource dataSource;
+
+  @org.springframework.beans.factory.annotation.Value("${spring.datasource.url}")
+  String url;
+
+  @org.springframework.beans.factory.annotation.Value("${pharmacy.database.owner-username}")
+  String owner;
+
+  @org.springframework.beans.factory.annotation.Value("${pharmacy.database.owner-password}")
+  String ownerPassword;
+
   @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
   @Autowired tz.co.pharmacy.modules.notifications.ports.inbound.Notifier notifier;
   @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager entities;
@@ -209,14 +219,165 @@ class SecurityLeftoversTest extends IntegrationTest {
   // ------------------------------------------------------------- claim batch export
 
   @Test
-  @DisplayName("the claim batch export needs data.export and health.view, not finance.view alone")
-  void claimExportNeedsHealthAndExport() {
+  @DisplayName("the claim batch export needs finance.view and insurance.claims_export")
+  void claimExportNeedsItsOwnPermission() {
     String missing = "/api/v1/insurance/batches/" + UUID.randomUUID() + "/export";
-    // An accountant holds finance.view and data.export, not health.view: claims carry diagnoses.
-    Api accountant = login("ACCOUNTANT", null).in(tenant, null);
-    assertThat(accountant.get(missing).expect(403).string("$.reason")).isEqualTo("forbidden");
-    // Past the permissions, the batch itself is looked for.
+    // The accountant's preset holds it: past the permissions, the batch itself is looked for.
+    assertThat(login("ACCOUNTANT", null).in(tenant, null).get(missing).status()).isEqualTo(404);
     assertThat(admin.get(missing).status()).isEqualTo(404);
+    // Data export and health details together are not it: claims export is its own permission.
+    Api broad =
+        withRole("Broad reader", "finance.view", "data.export", "health.view").in(tenant, null);
+    assertThat(broad.get(missing).expect(403).string("$.reason")).isEqualTo("forbidden");
+    // Nor does it open health records: a role with it reads no adverse-reaction reports.
+    Api exporter = withRole("Claims clerk", "finance.view", "insurance.claims_export");
+    assertThat(exporter.in(tenant, null).get(missing).status()).isEqualTo(404);
+    assertThat(
+            exporter
+                .in(tenant, null)
+                .get("/api/v1/adverse-reactions?limit=1")
+                .expect(403)
+                .string("$.reason"))
+        .isEqualTo("forbidden");
+  }
+
+  // ------------------------------------------------------------- a walk-in customer at the till
+
+  @Test
+  @DisplayName("a cashier adds a walk-in customer (name, phone, email) and nothing more")
+  void cashierAddsAWalkInCustomer() {
+    Api cashier = login("CASHIER", null).in(tenant, hq);
+    Response added =
+        cashier
+            .post(
+                "/api/v1/customers",
+                "{\"name\":\"Neema Kweka\",\"phone\":\"0754111222\",\"email\":\"neema@example.com\","
+                    + "\"type\":\"RETAIL\",\"active\":true}")
+            .expect(201);
+    String uid = added.string("$.data.uid");
+    for (String extra :
+        List.of(
+            "\"creditLimit\":50000",
+            "\"type\":\"WHOLESALE\"",
+            "\"insuranceProvider\":\"NHIF\"",
+            "\"insuranceNumber\":\"12345\"",
+            "\"address\":\"Mbezi\"",
+            "\"paymentTerms\":\"NET_30\"",
+            "\"active\":false",
+            "\"consents\":{\"MARKETING\":true}")) {
+      Response refused =
+          cashier.post(
+              "/api/v1/customers", "{\"name\":\"Juma\",\"phone\":\"0754333444\"," + extra + "}");
+      assertThat(refused.expect(422).string("$.reason")).as(extra).isEqualTo("field_not_allowed");
+    }
+    // Nothing else opens: the customer is changed by someone who manages customers.
+    cashier.put("/api/v1/customers/" + uid, "{\"name\":\"Neema K\"}").expect(403);
+    cashier.post("/api/v1/suppliers", "{\"name\":\"Supplier\"}").expect(403);
+    // Without the permission, no customer at all: a store keeper.
+    login("STORE_KEEPER", null)
+        .in(tenant, null)
+        .post("/api/v1/customers", "{\"name\":\"Asha\",\"phone\":\"0754555666\"}")
+        .expect(403);
+    // Someone who manages customers sets the rest as before.
+    admin
+        .post(
+            "/api/v1/customers",
+            "{\"name\":\"Clinic\",\"phone\":\"0754777888\",\"type\":\"CORPORATE\","
+                + "\"address\":\"Mbezi\"}")
+        .expect(201);
+  }
+
+  // ------------------------------------------------------------- access V21 backfill
+
+  @Test
+  @DisplayName("access V21 gives the new permissions to the roles that did the work before")
+  void newPermissionsBackfill() throws Exception {
+    String reader = withRoleUid("Accounts reader", "finance.view");
+    String exporter = withRoleUid("Accounts exporter", "finance.view", "data.export");
+    String bookkeeper = withRoleUid("Bookkeeper", "finance.view", "finance.manage");
+    String seller = withRoleUid("Seller", "sales.sell", "partners.view");
+    // As before Batch 10: no role of this pharmacy holds either permission. Then the migration.
+    String migration;
+    try (java.io.InputStream sql =
+        getClass()
+            .getResourceAsStream(
+                "/db/migration/access/V21__claims_export_and_till_customers.sql")) {
+      migration = new String(sql.readAllBytes(), StandardCharsets.UTF_8);
+    }
+    try (java.sql.Connection connection =
+            java.sql.DriverManager.getConnection(url, owner, ownerPassword);
+        java.sql.Statement statement = connection.createStatement()) {
+      statement.execute(
+          "alter table access.roles no force row level security;"
+              + " alter table access.role_permissions no force row level security;"
+              + " delete from access.role_permissions p using access.roles r"
+              + " where r.id = p.role_id and r.tenant_uid = '"
+              + tenant
+              + "' and p.permission in ('insurance.claims_export', 'partners.create_at_till');"
+              + " alter table access.role_permissions force row level security;"
+              + " alter table access.roles force row level security;");
+      statement.execute(migration);
+    }
+    Map<String, List<String>> held = new java.util.HashMap<>();
+    List<Map<String, Object>> roles =
+        admin.get("/api/v1/roles").expect(200).json().read("$.data[*]");
+    for (Map<String, Object> role : roles) {
+      @SuppressWarnings("unchecked")
+      List<String> permissions = (List<String>) role.get("permissions");
+      held.put((String) role.get("uid"), permissions);
+      held.put((String) role.get("code"), permissions);
+    }
+    for (String code : List.of("ADMIN", "BRANCH_MANAGER", "ACCOUNTANT")) {
+      assertThat(held.get(code)).as(code).contains("insurance.claims_export");
+    }
+    for (String code : List.of("CASHIER", "PHARMACIST", "STORE_KEEPER")) {
+      assertThat(held.get(code)).as(code).doesNotContain("insurance.claims_export");
+    }
+    for (String code : List.of("ADMIN", "BRANCH_MANAGER", "CASHIER", "PHARMACIST")) {
+      assertThat(held.get(code)).as(code).contains("partners.create_at_till");
+    }
+    assertThat(held.get("ACCOUNTANT")).doesNotContain("partners.create_at_till");
+    assertThat(held.get(exporter)).contains("insurance.claims_export");
+    assertThat(held.get(bookkeeper)).contains("insurance.claims_export");
+    assertThat(held.get(reader)).doesNotContain("insurance.claims_export");
+    assertThat(held.get(seller)).doesNotContain("partners.create_at_till");
+  }
+
+  /** A role of the pharmacy's own with {@code permissions}; its uid. */
+  private String withRoleUid(String name, String... permissions) {
+    String codes =
+        String.join(",", java.util.Arrays.stream(permissions).map(p -> "\"" + p + "\"").toList());
+    return admin
+        .post(
+            "/api/v1/roles",
+            "{\"code\":\"%s\",\"name\":\"%s\",\"permissions\":[%s]}"
+                .formatted(
+                    "R" + UUID.randomUUID().toString().substring(0, 6).toUpperCase(), name, codes))
+        .expect(201)
+        .string("$.data.uid");
+  }
+
+  /** A staff login holding a new role with {@code permissions}, every branch, signed in. */
+  private Api withRole(String name, String... permissions) {
+    String roleUid = withRoleUid(name, permissions);
+    String username = "staff." + UUID.randomUUID().toString().substring(0, 8);
+    Response created =
+        admin
+            .post(
+                "/api/v1/users/managed",
+                "{\"username\":\"%s\",\"name\":\"%s\",\"roleUid\":\"%s\",\"allBranches\":true}"
+                    .formatted(username, name, roleUid))
+            .expect(201);
+    String signIn = created.string("$.data.signIn");
+    String temporary = created.string("$.data.temporaryPassword");
+    anonymous
+        .as(anonymous.signIn(signIn, temporary))
+        .post(
+            "/api/v1/auth/change-password",
+            "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
+                .formatted(temporary, STAFF_PASSWORD))
+        .expect(200);
+    return anonymous.as(anonymous.signIn(signIn, STAFF_PASSWORD));
   }
 
   // ------------------------------------------------------------- one-time upload links

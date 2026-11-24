@@ -21,6 +21,7 @@ import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.edge.Preconditions;
+import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.partners.ports.inbound.ConsentPurpose;
 import tz.co.pharmacy.modules.partners.ports.inbound.ConsentsView;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerCommand;
@@ -35,6 +36,7 @@ import tz.co.pharmacy.modules.partners.ports.inbound.SupplierCommand;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierService;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierView;
 import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
@@ -70,11 +72,16 @@ public class PartnerHandler {
    */
   @PostMapping("/customers")
   @ResponseStatus(HttpStatus.CREATED)
-  @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  @Access(
+      scope = AccessScope.TENANT,
+      anyOf = {Permissions.PARTNERS_MANAGE, Permissions.PARTNERS_CREATE_AT_TILL})
   @Transactional
   public ApiResponse<CustomerView> createCustomer(@RequestBody CustomerRequest body) {
     if (body == null) {
       throw Refusal.malformed("A customer is required.");
+    }
+    if (!ExecutionContext.permits(Permissions.PARTNERS_MANAGE)) {
+      body.requireWalkIn();
     }
     // A credit limit needs its own permission (FRD-17): 403 credit_limit_not_allowed.
     CreditLimits.require(BigDecimal.ZERO, body.creditLimit());
@@ -303,6 +310,47 @@ public class PartnerHandler {
       String paymentTerms,
       /* What the customer agreed to when asked, by purpose (optional, STD-5). */
       Map<String, Boolean> consents) {
+
+    /**
+     * A walk-in customer added at the till with {@code partners.create_at_till} only: a name, a
+     * phone and an email, type RETAIL, active. Anything else is 422 {@code field_not_allowed},
+     * naming the field; it is for someone who manages customers.
+     */
+    void requireWalkIn() {
+      if (!blank(type) && !CustomerType.RETAIL.name().equalsIgnoreCase(type.trim())) {
+        throw notAllowed("type");
+      }
+      if (!blank(insuranceProvider)) {
+        throw notAllowed("insuranceProvider");
+      }
+      if (!blank(insuranceNumber)) {
+        throw notAllowed("insuranceNumber");
+      }
+      if (creditLimit != null && creditLimit.signum() != 0) {
+        throw notAllowed("creditLimit");
+      }
+      if (!blank(address)) {
+        throw notAllowed("address");
+      }
+      if (Boolean.FALSE.equals(active)) {
+        throw notAllowed("active");
+      }
+      if (!blank(paymentTerms)) {
+        throw notAllowed("paymentTerms");
+      }
+      if (consents != null && !consents.isEmpty()) {
+        throw notAllowed("consents");
+      }
+    }
+
+    private static Refusal notAllowed(String field) {
+      return Refusal.invalid(
+          "field_not_allowed",
+          "At the till a customer gets a name, a phone and an email only; "
+              + field
+              + " is set by someone who manages customers.",
+          field);
+    }
 
     Map<ConsentPurpose, Boolean> consentChoices() {
       Map<ConsentPurpose, Boolean> choices = new java.util.EnumMap<>(ConsentPurpose.class);
