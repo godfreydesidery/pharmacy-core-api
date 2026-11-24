@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import tz.co.pharmacy.modules.files.ports.outbound.ObjectStorage;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Roots;
 
 /**
  * A pharmacy leaves: it takes its data out, closes, and after the cooling-off its data is erased,
@@ -46,6 +47,7 @@ class ErasureTest extends IntegrationTest {
   private Pharmacy pharmacy(String prefix) {
     Api anonymous = api();
     root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    Roots.second(root, anonymous);
     String code = prefix + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
     String email = code.toLowerCase() + "@test.local";
     String tenant =
@@ -55,12 +57,12 @@ class ErasureTest extends IntegrationTest {
                 {"code":"%s","name":"Erase %s","legalName":"Erase %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     Api till = admin.in(tenant, branch);
@@ -119,7 +121,7 @@ class ErasureTest extends IntegrationTest {
 
     // Only a closed pharmacy is erased.
     assertThat(
-            root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}")
+            askErase(leaving.uid(), "{\"confirmCode\":\"" + leaving.code() + "\"}")
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("erase_refused");
@@ -151,7 +153,7 @@ class ErasureTest extends IntegrationTest {
 
     // Still cooling off.
     assertThat(
-            root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}")
+            askErase(leaving.uid(), "{\"confirmCode\":\"" + leaving.code() + "\"}")
                 .expect(422)
                 .string("$.detail"))
         .contains("cooling-off");
@@ -160,23 +162,23 @@ class ErasureTest extends IntegrationTest {
     // A legal hold stops it until lifted.
     root.post(tenants + "/legal-hold", "{\"reason\":\"TMDA inquiry 7/2026\"}").expect(200);
     assertThat(
-            root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}")
+            askErase(leaving.uid(), "{\"confirmCode\":\"" + leaving.code() + "\"}")
                 .expect(422)
                 .string("$.detail"))
         .contains("legal hold");
-    root.delete(tenants + "/legal-hold").expect(200);
+    // Lifting the hold needs a second root administrator (FRD-18).
+    assertThat(root.delete(tenants + "/legal-hold").expect(403).string("$.reason"))
+        .isEqualTo("root_approval_required");
+    Roots.twoRoots(root, api(), "LIFT_LEGAL_HOLD", leaving.uid(), null).expect(200);
 
     // The code must be typed to confirm.
-    assertThat(
-            root.post(tenants + "/erase", "{\"confirmCode\":\"NOPE\"}")
-                .expect(422)
-                .string("$.reason"))
+    assertThat(askErase(leaving.uid(), "{\"confirmCode\":\"NOPE\"}").expect(422).string("$.reason"))
         .isEqualTo("confirm_code_mismatch");
 
     List<String> keys = fileKeys(leaving.uid());
     keys.forEach(key -> assertThat(storage.exists(key)).as(key).isTrue());
     Api.Response erased =
-        root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}").expect(200);
+        Roots.twoRoots(root, api(), "ERASE_TENANT", leaving.uid(), leaving.code()).expect(200);
     assertThat(erased.string("$.data.tenant.status")).isEqualTo("ERASED");
     assertThat(erased.read("$.data.rows['finance.journal_entries']", Long.class)).isPositive();
     assertThat(erased.read("$.data.rows['audit.entries']", Long.class)).isPositive();
@@ -201,7 +203,7 @@ class ErasureTest extends IntegrationTest {
     assertThat(leaving.admin().get("/api/v1/customers").expect(403).string("$.reason"))
         .isIn("tenant_erased", "forbidden");
     root.post(tenants + "/reopen", "{}").expect(422);
-    root.post(tenants + "/erase", "{\"confirmCode\":\"" + leaving.code() + "\"}").expect(422);
+    askErase(leaving.uid(), "{\"confirmCode\":\"" + leaving.code() + "\"}").expect(422);
   }
 
   @Test
@@ -215,7 +217,7 @@ class ErasureTest extends IntegrationTest {
     root.post(tenants + "/close", "{\"reason\":\"Lost the case\"}").expect(200);
     coolingOffEnded(p.uid());
     assertThat(
-            root.post(tenants + "/erase", "{\"confirmCode\":\"" + p.code() + "\"}")
+            askErase(p.uid(), "{\"confirmCode\":\"" + p.code() + "\"}")
                 .expect(422)
                 .string("$.detail"))
         .contains("legal hold");
@@ -232,6 +234,15 @@ class ErasureTest extends IntegrationTest {
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /** Asks for an erasure (FRD-18: a second root administrator then approves). */
+  private Api.Response askErase(String tenantUid, String body) {
+    String code = body.replaceAll(".*\"confirmCode\":\"([^\"]*)\".*", "$1");
+    return root.post(
+        "/api/v1/platform/approvals",
+        "{\"action\":\"ERASE_TENANT\",\"tenantUid\":\"%s\",\"reason\":\"Test\",\"confirmCode\":\"%s\"}"
+            .formatted(tenantUid, code));
+  }
 
   /** Moves the cooling-off into the past (the clock is real in these tests). */
   private void coolingOffEnded(String tenantUid) {

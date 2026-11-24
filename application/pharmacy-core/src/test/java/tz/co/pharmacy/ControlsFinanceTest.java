@@ -44,12 +44,12 @@ class ControlsFinanceTest extends IntegrationTest {
                 {"code":"%s","name":"Controls %s","legalName":"Controls %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, adminEmail))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x-strong")).in(tenant, null);
     branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     hq = admin.in(tenant, branch);
@@ -83,8 +83,10 @@ class ControlsFinanceTest extends IntegrationTest {
   @DisplayName("an existing pharmacy sees what differs, applies the recommended roles, once")
   void recommendationsApplied() {
     simulateOldPresets();
-    Staff.Login cashier = Staff.login(admin, anonymous, "Cashier", "CASHIER", "Cashier#2026x");
-    Api till = anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x")).in(tenant, null);
+    Staff.Login cashier =
+        Staff.login(admin, anonymous, "Cashier", "CASHIER", "Cashier#2026x-strong");
+    Api till =
+        anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x-strong")).in(tenant, null);
     assertThat(till.get("/api/v1/roles/recommendations").expect(403).string("$.reason"))
         .isEqualTo("forbidden");
 
@@ -145,8 +147,10 @@ class ControlsFinanceTest extends IntegrationTest {
     List<String> manager = permissions("BRANCH_MANAGER");
     manager.add("users.manage");
     changeRole("BRANCH_MANAGER", manager);
-    Staff.Login login = Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x");
-    Api boss = anonymous.as(anonymous.signIn(login.signIn(), "Manager#2026x")).in(tenant, null);
+    Staff.Login login =
+        Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x-strong");
+    Api boss =
+        anonymous.as(anonymous.signIn(login.signIn(), "Manager#2026x-strong")).in(tenant, null);
     String owner =
         admin
             .get("/api/v1/users?q=" + adminEmail)
@@ -175,13 +179,15 @@ class ControlsFinanceTest extends IntegrationTest {
   void periodLock() {
     LocalDate today = LocalDate.now(ZoneOffset.UTC);
     Staff.Login manager =
-        Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x");
+        Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x-strong");
     Api branchManager =
-        anonymous.as(anonymous.signIn(manager.signIn(), "Manager#2026x")).in(tenant, null);
+        anonymous.as(anonymous.signIn(manager.signIn(), "Manager#2026x-strong")).in(tenant, null);
     Staff.Login accountant =
-        Staff.login(admin, anonymous, "Accountant", "ACCOUNTANT", "Account#2026x");
+        Staff.login(admin, anonymous, "Accountant", "ACCOUNTANT", "Account#2026x-strong");
     Api books =
-        anonymous.as(anonymous.signIn(accountant.signIn(), "Account#2026x")).in(tenant, null);
+        anonymous
+            .as(anonymous.signIn(accountant.signIn(), "Account#2026x-strong"))
+            .in(tenant, null);
 
     // finance.manage alone (the branch manager) no longer moves the lock.
     Response refused = branchManager.put("/api/v1/finance/period-lock", lock(today.minusDays(10)));
@@ -197,7 +203,7 @@ class ControlsFinanceTest extends IntegrationTest {
     Response back = books.put("/api/v1/finance/period-lock", lock(today.minusDays(8)));
     assertThat(back.expect(403).string("$.reason")).isEqualTo("approval_required");
     assertThat(back.string("$.action")).isEqualTo("PERIOD_UNLOCK");
-    String token = approve(books, "PERIOD_UNLOCK", 0, manager.signIn(), "Manager#2026x");
+    String token = approve(books, "PERIOD_UNLOCK", 0, manager.signIn(), "Manager#2026x-strong");
     Response moved =
         books
             .put("/api/v1/finance/period-lock", lock(today.minusDays(8)), "X-Approval", token)
@@ -217,7 +223,7 @@ class ControlsFinanceTest extends IntegrationTest {
                 .expect(403)
                 .string("$.reason"))
         .isEqualTo("approval_required");
-    String again = approve(books, "PERIOD_UNLOCK", 0, adminEmail, "Admin#2026x");
+    String again = approve(books, "PERIOD_UNLOCK", 0, adminEmail, "Admin#2026x-strong");
     books
         .put("/api/v1/finance/period-lock", "{\"lockedThrough\":null}", "X-Approval", again)
         .expect(200);
@@ -239,9 +245,10 @@ class ControlsFinanceTest extends IntegrationTest {
   @Test
   @DisplayName("customers: partners.manage edits them, only partners.credit_limit sets the limit")
   void creditLimitHasItsOwnPermission() {
-    Staff.Login login = Staff.login(admin, anonymous, "Pharmacist", "PHARMACIST", "Pharma#2026x");
+    Staff.Login login =
+        Staff.login(admin, anonymous, "Pharmacist", "PHARMACIST", "Pharma#2026x-strong");
     Api pharmacist =
-        anonymous.as(anonymous.signIn(login.signIn(), "Pharma#2026x")).in(tenant, null);
+        anonymous.as(anonymous.signIn(login.signIn(), "Pharma#2026x-strong")).in(tenant, null);
 
     String walkIn =
         pharmacist
@@ -281,9 +288,10 @@ class ControlsFinanceTest extends IntegrationTest {
     assertThat(kept.read("$.data.creditLimit", Double.class)).isEqualTo(100_000.0);
 
     // The accountant decides credit without managing customers: the limit only, nothing else.
-    Staff.Login books = Staff.login(admin, anonymous, "Accountant", "ACCOUNTANT", "Account#2026x");
+    Staff.Login books =
+        Staff.login(admin, anonymous, "Accountant", "ACCOUNTANT", "Account#2026x-strong");
     Api accountant =
-        anonymous.as(anonymous.signIn(books.signIn(), "Account#2026x")).in(tenant, null);
+        anonymous.as(anonymous.signIn(books.signIn(), "Account#2026x-strong")).in(tenant, null);
     accountant
         .put("/api/v1/customers/" + walkIn, "{\"name\":\"Other\",\"creditLimit\":1}")
         .expect(403);
@@ -305,7 +313,7 @@ class ControlsFinanceTest extends IntegrationTest {
   @DisplayName("writing off a customer's debt always needs a second person's approval")
   void writeOffNeedsApproval() {
     Staff.Login manager =
-        Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x");
+        Staff.login(admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x-strong");
     String supplier = supplier();
     String product = product("Amoxicillin 500mg");
     receipt(supplier, product, "AMX-1");
@@ -329,7 +337,8 @@ class ControlsFinanceTest extends IntegrationTest {
     assertThat(refused.string("$.action")).isEqualTo("CREDIT_WRITE_OFF");
     assertThat(refused.read("$.amount", Double.class)).isEqualTo(1_500.0);
 
-    String small = approve(admin, "CREDIT_WRITE_OFF", 500, manager.signIn(), "Manager#2026x");
+    String small =
+        approve(admin, "CREDIT_WRITE_OFF", 500, manager.signIn(), "Manager#2026x-strong");
     assertThat(
             admin
                 .post(
@@ -342,7 +351,8 @@ class ControlsFinanceTest extends IntegrationTest {
                 .expect(403)
                 .string("$.reason"))
         .isEqualTo("approval_invalid");
-    String token = approve(admin, "CREDIT_WRITE_OFF", 1500, manager.signIn(), "Manager#2026x");
+    String token =
+        approve(admin, "CREDIT_WRITE_OFF", 1500, manager.signIn(), "Manager#2026x-strong");
     admin
         .post(
             "/api/v1/receivables/write-offs",
@@ -387,16 +397,21 @@ class ControlsFinanceTest extends IntegrationTest {
             .formatted(supplier, receipt, product, batch);
 
     Staff.Login pharmacistLogin =
-        Staff.login(admin, anonymous, "Pharmacist", "PHARMACIST", "Pharma#2026x");
+        Staff.login(admin, anonymous, "Pharmacist", "PHARMACIST", "Pharma#2026x-strong");
     Api pharmacist =
-        anonymous.as(anonymous.signIn(pharmacistLogin.signIn(), "Pharma#2026x")).in(tenant, branch);
+        anonymous
+            .as(anonymous.signIn(pharmacistLogin.signIn(), "Pharma#2026x-strong"))
+            .in(tenant, branch);
     Response refused = pharmacist.post("/api/v1/supplier-returns", unlinked);
     assertThat(refused.expect(403).string("$.reason")).isEqualTo("supplier_return_needs_receipt");
     pharmacist.post("/api/v1/supplier-returns", linked).expect(201);
 
-    Staff.Login storeLogin = Staff.login(admin, anonymous, "Store", "STORE_KEEPER", "Store#2026xy");
+    Staff.Login storeLogin =
+        Staff.login(admin, anonymous, "Store", "STORE_KEEPER", "Store#2026xy-strong");
     Api store =
-        anonymous.as(anonymous.signIn(storeLogin.signIn(), "Store#2026xy")).in(tenant, branch);
+        anonymous
+            .as(anonymous.signIn(storeLogin.signIn(), "Store#2026xy-strong"))
+            .in(tenant, branch);
     store.post("/api/v1/supplier-returns", unlinked).expect(201);
   }
 

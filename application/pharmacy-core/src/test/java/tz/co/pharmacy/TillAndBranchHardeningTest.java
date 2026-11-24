@@ -48,12 +48,12 @@ class TillAndBranchHardeningTest extends IntegrationTest {
                 {"code":"%s","name":"Hardened %s","legalName":"Hardened %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     hqUid =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     secondUid =
@@ -95,8 +95,10 @@ class TillAndBranchHardeningTest extends IntegrationTest {
   @Test
   @DisplayName("issuing a voucher needs sales.voucher: a cashier cannot create money")
   void voucherNeedsItsOwnPermission() {
-    Staff.Login cashier = Staff.login(admin, anonymous, "Cashier", "CASHIER", "Cashier#2026x");
-    Api till = anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x")).in(tenant, hqUid);
+    Staff.Login cashier =
+        Staff.login(admin, anonymous, "Cashier", "CASHIER", "Cashier#2026x-strong");
+    Api till =
+        anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x-strong")).in(tenant, hqUid);
     Response refused = till.post("/api/v1/vouchers", "{\"value\":500000,\"paidBy\":\"CASH\"}");
     assertThat(refused.expect(403).string("$.reason")).isEqualTo("forbidden");
 
@@ -212,9 +214,10 @@ class TillAndBranchHardeningTest extends IntegrationTest {
     first
         .post(
             "/api/v1/auth/change-password",
-            "{\"currentPassword\":\"%s\",\"newPassword\":\"Cashier#2026x\"}".formatted(temporary))
+            "{\"currentPassword\":\"%s\",\"newPassword\":\"Cashier#2026x-strong\"}"
+                .formatted(temporary))
         .expect(200);
-    return anonymous.as(anonymous.signIn(signIn, "Cashier#2026x")).in(tenant, hqUid);
+    return anonymous.as(anonymous.signIn(signIn, "Cashier#2026x-strong")).in(tenant, hqUid);
   }
 
   private Response sell(Api till, String payment) {

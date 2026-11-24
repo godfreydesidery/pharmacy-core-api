@@ -39,12 +39,12 @@ class ManagedLoginsTest extends IntegrationTest {
                 {"code":"%s","name":"Managed %s","legalName":"Managed %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     List<String> roles =
         admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
     cashierRole = roles.getFirst();
@@ -73,7 +73,7 @@ class ManagedLoginsTest extends IntegrationTest {
     String signIn = created.string("$.data.signIn");
     String temporary = created.string("$.data.temporaryPassword");
     assertThat(signIn).isEqualTo("juma@" + code.toLowerCase());
-    assertThat(temporary).matches("^[A-Z0-9]{4}-[A-Z0-9]{4}$").doesNotContainPattern("[0O1IL5S8B]");
+    assertThat(temporary).matches("^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$").doesNotContainPattern("[0O1IL5S8B]");
     assertThat(created.read("$.data.member.managed", Boolean.class)).isTrue();
     assertThat(created.string("$.data.member.contactEmail")).isEqualTo("juma.ali@mail.test");
     assertThat(created.read("$.data.member.passwordChangeRequired", Boolean.class)).isTrue();
@@ -103,7 +103,8 @@ class ManagedLoginsTest extends IntegrationTest {
         .isEqualTo("same_password");
     juma.post(
             "/api/v1/auth/change-password",
-            "{\"currentPassword\":\"%s\",\"newPassword\":\"Kariakoo#2026\"}".formatted(temporary))
+            "{\"currentPassword\":\"%s\",\"newPassword\":\"Kariakoo#2026-strong\"}"
+                .formatted(temporary))
         .expect(200);
     juma.get("/api/v1/products").expect(200);
     assertThat(
@@ -127,7 +128,7 @@ class ManagedLoginsTest extends IntegrationTest {
     neema
         .post(
             "/api/v1/auth/change-password",
-            "{\"currentPassword\":\"%s\",\"newPassword\":\"Arusha#2026x\"}".formatted(first))
+            "{\"currentPassword\":\"%s\",\"newPassword\":\"Arusha#2026x-strong\"}".formatted(first))
         .expect(200);
 
     Response reset =
@@ -218,14 +219,16 @@ class ManagedLoginsTest extends IntegrationTest {
             .post(
                 "/api/v1/users",
                 """
-                {"name":"Rehema","email":"%s","password":"Staff#2026x","roleUid":"%s",
+                {"name":"Rehema","email":"%s","password":"Staff#2026x-strong","roleUid":"%s",
                  "allBranches":true}
                 """
                     .formatted(email, cashierRole))
             .expect(202);
     assertThat(added.read("$.data.invited", Boolean.class)).isTrue();
     anonymous
-        .post("/api/v1/auth/sign-in", "{\"email\":\"" + email + "\",\"password\":\"Staff#2026x\"}")
+        .post(
+            "/api/v1/auth/sign-in",
+            "{\"email\":\"" + email + "\",\"password\":\"Staff#2026x-strong\"}")
         .expect(401);
 
     // A field left out of an edit keeps the setting.

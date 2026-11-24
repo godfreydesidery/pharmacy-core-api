@@ -40,18 +40,19 @@ class ApprovalsTest extends IntegrationTest {
                 {"code":"%s","name":"Approvals %s","legalName":"Approvals %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, adminEmail))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x-strong")).in(tenant, null);
     branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     Staff.Login asker =
-        Staff.login(admin, anonymous, "Branch Manager", "BRANCH_MANAGER", "Manager#2026x");
-    manager = anonymous.as(anonymous.signIn(asker.signIn(), "Manager#2026x")).in(tenant, branch);
-    cashier = Staff.login(admin, anonymous, "Till Cashier", "CASHIER", "Cashier#2026x");
+        Staff.login(admin, anonymous, "Branch Manager", "BRANCH_MANAGER", "Manager#2026x-strong");
+    manager =
+        anonymous.as(anonymous.signIn(asker.signIn(), "Manager#2026x-strong")).in(tenant, branch);
+    cashier = Staff.login(admin, anonymous, "Till Cashier", "CASHIER", "Cashier#2026x-strong");
   }
 
   @Test
@@ -85,19 +86,19 @@ class ApprovalsTest extends IntegrationTest {
     Response self =
         manager.post(
             "/api/v1/approvals",
-            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Manager#2026x\"}"
+            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Manager#2026x-strong\"}"
                 .formatted(managerSignIn()));
     assertThat(self.expect(422).string("$.reason")).isEqualTo("approver_is_requester");
     Response notApprover =
         manager.post(
             "/api/v1/approvals",
-            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Cashier#2026x\"}"
+            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Cashier#2026x-strong\"}"
                 .formatted(cashier.signIn()));
     assertThat(notApprover.expect(403).string("$.reason")).isEqualTo("not_an_approver");
     Response wrong =
         manager.post(
             "/api/v1/approvals",
-            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Wrong#2026x\"}"
+            "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Wrong#2026x-strong\"}"
                 .formatted(adminEmail));
     assertThat(wrong.expect(422).string("$.reason")).isEqualTo("invalid_credentials");
 
@@ -106,7 +107,7 @@ class ApprovalsTest extends IntegrationTest {
         manager
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"VOUCHER\",\"amount\":80000,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(adminEmail))
             .expect(201);
     String token = approved.string("$.data.token");
@@ -121,7 +122,7 @@ class ApprovalsTest extends IntegrationTest {
         manager
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"VOUCHER\",\"amount\":60000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"VOUCHER\",\"amount\":60000,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(adminEmail))
             .expect(201)
             .string("$.data.token");
@@ -142,7 +143,7 @@ class ApprovalsTest extends IntegrationTest {
         manager
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"REFUND\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"REFUND\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(adminEmail))
             .expect(201)
             .string("$.data.token");
@@ -154,7 +155,7 @@ class ApprovalsTest extends IntegrationTest {
         manager
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"VOUCHER\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x\"}"
+                "{\"action\":\"VOUCHER\",\"amount\":70000,\"login\":\"%s\",\"password\":\"Admin#2026x-strong\"}"
                     .formatted(adminEmail))
             .expect(201)
             .string("$.data.token");

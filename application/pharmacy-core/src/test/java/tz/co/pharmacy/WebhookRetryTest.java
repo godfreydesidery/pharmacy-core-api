@@ -43,12 +43,12 @@ class WebhookRetryTest extends IntegrationTest {
                 {"code":"%s","name":"Hooks %s","legalName":"Hooks %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     Api till = admin.in(tenant, branch);
@@ -151,12 +151,12 @@ class WebhookRetryTest extends IntegrationTest {
                 {"code":"%s","name":"Lanes %s","legalName":"Lanes %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     Api till = admin.in(tenant, branch);

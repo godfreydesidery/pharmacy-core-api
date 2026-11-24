@@ -182,13 +182,13 @@ class PlanningTest extends IntegrationTest {
     Api anonymous = api();
     String manager =
         tz.co.pharmacy.support.Staff.login(
-                admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x")
+                admin, anonymous, "Manager", "BRANCH_MANAGER", "Manager#2026x-strong")
             .signIn();
     String approval =
         admin
             .post(
                 "/api/v1/approvals",
-                "{\"action\":\"PERIOD_UNLOCK\",\"login\":\"%s\",\"password\":\"Manager#2026x\"}"
+                "{\"action\":\"PERIOD_UNLOCK\",\"login\":\"%s\",\"password\":\"Manager#2026x-strong\"}"
                     .formatted(manager))
             .expect(201)
             .string("$.data.token");
@@ -212,12 +212,12 @@ class PlanningTest extends IntegrationTest {
                 {"code":"%s","name":"Plan %s","legalName":"Plan %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     return new Tenant(admin, admin.in(tenant, branch));

@@ -42,8 +42,8 @@ import tz.co.pharmacy.support.Staff;
 class ReadModelsTest extends IntegrationTest {
 
   private static final ZoneId DAR = ZoneId.of("Africa/Dar_es_Salaam");
-  private static final String ADMIN_PASSWORD = "Admin#2026x";
-  private static final String MANAGER_PASSWORD = "Manager#2026x";
+  private static final String ADMIN_PASSWORD = "Admin#2026x-strong";
+  private static final String MANAGER_PASSWORD = "Manager#2026x-strong";
 
   @Value("${spring.datasource.url}")
   String url;

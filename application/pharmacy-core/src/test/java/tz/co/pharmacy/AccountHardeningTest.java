@@ -57,12 +57,12 @@ class AccountHardeningTest extends IntegrationTest {
                 {"code":"%s","name":"Hardened %s","legalName":"Hardened %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Mushi","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Mushi","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    token = anonymous.signIn(email, "Admin#2026x");
+    token = anonymous.signIn(email, "Admin#2026x-strong");
     admin = anonymous.as(token).in(tenant, null);
   }
 
@@ -92,11 +92,11 @@ class AccountHardeningTest extends IntegrationTest {
 
     // A wrong password does not reopen it; the right one does.
     assertThat(
-            me.post("/api/v1/auth/confirm-identity", "{\"password\":\"Wrong#2026x\"}")
+            me.post("/api/v1/auth/confirm-identity", "{\"password\":\"Wrong#2026x-strong\"}")
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("invalid_password");
-    me.post("/api/v1/auth/confirm-identity", "{\"password\":\"Admin#2026x\"}").expect(200);
+    me.post("/api/v1/auth/confirm-identity", "{\"password\":\"Admin#2026x-strong\"}").expect(200);
     me.post("/api/v1/auth/passkeys/register/options", "{}").expect(200);
   }
 
@@ -119,12 +119,12 @@ class AccountHardeningTest extends IntegrationTest {
     Response old =
         anonymous.post(
             "/api/v1/auth/password-reset/complete",
-            "{\"token\":\"%s\",\"newPassword\":\"Fresh#2026xyz\"}".formatted(first));
+            "{\"token\":\"%s\",\"newPassword\":\"Fresh#2026xyz-strong\"}".formatted(first));
     assertThat(old.expect(422).string("$.reason")).isEqualTo("invalid_token");
     anonymous
         .post(
             "/api/v1/auth/password-reset/complete",
-            "{\"token\":\"%s\",\"newPassword\":\"Fresh#2026xyz\"}".formatted(second))
+            "{\"token\":\"%s\",\"newPassword\":\"Fresh#2026xyz-strong\"}".formatted(second))
         .expect(200);
 
     // A third goes out (three this hour); the fourth and fifth are dropped, with the same answer.
@@ -153,10 +153,11 @@ class AccountHardeningTest extends IntegrationTest {
       Response refused =
           me.post(
               "/api/v1/auth/change-password",
-              "{\"currentPassword\":\"Admin#2026x\",\"newPassword\":\"%s\"}".formatted(weak));
+              "{\"currentPassword\":\"Admin#2026x-strong\",\"newPassword\":\"%s\"}"
+                  .formatted(weak));
       assertThat(refused.expect(422).string("$.reason"))
           .as(weak)
-          .isIn("common_password", "weak_password");
+          .isIn("common_password", "weak_password", "password_too_short");
     }
   }
 
@@ -172,8 +173,9 @@ class AccountHardeningTest extends IntegrationTest {
                 """)
             .expect(201)
             .string("$.data.uid");
-    Staff.Login hr = Staff.login(admin, anonymous, "Hr Officer", "PEOPLE", "People#2026x");
-    Api officer = anonymous.as(anonymous.signIn(hr.signIn(), "People#2026x")).in(tenant, null);
+    Staff.Login hr = Staff.login(admin, anonymous, "Hr Officer", "PEOPLE", "People#2026x-strong");
+    Api officer =
+        anonymous.as(anonymous.signIn(hr.signIn(), "People#2026x-strong")).in(tenant, null);
     Response escalate =
         officer.post(
             "/api/v1/roles",

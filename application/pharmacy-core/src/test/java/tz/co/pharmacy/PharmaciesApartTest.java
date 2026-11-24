@@ -50,8 +50,8 @@ class PharmaciesApartTest extends IntegrationTest {
     // Juma runs the weekday pharmacy; on weekends he works at another, whose admin is Rehema.
     weekday = register(juma);
     weekend = register(other);
-    weekdayAdmin = anonymous.as(anonymous.signIn(juma, "Admin#2026x")).in(weekday, null);
-    weekendAdmin = anonymous.as(anonymous.signIn(other, "Admin#2026x")).in(weekend, null);
+    weekdayAdmin = anonymous.as(anonymous.signIn(juma, "Admin#2026x-strong")).in(weekday, null);
+    weekendAdmin = anonymous.as(anonymous.signIn(other, "Admin#2026x-strong")).in(weekend, null);
     List<String> roles =
         weekendAdmin
             .get("/api/v1/roles")
@@ -66,7 +66,7 @@ class PharmaciesApartTest extends IntegrationTest {
         .expect(202);
     String token = new Outbox(url, owner, ownerPassword).invitationToken(weekend, juma);
     anonymous
-        .as(anonymous.signIn(juma, "Admin#2026x"))
+        .as(anonymous.signIn(juma, "Admin#2026x-strong"))
         .post("/api/v1/auth/invitations/join", "{\"token\":\"%s\"}".formatted(token))
         .expect(200);
     List<String> uids =
@@ -86,7 +86,7 @@ class PharmaciesApartTest extends IntegrationTest {
             {"code":"%s","name":"Apart %s","legalName":"Apart %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, adminEmail))
         .expect(201)
@@ -114,7 +114,7 @@ class PharmaciesApartTest extends IntegrationTest {
   @Test
   @DisplayName("a pharmacy records sign-ins and activity in it, never those elsewhere")
   void onlyWorkHereIsSeen() {
-    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x"));
+    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x-strong"));
     // Weekday work: the weekend pharmacy learns nothing of it.
     session.in(weekday, null).get("/api/v1/products").expect(200);
     session.in(weekday, null).get("/api/v1/settings").expect(200);
@@ -141,16 +141,16 @@ class PharmaciesApartTest extends IntegrationTest {
   @DisplayName("what happens to the person's account stays out of every pharmacy's audit")
   void accountEventsStayOut() {
     // Changing the password while the app is in the weekday pharmacy.
-    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x")).in(weekday, null);
+    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x-strong")).in(weekday, null);
     session
         .post(
             "/api/v1/auth/change-password",
-            "{\"currentPassword\":\"Admin#2026x\",\"newPassword\":\"Changed#2026x\"}")
+            "{\"currentPassword\":\"Admin#2026x-strong\",\"newPassword\":\"Changed#2026x-strong\"}")
         .expect(200);
     session.post("/api/v1/auth/2fa/setup", "{}").expect(200);
     // The change signed Juma's other sessions out, his weekday admin one too.
     weekdayAdmin.get("/api/v1/settings").expect(401);
-    weekdayAdmin = anonymous.as(anonymous.signIn(juma, "Changed#2026x")).in(weekday, null);
+    weekdayAdmin = anonymous.as(anonymous.signIn(juma, "Changed#2026x-strong")).in(weekday, null);
     for (Api admin : List.of(weekdayAdmin, weekendAdmin)) {
       assertThat(admin.get("/api/v1/audit?limit=100").expect(200).body())
           .doesNotContain("PASSWORD_CHANGED");
@@ -172,7 +172,8 @@ class PharmaciesApartTest extends IntegrationTest {
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("not_managed");
-    Staff.Login cashier = Staff.login(weekendAdmin, anonymous, "Neema", "CASHIER", "Staff#2026x");
+    Staff.Login cashier =
+        Staff.login(weekendAdmin, anonymous, "Neema", "CASHIER", "Staff#2026x-strong");
     weekendAdmin.post("/api/v1/users/" + cashier.membershipUid() + "/unlock", "{}").expect(200);
   }
 
@@ -186,7 +187,7 @@ class PharmaciesApartTest extends IntegrationTest {
             .json()
             .read("$.data[?(@.code == 'PHARMACIST')].uid");
     String role = roles.getFirst();
-    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x"));
+    Api session = anonymous.as(anonymous.signIn(juma, "Admin#2026x-strong"));
     Outbox outbox = new Outbox(url, owner, ownerPassword);
     String first = Phones.fresh();
     String second = Phones.fresh();

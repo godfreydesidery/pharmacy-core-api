@@ -86,12 +86,12 @@ class KeyringTest extends IntegrationTest {
                 {"code":"%s","name":"Keys %s","legalName":"Keys %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Joseph","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Joseph","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    self = anonymous.as(anonymous.signIn(email, "Admin#2026x"));
+    self = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong"));
     admin = self.in(tenant, null);
   }
 
@@ -194,7 +194,7 @@ class KeyringTest extends IntegrationTest {
         anonymous
             .post(
                 "/api/v1/auth/sign-in",
-                "{\"email\":\"" + email + "\",\"password\":\"Admin#2026x\"}")
+                "{\"email\":\"" + email + "\",\"password\":\"Admin#2026x-strong\"}")
             .expect(202);
     anonymous
         .post(

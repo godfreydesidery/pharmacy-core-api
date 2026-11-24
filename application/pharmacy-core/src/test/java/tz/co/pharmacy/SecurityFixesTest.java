@@ -41,7 +41,7 @@ class SecurityFixesTest extends IntegrationTest {
     String code = "SF" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
     adminEmail = code.toLowerCase() + "@test.local";
     tenant = register(code, adminEmail);
-    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x-strong")).in(tenant, null);
   }
 
   private String register(String code, String email) {
@@ -51,7 +51,7 @@ class SecurityFixesTest extends IntegrationTest {
             {"code":"%s","name":"Security %s","legalName":"Security %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, email))
         .expect(201)
@@ -77,7 +77,7 @@ class SecurityFixesTest extends IntegrationTest {
   @DisplayName(
       "one person signing in on several devices at the same moment: every sign-in succeeds")
   void simultaneousSignIns() throws Exception {
-    String body = "{\"email\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(adminEmail);
+    String body = "{\"email\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(adminEmail);
     ExecutorService devices = Executors.newFixedThreadPool(6);
     try {
       List<Future<Integer>> attempts = new ArrayList<>();
@@ -138,14 +138,15 @@ class SecurityFixesTest extends IntegrationTest {
   @Test
   @DisplayName("M-14 an administrator sees a locked member and unlocks them")
   void adminUnlocksALockedMember() {
-    Staff.Login login = Staff.login(admin, anonymous, "Locked", "CASHIER", "Staff#2026x");
+    Staff.Login login = Staff.login(admin, anonymous, "Locked", "CASHIER", "Staff#2026x-strong");
     String email = login.signIn();
     String membership = login.membershipUid();
     Response last = null;
     for (int i = 0; i < 6; i++) {
       last =
           anonymous.post(
-              "/api/v1/auth/sign-in", "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x\"}");
+              "/api/v1/auth/sign-in",
+              "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x-strong\"}");
     }
     assertThat(last.status()).isEqualTo(423);
     List<String> locked =
@@ -154,14 +155,14 @@ class SecurityFixesTest extends IntegrationTest {
 
     admin.post("/api/v1/users/" + membership + "/unlock", "{}").expect(200);
     assertThat(admin.get("/api/v1/users/locked").expect(200).body()).doesNotContain(membership);
-    anonymous.signIn(email, "Staff#2026x");
+    anonymous.signIn(email, "Staff#2026x-strong");
   }
 
   @Test
   @DisplayName("M-15 an authenticator code works once")
   void authenticatorCodesAreSingleUse() {
-    String email = Staff.login(admin, anonymous, "Totp", "CASHIER", "Staff#2026x").signIn();
-    Api staff = anonymous.as(anonymous.signIn(email, "Staff#2026x"));
+    String email = Staff.login(admin, anonymous, "Totp", "CASHIER", "Staff#2026x-strong").signIn();
+    Api staff = anonymous.as(anonymous.signIn(email, "Staff#2026x-strong"));
     String secret = staff.post("/api/v1/auth/2fa/setup", "{}").expect(200).string("$.data.secret");
     String now = totp(secret, Instant.now());
     staff.post("/api/v1/auth/2fa/enable", "{\"code\":\"" + now + "\"}").expect(200);
@@ -183,7 +184,7 @@ class SecurityFixesTest extends IntegrationTest {
         anonymous
             .post(
                 "/api/v1/auth/sign-in",
-                "{\"email\":\"" + email + "\",\"password\":\"Staff#2026x\"}")
+                "{\"email\":\"" + email + "\",\"password\":\"Staff#2026x-strong\"}")
             .expect(202);
     return anonymous.post(
         "/api/v1/auth/sign-in/verify",
@@ -198,9 +199,9 @@ class SecurityFixesTest extends IntegrationTest {
     String otherEmail = other.toLowerCase() + "@test.local";
     String otherTenant = register(other, otherEmail);
     Api otherAdmin =
-        anonymous.as(anonymous.signIn(otherEmail, "Admin#2026x")).in(otherTenant, null);
+        anonymous.as(anonymous.signIn(otherEmail, "Admin#2026x-strong")).in(otherTenant, null);
 
-    Response invited = addUser(otherAdmin, adminEmail, "Ignored#2026x");
+    Response invited = addUser(otherAdmin, adminEmail, "Ignored#2026x-strong");
     assertThat(invited.status()).isEqualTo(202);
     assertThat(invited.read("$.data.invited", Boolean.class)).isTrue();
     List<String> tenants =
@@ -208,14 +209,14 @@ class SecurityFixesTest extends IntegrationTest {
     assertThat(tenants).doesNotContain(otherTenant);
     assertThat(otherAdmin.get("/api/v1/users/invitations").expect(200).body()).contains(adminEmail);
     // The account's password is untouched.
-    anonymous.signIn(adminEmail, "Admin#2026x");
+    anonymous.signIn(adminEmail, "Admin#2026x-strong");
   }
 
   @Test
   @DisplayName("L-05 signing out of every other device keeps this one")
   void signOutOfOtherDevices() {
-    Api first = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x"));
-    Api second = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x"));
+    Api first = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x-strong"));
+    Api second = anonymous.as(anonymous.signIn(adminEmail, "Admin#2026x-strong"));
     Response done = first.post("/api/v1/auth/sessions/revoke-others", "{}").expect(200);
     assertThat(done.read("$.data.revoked", Integer.class)).isGreaterThanOrEqualTo(2);
     first.get("/api/v1/auth/me").expect(200);
@@ -227,9 +228,12 @@ class SecurityFixesTest extends IntegrationTest {
   @Test
   @DisplayName("a pharmacy's audit shows who signed in to work in it, and when; another's does not")
   void signInsAreInThePharmacysAudit() {
-    String email = Staff.login(admin, anonymous, "Seen", "CASHIER", "Staff#2026x").signIn();
+    String email = Staff.login(admin, anonymous, "Seen", "CASHIER", "Staff#2026x-strong").signIn();
     // Recorded when the session first works in the pharmacy.
-    anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenant, null).get("/api/v1/products");
+    anonymous
+        .as(anonymous.signIn(email, "Staff#2026x-strong"))
+        .in(tenant, null)
+        .get("/api/v1/products");
 
     Response signIns = admin.get("/api/v1/audit?action=sign_in&limit=50").expect(200);
     List<String> actions = signIns.json().read("$.data.items[*].action");
@@ -242,7 +246,8 @@ class SecurityFixesTest extends IntegrationTest {
     String otherEmail = "other" + UUID.randomUUID().toString().substring(0, 4) + "@test.local";
     String other =
         register("SO" + UUID.randomUUID().toString().substring(0, 4).toUpperCase(), otherEmail);
-    Api otherAdmin = anonymous.as(anonymous.signIn(otherEmail, "Admin#2026x")).in(other, null);
+    Api otherAdmin =
+        anonymous.as(anonymous.signIn(otherEmail, "Admin#2026x-strong")).in(other, null);
     String theirs = otherAdmin.get("/api/v1/audit?action=SIGN_IN&limit=50").expect(200).body();
     assertThat(theirs).contains(otherEmail).doesNotContain(email);
   }

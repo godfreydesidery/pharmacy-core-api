@@ -36,12 +36,12 @@ class ProductCodesTest extends IntegrationTest {
                 {"code":"%s","name":"Codes %s","legalName":"Codes %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    return anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    return anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
   }
 
   private static Response product(Api admin, String name, String sku) {

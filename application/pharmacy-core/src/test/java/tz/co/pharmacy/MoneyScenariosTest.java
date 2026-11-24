@@ -50,12 +50,12 @@ class MoneyScenariosTest extends IntegrationTest {
                 {"code":"%s","name":"Money %s","legalName":"Money %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
@@ -391,8 +391,10 @@ class MoneyScenariosTest extends IntegrationTest {
   @Test
   @DisplayName("a supervisor's cash refund from the cashier's drawer counts in the cashier's shift")
   void supervisorRefundCountsInTheCashiersShift() {
-    String email = Staff.login(admin, anonymous, "Zawadi", "CASHIER", "Staff#2026x").signIn();
-    Api cashier = anonymous.as(anonymous.signIn(email, "Staff#2026x")).in(tenantUid, branchUid);
+    String email =
+        Staff.login(admin, anonymous, "Zawadi", "CASHIER", "Staff#2026x-strong").signIn();
+    Api cashier =
+        anonymous.as(anonymous.signIn(email, "Staff#2026x-strong")).in(tenantUid, branchUid);
     cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
     Response sale =
         cashier
@@ -428,9 +430,11 @@ class MoneyScenariosTest extends IntegrationTest {
   @Test
   @DisplayName("a cashier whose email changes mid-shift keeps one shift and one report row")
   void emailChangeKeepsTheShift() {
-    String before = Staff.login(admin, anonymous, "Neema", "CASHIER", "Staff#2026x").signIn();
+    String before =
+        Staff.login(admin, anonymous, "Neema", "CASHIER", "Staff#2026x-strong").signIn();
     String after = "kesho." + UUID.randomUUID().toString().substring(0, 6) + "@mail.test";
-    Api cashier = anonymous.as(anonymous.signIn(before, "Staff#2026x")).in(tenantUid, branchUid);
+    Api cashier =
+        anonymous.as(anonymous.signIn(before, "Staff#2026x-strong")).in(tenantUid, branchUid);
     cashier.post("/api/v1/shifts/open", "{\"openingFloat\":50000}").expect(201);
     String sale =
         """
