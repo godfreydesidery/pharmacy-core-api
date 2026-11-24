@@ -60,7 +60,7 @@
         <springdoc.version>3.2.1</springdoc.version>
         <fastexcel.version>0.20.2</fastexcel.version>
         <archunit.version>1.5.1</archunit.version>
-        <bouncycastle.version>1.86</bouncycastle.version>
+        <bouncycastle.version>1.87</bouncycastle.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
         <!-- The tests' PostgreSQL major is production's (Railway and RDS run 18); move both together. -->
         <embedded-postgres-binaries.version>18.7.0</embedded-postgres-binaries.version>
