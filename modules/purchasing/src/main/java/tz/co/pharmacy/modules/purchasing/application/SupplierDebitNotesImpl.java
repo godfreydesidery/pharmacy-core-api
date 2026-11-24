@@ -126,6 +126,26 @@ class SupplierDebitNotesImpl implements SupplierDebitNotes {
 
   @Override
   @Transactional(readOnly = true)
+  public Map<UUID, BigDecimal> raisedAgainst(java.util.Collection<UUID> receiptUids) {
+    Map<UUID, BigDecimal> raised = new LinkedHashMap<>();
+    if (receiptUids == null || receiptUids.isEmpty()) {
+      return raised;
+    }
+    // Row-level security keeps this to the current pharmacy.
+    jdbc.query(
+        "select goods_receipt_uid, sum(total) from purchasing.supplier_debit_notes"
+            + " where goods_receipt_uid = any(?) group by goods_receipt_uid",
+        ps ->
+            ps.setArray(
+                1, ps.getConnection().createArrayOf("uuid", receiptUids.toArray(UUID[]::new))),
+        rs -> {
+          raised.put(rs.getObject(1, UUID.class), rs.getBigDecimal(2));
+        });
+    return raised;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public SupplierDebitNoteTotals totals(Instant from, Instant to) {
     return jdbc.queryForObject(
         "select coalesce(sum(net), 0) as net, coalesce(sum(vat), 0) as vat"

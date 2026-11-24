@@ -315,12 +315,22 @@ class SupplierReturnsImpl implements SupplierReturns {
     return view(saved);
   }
 
-  /** What is still open of the receipt, in its currency: its total less payments and credits. */
+  /**
+   * What is still open of the receipt, in its currency: its total, plus what supplier debit notes
+   * raised on it (STD-2), less payments and credits.
+   */
   private BigDecimal open(GoodsReceipt receipt) {
     List<UUID> uid = List.of(receipt.getUid());
     BigDecimal paid = settlements.settledByPayments(uid).get(receipt.getUid());
     BigDecimal credited = creditedAgainst(uid).get(receipt.getUid());
+    BigDecimal raised =
+        jdbc.queryForObject(
+            "select coalesce(sum(total), 0) from purchasing.supplier_debit_notes"
+                + " where goods_receipt_uid = ?",
+            BigDecimal.class,
+            receipt.getUid());
     return Amounts.money(receipt.getTotal(), receipt.getCurrency())
+        .add(raised == null ? BigDecimal.ZERO : raised)
         .subtract(paid == null ? BigDecimal.ZERO : paid)
         .subtract(credited == null ? BigDecimal.ZERO : credited);
   }

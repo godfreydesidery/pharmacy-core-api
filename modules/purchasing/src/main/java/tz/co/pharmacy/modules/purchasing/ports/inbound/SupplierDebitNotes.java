@@ -36,6 +36,13 @@ public interface SupplierDebitNotes {
 
   List<SupplierDebitNoteView> ofReceipt(UUID goodsReceiptUid);
 
+  /**
+   * What the debit notes on each receipt raised (their totals, base currency = the receipt's, since
+   * a debit note is refused on a foreign receipt). A payment naming the receipt may settle this
+   * too. Receipts with no debit note are absent.
+   */
+  java.util.Map<UUID, BigDecimal> raisedAgainst(java.util.Collection<UUID> receiptUids);
+
   /** A product's value on a receipt, base currency, for splitting its input VAT. */
   record ReceiptLineValue(UUID productUid, BigDecimal value) {}
 

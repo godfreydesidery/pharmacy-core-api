@@ -371,6 +371,24 @@ class OwnerDecisionsTest extends IntegrationTest {
                 .expect(200)
                 .read("$.data.debitNotes.purchasesVat", Double.class))
         .isEqualTo(18.0);
+
+    // A payment naming the receipt may settle what the debit note raised, and no more.
+    double receiptTotal =
+        till.get("/api/v1/goods-receipts/" + taxable)
+            .expect(200)
+            .read("$.data.total", Double.class);
+    String pay =
+        "{\"supplierUid\":\"%s\",\"amount\":%s,\"paymentMethod\":\"CASH\",\"goodsReceiptUids\":[\"%s\"]}";
+    Response over =
+        admin.post(
+            "/api/v1/finance/supplier-payments",
+            pay.formatted(supplier, receiptTotal + 118 + 1, taxable));
+    assertThat(over.expect(422).string("$.reason")).isEqualTo("overpayment");
+    admin
+        .post(
+            "/api/v1/finance/supplier-payments",
+            pay.formatted(supplier, receiptTotal + 118, taxable))
+        .expect(201);
     assertBooksBalance();
   }
 
