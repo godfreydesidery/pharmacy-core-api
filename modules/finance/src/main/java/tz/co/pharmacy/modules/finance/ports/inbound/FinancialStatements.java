@@ -57,5 +57,9 @@ public interface FinancialStatements {
       BigDecimal netPayable,
       BigDecimal inputVat,
       /* Output VAT less the VAT given back on returns. */
-      BigDecimal netOutputVat) {}
+      BigDecimal netOutputVat,
+      /* Input VAT moved to 5150 by the apportionment (STD-2): TRA does not give it back. */
+      BigDecimal nonReclaimableInputVat,
+      /* Input VAT before the apportionment: inputVat (reclaimable) plus the non-reclaimable. */
+      BigDecimal inputVatBeforeApportionment) {}
 }

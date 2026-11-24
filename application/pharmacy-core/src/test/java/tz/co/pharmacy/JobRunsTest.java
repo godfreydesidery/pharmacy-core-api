@@ -181,7 +181,7 @@ class JobRunsTest extends IntegrationTest {
             "/api/v1/auth/sign-in",
             "{\"email\":\"nobody-"
                 + UUID.randomUUID()
-                + "@jobs.test\",\"password\":\"Wrong#2026x\"}")
+                + "@jobs.test\",\"password\":\"Wrong#2026x-strong\"}")
         .expect(401);
 
     String scrape = api().get("/actuator/prometheus").expect(200).body();

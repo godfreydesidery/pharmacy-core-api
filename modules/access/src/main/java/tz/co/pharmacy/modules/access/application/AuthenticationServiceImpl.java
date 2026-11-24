@@ -132,10 +132,33 @@ class AuthenticationServiceImpl implements AuthenticationService {
       }
       throw Refusal.unauthenticated("invalid_credentials", "The email or password is wrong.");
     }
+    notePasswordLength(user, password);
     if (user.isTwoFactorEnabled()) {
       return challenge(user, from);
     }
     return new SignInOutcome.Signed(issuer.issue(user, from, "PASSWORD"));
+  }
+
+  /**
+   * Notes, once, whether the password just proved may be the account's only factor (STD-21): a
+   * password from before the rule is known after its next sign-in. Its length is kept, never it.
+   */
+  private void notePasswordLength(User user, String password) {
+    boolean longEnough = Passwords.longEnoughAlone(password);
+    if (Boolean.valueOf(longEnough).equals(user.getPasswordLongEnoughAlone())) {
+      return;
+    }
+    ExecutionContext.callAs(
+        SessionIssuer.userFrame(user),
+        () -> {
+          writes.executeWithoutResult(
+              status ->
+                  users
+                      .findByUid(user.getUid())
+                      .ifPresent(row -> row.notePasswordLength(longEnough)));
+          return null;
+        });
+    user.notePasswordLength(longEnough);
   }
 
   /** Counts a failed sign-in and audits it; true when it locked the account. */
@@ -340,6 +363,41 @@ class AuthenticationServiceImpl implements AuthenticationService {
         session.getExpiresAt());
   }
 
+  @Override
+  public void workingUnderLimit(Principal principal, Integer pharmacyIdleMinutes) {
+    if (principal == null || principal.rootAdmin() || principal.sessionUid() == null) {
+      return;
+    }
+    Integer limit = idle.minutesFor(false, pharmacyIdleMinutes);
+    Integer current = principal.idleMinutes();
+    if (limit == null || current == null || pharmacyIdleMinutes == null) {
+      // No limit at all (switched off), or none on this session.
+      return;
+    }
+    Instant now = clock.instant();
+    Instant activeAt = principal.activeAt();
+    if (activeAt != null && !activeAt.plus(Duration.ofMinutes(limit)).isAfter(now)) {
+      // Unused for longer than this pharmacy allows: the session ends, as at its own limit.
+      Optional<Live> live =
+          reads.execute(
+              status ->
+                  sessions
+                      .findByUid(principal.sessionUid())
+                      .flatMap(
+                          session ->
+                              users
+                                  .findByUid(session.getUserUid())
+                                  .map(user -> new Live(session, user, principal))));
+      if (live != null && live.isPresent()) {
+        issuer.endIdle(live.get().session().getId(), live.get().user(), limit);
+      }
+      throw idleRefusal(limit);
+    }
+    if (limit < current) {
+      writes.executeWithoutResult(status -> sessions.lowerIdle(principal.sessionUid(), limit));
+    }
+  }
+
   /** The live session of {@code token} with its active user; null otherwise. */
   private Live liveSession(String token, Instant now) {
     if (token == null || token.isBlank()) {
@@ -407,7 +465,11 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 users
                     .findByUid(userUid)
                     .orElseThrow(() -> Refusal.notFound("user_not_found", "No such user.")));
-    Passwords.acceptable(newPassword, "newPassword", known.getEmail());
+    // An authenticator app or a passkey: the password then needs 8 characters, not 15 (STD-21).
+    boolean secondFactor =
+        known.isTwoFactorEnabled()
+            || Boolean.TRUE.equals(reads.execute(status -> passkeys.existsByUserUid(userUid)));
+    Passwords.acceptable(newPassword, "newPassword", known.getEmail(), secondFactor);
     // The current password first, and a wrong one counts like a failed sign-in: a stolen session
     // must not be a way to guess the password without end (AUTH-5), nor to make the server hash
     // new passwords for nothing (AUTH-6).
@@ -419,7 +481,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
       throw Refusal.invalid(
           "invalid_current_password", "The current password is wrong.", "currentPassword");
     }
-    String hash = passwords.hash(newPassword, "newPassword", known.getEmail());
+    String hash = passwords.hash(newPassword, "newPassword", known.getEmail(), secondFactor);
     writes.executeWithoutResult(
         status -> {
           User user =
@@ -434,6 +496,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
                 "newPassword");
           }
           user.changePassword(hash);
+          user.notePasswordLength(Passwords.longEnoughAlone(newPassword));
           resets.closeOpen(userUid, now);
           int revoked =
               currentToken == null

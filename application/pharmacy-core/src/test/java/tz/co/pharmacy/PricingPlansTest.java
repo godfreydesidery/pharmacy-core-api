@@ -43,19 +43,20 @@ class PricingPlansTest extends IntegrationTest {
                 {"code":"%s","name":"Plans %s","legalName":"Plans %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     adminTill = admin.in(tenant, branch);
     tz.co.pharmacy.support.Staff.Login cashier =
-        tz.co.pharmacy.support.Staff.login(admin, anonymous, "Till", "CASHIER", "Cashier#2026x");
+        tz.co.pharmacy.support.Staff.login(
+            admin, anonymous, "Till", "CASHIER", "Cashier#2026x-strong");
     cashierTill =
-        anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x")).in(tenant, branch);
+        anonymous.as(anonymous.signIn(cashier.signIn(), "Cashier#2026x-strong")).in(tenant, branch);
 
     paracetamol = product("Paracetamol 500mg", 500, 200);
     amoxicillin = product("Amoxicillin 500mg", 1000, 600);

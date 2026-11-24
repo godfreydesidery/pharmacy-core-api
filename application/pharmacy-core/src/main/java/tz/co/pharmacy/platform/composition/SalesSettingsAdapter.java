@@ -39,6 +39,12 @@ class SalesSettingsAdapter implements SalesSettings {
   }
 
   @Override
+  public BigDecimal standardVatRatePercent() {
+    BigDecimal rate = settingsService.current().defaultTaxRatePercent();
+    return rate == null ? BigDecimal.ZERO : rate;
+  }
+
+  @Override
   public String invoicePrefix() {
     String prefix = settingsService.current().invoicePrefix();
     return prefix == null || prefix.isBlank() ? "INV" : prefix;

@@ -54,6 +54,17 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
       @Param("idleMinutes") Integer idleMinutes,
       @Param("fromPharmacy") boolean fromPharmacy);
 
+  /**
+   * Holds the session to a stricter limit (AUTH-17): a request in a pharmacy whose limit is lower
+   * than the session's lowers it, and pins it, so every later request and activity report keeps to
+   * the strictest pharmacy the session worked in. 1 when it changed.
+   */
+  @Modifying
+  @Query(
+      "update Session s set s.idleMinutes = :idleMinutes, s.idlePinned = true"
+          + " where s.uid = :uid and s.idleMinutes > :idleMinutes")
+  int lowerIdle(@Param("uid") UUID uid, @Param("idleMinutes") Integer idleMinutes);
+
   /** Revokes the session unless already revoked; 1 when this call ended it. */
   @Modifying
   @Query("update Session s set s.revokedAt = :at where s.id = :id and s.revokedAt is null")

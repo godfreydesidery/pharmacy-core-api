@@ -28,12 +28,12 @@ class StockOperationsTest extends IntegrationTest {
                 {"code":"%s","name":"Ops %s","legalName":"Ops %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    Api admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     Api hq = admin.in(tenant, branch);
@@ -125,6 +125,23 @@ class StockOperationsTest extends IntegrationTest {
     assertThat(returned.read("$.data.total", Double.class)).isEqualTo(2_000.0);
     assertThat(returned.string("$.data.goodsReceiptNumber")).startsWith("GRN");
     assertThat(quantity(hq, product, "A-1")).isEqualTo(15);
+    // FRD-16: the return waits for the supplier's credit note; nothing is owed less until then.
+    assertThat(returned.string("$.data.status")).isEqualTo("PENDING_CREDIT");
+    Api.eventually(() -> payable(admin) == 13_100.0);
+    assertThat(
+            admin
+                .get("/api/v1/suppliers/balances")
+                .expect(200)
+                .read("$.data[0].awaitingCredit", Double.class))
+        .isEqualTo(2_000.0);
+    Response credited =
+        admin
+            .post(
+                "/api/v1/supplier-returns/" + returned.string("$.data.uid") + "/credit-note",
+                "{\"number\":\"CN-77\",\"amount\":2000}")
+            .expect(200);
+    assertThat(credited.string("$.data.status")).isEqualTo("CREDITED");
+    assertThat(credited.string("$.data.credit.number")).isEqualTo("CN-77");
     Api.eventually(() -> payable(admin) == 11_100.0);
     // What is owed to the supplier: 13,000 + 100 received − 2,000 returned = 11,100.
     Response balances = admin.get("/api/v1/suppliers/balances").expect(200);

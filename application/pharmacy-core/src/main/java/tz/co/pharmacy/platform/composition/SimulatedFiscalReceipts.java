@@ -58,7 +58,11 @@ class SimulatedFiscalReceipts implements FiscalReceipts {
             : "SIM-"
                 + branch
                 + "-"
-                + (request.kind() == FiscalDocumentKind.CREDIT_NOTE ? "C" : "R")
+                + switch (request.kind()) {
+                  case CREDIT_NOTE -> "C";
+                  case DEBIT_NOTE -> "D";
+                  default -> "R";
+                }
                 + String.format(Locale.ROOT, "%08d", request.globalCounter());
     BigDecimal total = request.totals() == null ? BigDecimal.ZERO : request.totals().total();
     BigDecimal tax = request.totals() == null ? BigDecimal.ZERO : request.totals().tax();

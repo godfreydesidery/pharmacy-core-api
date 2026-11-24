@@ -23,7 +23,15 @@ final class Postings {
   static final String RECEIVABLE = "1100";
   static final String INSURANCE_RECEIVABLE = "1110";
   static final String VAT_RECEIVABLE = "1150";
+
+  /** Stock sent back to suppliers, at cost, until their credit notes come (FRD-16). */
+  static final String RETURNS_AWAITING_CREDIT = "1160";
+
   static final String INVENTORY = "1200";
+  static final String EXPIRY_PROVISION = "1210";
+  static final String EXPIRY_WRITE_DOWN = "5110";
+  static final String PURCHASE_PRICE_DIFFERENCES = "5120";
+  static final String NON_RECLAIMABLE_VAT = "5150";
   static final String PAYABLE = "2000";
   static final String TAX_PAYABLE = "2100";
   static final String SALES_REVENUE = "4000";
@@ -113,9 +121,14 @@ final class Postings {
    */
   static List<Line> receipt(ReceiptPosting posting) {
     BigDecimal vat = posting.vat() == null ? Amounts.ZERO : money(posting.vat());
+    // STD-17: a foreign receipt's payable is its total converted once; its goods are its lines,
+    // each converted once (what the stock comes in at). The few minor units between them are the
+    // conversion's rounding, posted to 7000 (Dr when the payable is the larger).
+    BigDecimal rounding = posting.rounding() == null ? Amounts.ZERO : money(posting.rounding());
     List<Line> lines = new ArrayList<>();
-    debit(lines, INVENTORY, money(posting.total()).subtract(vat));
+    debit(lines, INVENTORY, money(posting.total()).subtract(vat).subtract(rounding));
     debit(lines, VAT_RECEIVABLE, vat);
+    debit(lines, FX_GAINS_LOSSES, rounding);
     List<Line> payable = new ArrayList<>();
     credit(payable, PAYABLE, posting.total());
     payable.forEach(line -> lines.add(line.noting(posting.currency(), posting.foreignTotal())));
@@ -193,11 +206,85 @@ final class Postings {
     return balanced(lines);
   }
 
-  /** Stock back to the supplier at cost: Dr accounts payable / Cr inventory. */
+  /**
+   * Stock back to the supplier at cost, from before credit notes: Dr accounts payable / Cr
+   * inventory.
+   */
   static List<Line> supplierReturn(BigDecimal value) {
+    return supplierReturn(value, false);
+  }
+
+  /**
+   * Stock back to the supplier at cost. Awaiting the supplier's credit note (FRD-16): Dr 1160
+   * Supplier returns awaiting credit / Cr 1200 inventory; nothing comes off what is owed yet. A
+   * return from before credit notes: Dr 2000 accounts payable / Cr 1200.
+   */
+  static List<Line> supplierReturn(BigDecimal value, boolean awaitingCredit) {
     List<Line> lines = new ArrayList<>();
-    debit(lines, PAYABLE, value);
+    debit(lines, awaitingCredit ? RETURNS_AWAITING_CREDIT : PAYABLE, value);
     credit(lines, INVENTORY, value);
+    return balanced(lines);
+  }
+
+  /**
+   * The supplier's credit note for a return: Dr 2000 accounts payable (the credit, in base at the
+   * goods receipt's booked rate) / Cr 1160 (the return's value at cost); a credit for less than the
+   * stock cost is a loss (Dr 5100), for more a gain (Cr 5100).
+   */
+  static List<Line> supplierCredit(BigDecimal returnValue, BigDecimal creditBase) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, PAYABLE, creditBase);
+    credit(lines, RETURNS_AWAITING_CREDIT, returnValue);
+    debit(lines, STOCK_ADJUSTMENTS, money(returnValue).subtract(money(creditBase)));
+    return balanced(lines);
+  }
+
+  /**
+   * The month's change in the expiry provision (STD-3): a rise Dr 5110 Expiry write-down / Cr 1210
+   * Inventory expiry provision; a fall (stock sold, written off or no longer near expiry) the
+   * reverse. Nothing for no change.
+   */
+  static List<Line> expiryProvision(BigDecimal adjustment) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, EXPIRY_WRITE_DOWN, adjustment);
+    credit(lines, EXPIRY_PROVISION, adjustment);
+    return balanced(lines);
+  }
+
+  /**
+   * Input VAT TRA does not give back (STD-2 partial exemption), moved out of 1150: Dr 5150
+   * Non-reclaimable input VAT / Cr 1150 VAT receivable; a negative amount (a true-up in the
+   * pharmacy's favour) the reverse.
+   */
+  static List<Line> vatApportionment(BigDecimal nonReclaimable) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, NON_RECLAIMABLE_VAT, nonReclaimable);
+    credit(lines, VAT_RECEIVABLE, nonReclaimable);
+    return balanced(lines);
+  }
+
+  /**
+   * A sales debit note (STD-2): Dr 1100 accounts receivable (the total, on the customer's account)
+   * / Cr 4000 sales revenue (net) and Cr 2100 tax payable (its VAT).
+   */
+  static List<Line> saleDebitNote(BigDecimal net, BigDecimal tax) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, RECEIVABLE, money(net).add(money(tax)));
+    credit(lines, SALES_REVENUE, net);
+    credit(lines, TAX_PAYABLE, tax);
+    return balanced(lines);
+  }
+
+  /**
+   * A supplier's debit note (STD-2): Dr 5120 purchase price differences (net) and Dr 1150 VAT
+   * receivable (its input VAT) / Cr 2000 accounts payable (the total). The stock's batch cost is
+   * not changed, so inventory (1200) keeps matching the stock at cost.
+   */
+  static List<Line> supplierDebitNote(BigDecimal net, BigDecimal vat) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, PURCHASE_PRICE_DIFFERENCES, net);
+    debit(lines, VAT_RECEIVABLE, vat);
+    credit(lines, PAYABLE, money(net).add(money(vat)));
     return balanced(lines);
   }
 

@@ -60,13 +60,19 @@ public class Approvals {
 
   private final JdbcTemplate jdbc;
   private final ObjectProvider<ApprovalPolicy> policy;
+  private final ObjectProvider<SelfApproval> selfApproval;
   private final AuditLog audit;
   private final Clock clock;
 
   Approvals(
-      DataSource dataSource, ObjectProvider<ApprovalPolicy> policy, AuditLog audit, Clock clock) {
+      DataSource dataSource,
+      ObjectProvider<ApprovalPolicy> policy,
+      ObjectProvider<SelfApproval> selfApproval,
+      AuditLog audit,
+      Clock clock) {
     this.jdbc = new JdbcTemplate(dataSource);
     this.policy = policy;
+    this.selfApproval = selfApproval;
     this.audit = audit;
     this.clock = clock;
   }
@@ -107,7 +113,8 @@ public class Approvals {
                   + (value.signum() > 0 ? ", " + value.toPlainString() : "")
                   + ").")
           .with("action", action)
-          .with("amount", value);
+          .with("amount", value)
+          .with("selfApproval", selfApprovalAllowed());
     }
     UUID requester = ExecutionContext.actor().uid();
     List<Map<String, Object>> used = List.of();
@@ -118,7 +125,7 @@ public class Approvals {
               "update platform.approvals set used_at = ?, used_reference = ?"
                   + " where token_hash = ? and action = ? and amount >= ? and requested_by_uid = ?"
                   + " and used_at is null and expires_at > ?"
-                  + " returning approved_by_uid, approved_by_name",
+                  + " returning approved_by_uid, approved_by_name, self_approved",
               Timestamp.from(clock.instant()),
               reference,
               hash(token),
@@ -150,7 +157,8 @@ public class Approvals {
                     + (value.signum() > 0 ? ", " + value.toPlainString() : "")
                     + ").")
             .with("action", action)
-            .with("amount", value);
+            .with("amount", value)
+            .with("selfApproval", selfApprovalAllowed());
       }
       throw Refusal.forbidden(
               "approval_invalid",
@@ -164,19 +172,37 @@ public class Approvals {
     details.put("reference", reference);
     details.put("approvedBy", used.getFirst().get("approved_by_name"));
     details.put("approvedByUid", String.valueOf(used.getFirst().get("approved_by_uid")));
+    boolean self = Boolean.TRUE.equals(used.getFirst().get("self_approved"));
+    details.put("selfApproved", self);
     audit.record("APPROVAL_USED", "Approval", requester, null, details);
     Object approverUid = used.getFirst().get("approved_by_uid");
     return Optional.of(
         new Approver(
             approverUid instanceof UUID uid ? uid : UUID.fromString(String.valueOf(approverUid)),
-            String.valueOf(used.getFirst().get("approved_by_name"))));
+            String.valueOf(used.getFirst().get("approved_by_name")),
+            self));
   }
 
-  /** The manager whose approval a request used. */
-  public record Approver(UUID uid, String name) {}
+  /** Whether the person asking may approve this themselves (the problem's selfApproval member). */
+  private boolean selfApprovalAllowed() {
+    SelfApproval rule = selfApproval.getIfAvailable();
+    return rule != null && rule.allowed();
+  }
+
+  /**
+   * The manager whose approval a request used; {@code selfApproved} when the pharmacy's owner,
+   * alone able to approve there, approved their own request.
+   */
+  public record Approver(UUID uid, String name, boolean selfApproved) {
+
+    public Approver(UUID uid, String name) {
+      this(uid, name, false);
+    }
+  }
 
   /** What {@link #grant} hands back: the token to send as {@link #HEADER}, once. */
-  public record Granted(String token, String action, BigDecimal amount, Instant expiresAt) {}
+  public record Granted(
+      String token, String action, BigDecimal amount, Instant expiresAt, boolean selfApproved) {}
 
   /**
    * Keeps an approval by {@code approverUid} of {@code action} up to {@code amount} for {@code
@@ -189,6 +215,22 @@ public class Approvals {
       UUID approverUid,
       String approverName,
       String reference) {
+    return grant(action, amount, requesterUid, approverUid, approverName, reference, false);
+  }
+
+  /**
+   * {@link #grant}, recording whether the requester approved their own request ({@code
+   * selfApproved}: the owner alone, after typing their password; platform V11). A self-approval is
+   * audited as APPROVAL_SELF_GRANTED.
+   */
+  public Granted grant(
+      String action,
+      BigDecimal amount,
+      UUID requesterUid,
+      UUID approverUid,
+      String approverName,
+      String reference,
+      boolean selfApproved) {
     UUID tenant = TenantContext.requireTenant();
     BigDecimal value = amount == null ? Amounts.ZERO : Amounts.money(amount);
     byte[] random = new byte[32];
@@ -199,7 +241,7 @@ public class Approvals {
     jdbc.update(
         "insert into platform.approvals (uid, tenant_uid, token_hash, action, amount, reference,"
             + " requested_by_uid, approved_by_uid, approved_by_name, branch_uid, created_at,"
-            + " expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            + " expires_at, self_approved) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         UUID.randomUUID(),
         tenant,
         hash(token),
@@ -211,15 +253,22 @@ public class Approvals {
         approverName,
         ExecutionContext.branchUid().orElse(null),
         Timestamp.from(now),
-        Timestamp.from(expires));
+        Timestamp.from(expires),
+        selfApproved);
     Map<String, Object> details = new LinkedHashMap<>();
     details.put("action", action);
     details.put("amount", value);
     details.put("reference", reference);
     details.put("requestedByUid", String.valueOf(requesterUid));
     details.put("approvedBy", approverName);
-    audit.record("APPROVAL_GRANTED", "Approval", approverUid, null, details);
-    return new Granted(token, action, value, expires);
+    details.put("selfApproved", selfApproved);
+    audit.record(
+        selfApproved ? "APPROVAL_SELF_GRANTED" : "APPROVAL_GRANTED",
+        "Approval",
+        approverUid,
+        null,
+        details);
+    return new Granted(token, action, value, expires, selfApproved);
   }
 
   static String hash(String token) {

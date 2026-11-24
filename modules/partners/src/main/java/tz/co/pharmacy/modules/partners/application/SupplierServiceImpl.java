@@ -15,9 +15,9 @@ import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantLocale;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
-import tz.co.pharmacy.platform.persistence.Specs;
 
 /** The suppliers of the current tenant. */
 @Service
@@ -26,13 +26,14 @@ class SupplierServiceImpl implements SupplierService {
 
   private final SupplierRepository suppliers;
   private final DocumentNumbers numbers;
+  private final TenantLocale locale;
 
   @Override
   @Transactional(readOnly = true)
   public Page<SupplierView> search(String q, PageQuery query) {
     return Keyset.page(
         suppliers,
-        Specs.<Supplier>containsAny(q, "name", "phone", "email", "code"),
+        PartnerPhones.<Supplier>search(q, "name", "phone", "email", "code"),
         query,
         SupplierServiceImpl::view);
   }
@@ -46,7 +47,7 @@ class SupplierServiceImpl implements SupplierService {
   @Override
   @Transactional
   public SupplierView create(SupplierCommand c) {
-    Supplier.Details details = details(c, true, 7);
+    Supplier.Details details = details(c, true, 7, null);
     return view(suppliers.save(new Supplier(numbers.format("SUP", 6), details)));
   }
 
@@ -57,18 +58,19 @@ class SupplierServiceImpl implements SupplierService {
         suppliers
             .findByUid(uid)
             .orElseThrow(() -> Refusal.notFound("supplier_not_found", "No such supplier."));
-    supplier.change(details(c, supplier.isActive(), supplier.getLeadTimeDays()));
+    supplier.change(
+        details(c, supplier.isActive(), supplier.getLeadTimeDays(), supplier.getPhone()));
     // Flushed, so the view carries the version this change gave the row (its new ETag).
     suppliers.flush();
     return view(supplier);
   }
 
-  private static Supplier.Details details(
-      SupplierCommand c, boolean currentlyActive, int currentLeadTime) {
+  private Supplier.Details details(
+      SupplierCommand c, boolean currentlyActive, int currentLeadTime, String currentPhone) {
     return new Supplier.Details(
         Checks.text(c.name(), "name", 200),
         Checks.optionalText(c.contactPerson(), "contactPerson", 200),
-        Checks.optionalText(c.phone(), "phone", 40),
+        PartnerPhones.phone(c.phone(), currentPhone, locale.country()),
         optionalEmail(c.email()),
         Checks.optionalText(c.tin(), "tin", 50),
         c.paymentTerms() == null ? PaymentTerms.COD : c.paymentTerms(),

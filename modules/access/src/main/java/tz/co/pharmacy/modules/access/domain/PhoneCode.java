@@ -12,8 +12,8 @@ import tz.co.pharmacy.platform.persistence.audit.AuditIgnore;
 
 /**
  * A short code sent by SMS, to verify a phone ({@code VERIFY}) or to reset a password ({@code
- * RESET}). Only its hash is kept; it dies at its expiry, at its first use or after {@link
- * #MAX_ATTEMPTS} wrong tries.
+ * RESET}). Only its keyed hash is kept (HMAC-SHA-256 with the codes pepper); it dies at its expiry,
+ * at its first use or after {@link #MAX_ATTEMPTS} wrong tries.
  */
 @Getter
 @Entity
@@ -52,12 +52,15 @@ public class PhoneCode extends MutableEntity {
     return usedAt == null && attempts < MAX_ATTEMPTS && expiresAt.isAfter(at);
   }
 
-  /** One try: true when {@code hash} is the code's; a wrong one counts against it. */
-  public boolean tryCode(String hash, Instant at) {
+  /**
+   * One try: true when {@code matches} accepts the stored hash (a keyed hash, or an older SHA-256
+   * one); a wrong one counts against it.
+   */
+  public boolean tryCode(java.util.function.Predicate<String> matches, Instant at) {
     if (!usableAt(at)) {
       return false;
     }
-    if (codeHash.equals(hash)) {
+    if (matches.test(codeHash)) {
       usedAt = at;
       return true;
     }

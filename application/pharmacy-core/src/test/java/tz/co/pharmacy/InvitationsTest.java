@@ -44,7 +44,7 @@ class InvitationsTest extends IntegrationTest {
     root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
     String email = "inv." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     tenant = register(email).string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     List<String> roles =
         admin.get("/api/v1/roles").expect(200).json().read("$.data[?(@.code == 'CASHIER')].uid");
     cashierRole = roles.getFirst();
@@ -59,7 +59,7 @@ class InvitationsTest extends IntegrationTest {
             {"code":"%s","name":"Invite %s","legalName":"Invite %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, adminEmail))
         .expect(201);
@@ -69,7 +69,7 @@ class InvitationsTest extends IntegrationTest {
     return admin.post(
         "/api/v1/users",
         """
-        {"name":"%s","email":"%s","password":"Chosen#2026x","roleUid":"%s","allBranches":true}
+        {"name":"%s","email":"%s","password":"Chosen#2026x-strong","roleUid":"%s","allBranches":true}
         """
             .formatted(name, email, cashierRole));
   }
@@ -85,7 +85,9 @@ class InvitationsTest extends IntegrationTest {
     String fresh = "new." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     Response forNew = add("Rehema", fresh).expect(202);
     anonymous
-        .post("/api/v1/auth/sign-in", "{\"email\":\"" + fresh + "\",\"password\":\"Chosen#2026x\"}")
+        .post(
+            "/api/v1/auth/sign-in",
+            "{\"email\":\"" + fresh + "\",\"password\":\"Chosen#2026x-strong\"}")
         .expect(401);
 
     // An email with an account in another pharmacy: the very same answer.
@@ -108,7 +110,7 @@ class InvitationsTest extends IntegrationTest {
         anonymous
             .post(
                 "/api/v1/auth/invitations/accept",
-                "{\"token\":\"%s\",\"name\":\"Rehema M\",\"password\":\"Mine#2026xx\"}"
+                "{\"token\":\"%s\",\"name\":\"Rehema M\",\"password\":\"Mine#2026xx-strong\"}"
                     .formatted(token))
             .expect(201);
     assertThat(accepted.string("$.data.memberships[0].tenantUid")).isEqualTo(tenant);
@@ -122,11 +124,11 @@ class InvitationsTest extends IntegrationTest {
             anonymous
                 .post(
                     "/api/v1/auth/invitations/accept",
-                    "{\"token\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(other))
+                    "{\"token\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(other))
                 .expect(409)
                 .string("$.reason"))
         .isEqualTo("account_exists");
-    Api baraka = anonymous.as(anonymous.signIn(elsewhere, "Admin#2026x"));
+    Api baraka = anonymous.as(anonymous.signIn(elsewhere, "Admin#2026x-strong"));
     baraka.post("/api/v1/auth/invitations/join", "{\"token\":\"%s\"}".formatted(other)).expect(200);
     assertThat(tenantsOf(baraka)).contains(tenant);
   }
@@ -140,7 +142,7 @@ class InvitationsTest extends IntegrationTest {
 
     String own = "juma.work." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     register(own);
-    Api juma = anonymous.as(anonymous.signIn(own, "Admin#2026x"));
+    Api juma = anonymous.as(anonymous.signIn(own, "Admin#2026x-strong"));
     Response joined =
         juma.post("/api/v1/auth/invitations/join", "{\"token\":\"%s\"}".formatted(token))
             .expect(200);
@@ -168,13 +170,15 @@ class InvitationsTest extends IntegrationTest {
   void managedLoginCannotJoin() {
     String other = "oth." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     String otherTenant = register(other).string("$.data.uid");
-    Api otherAdmin = anonymous.as(anonymous.signIn(other, "Admin#2026x")).in(otherTenant, null);
-    Staff.Login login = Staff.login(otherAdmin, anonymous, "Neema", "CASHIER", "Staff#2026x");
+    Api otherAdmin =
+        anonymous.as(anonymous.signIn(other, "Admin#2026x-strong")).in(otherTenant, null);
+    Staff.Login login =
+        Staff.login(otherAdmin, anonymous, "Neema", "CASHIER", "Staff#2026x-strong");
 
     String invited = "neema." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     add("Neema", invited).expect(202);
     String token = outbox.invitationToken(tenant, invited);
-    Api neema = anonymous.as(anonymous.signIn(login.signIn(), "Staff#2026x"));
+    Api neema = anonymous.as(anonymous.signIn(login.signIn(), "Staff#2026x-strong"));
     assertThat(
             neema
                 .post("/api/v1/auth/invitations/join", "{\"token\":\"%s\"}".formatted(token))
@@ -189,7 +193,7 @@ class InvitationsTest extends IntegrationTest {
   void onboardingInvitesAnExistingAdmin() {
     String existing = "owner." + UUID.randomUUID().toString().substring(0, 6) + "@test.local";
     register(existing);
-    Api person = anonymous.as(anonymous.signIn(existing, "Admin#2026x"));
+    Api person = anonymous.as(anonymous.signIn(existing, "Admin#2026x-strong"));
 
     // Registering a second pharmacy for the same email, with another password.
     String code = "IW" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
@@ -200,7 +204,7 @@ class InvitationsTest extends IntegrationTest {
                 {"code":"%s","name":"Second %s","legalName":"Second %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Owner","email":"%s","password":"Other#2026xx"}}
+                 "admin":{"name":"Owner","email":"%s","password":"Other#2026xx-strong"}}
                 """
                     .formatted(code, code, code, existing))
             .expect(201);
@@ -212,7 +216,7 @@ class InvitationsTest extends IntegrationTest {
     anonymous
         .post(
             "/api/v1/auth/sign-in",
-            "{\"email\":\"" + existing + "\",\"password\":\"Other#2026xx\"}")
+            "{\"email\":\"" + existing + "\",\"password\":\"Other#2026xx-strong\"}")
         .expect(401);
 
     String token = outbox.invitationToken(secondTenant, existing);

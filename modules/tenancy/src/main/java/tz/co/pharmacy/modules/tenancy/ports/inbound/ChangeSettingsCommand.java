@@ -32,7 +32,74 @@ public record ChangeSettingsCommand(
     /* The TIN (9 digits; dashes and spaces are dropped); blank clears it, null keeps it. */
     String tin,
     /* The VRN; blank clears it, null keeps it. */
-    String vrn) {
+    String vrn,
+    /* FRD-19: send the daily digest of sensitive actions; null keeps it. */
+    Boolean sensitiveDigest,
+    /* Shared counter PCs (WEB-5); null keeps it. */
+    Boolean sharedCounterPcs,
+    /* The expiry write-down on or off, and its bands (1 to 5, days ascending); null keeps each. */
+    Boolean expiryProvisionEnabled,
+    java.util.List<ProvisionBand> expiryProvisionBands,
+    /* AUTOMATIC or FIXED; null keeps it. */
+    String vatApportionmentMethod,
+    /* The FIXED recoverable percentage, 0 to 100; null keeps it. */
+    BigDecimal vatFixedRecoverablePercent,
+    /* The financial year's last month, 1 to 12; null keeps it. */
+    Integer vatYearEndMonth,
+    /* Round the automatic ratio up to a whole percent; null keeps it. */
+    Boolean vatRatioRoundUp) {
+
+  /**
+   * The command of the eighteen settings that came before the digest of sensitive actions and the
+   * owner's decisions of 24 Nov.
+   */
+  public ChangeSettingsCommand(
+      BigDecimal defaultTaxRatePercent,
+      String invoicePrefix,
+      String receiptFooter,
+      BigDecimal maxDiscountPercent,
+      Integer expiryAlertDays,
+      Boolean lowStockAlerts,
+      Boolean smsReceipts,
+      java.util.List<String> acceptedCurrencies,
+      Boolean pricesIncludeTax,
+      String look,
+      Integer idleMinutes,
+      Boolean requireTwoFactor,
+      BigDecimal approvalLimit,
+      Integer returnWindowDays,
+      Boolean requireOpenShift,
+      Boolean vatRegistered,
+      String tin,
+      String vrn) {
+    this(
+        defaultTaxRatePercent,
+        invoicePrefix,
+        receiptFooter,
+        maxDiscountPercent,
+        expiryAlertDays,
+        lowStockAlerts,
+        smsReceipts,
+        acceptedCurrencies,
+        pricesIncludeTax,
+        look,
+        idleMinutes,
+        requireTwoFactor,
+        approvalLimit,
+        returnWindowDays,
+        requireOpenShift,
+        vatRegistered,
+        tin,
+        vrn,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
 
   /** The command of the fifteen settings that came before VAT registration. */
   public ChangeSettingsCommand(
@@ -67,6 +134,14 @@ public record ChangeSettingsCommand(
         approvalLimit,
         returnWindowDays,
         requireOpenShift,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
         null,
         null);

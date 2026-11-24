@@ -198,6 +198,50 @@ class ClaimCycleTest {
         .contains("NHIF-0099812");
   }
 
+  @Test
+  @DisplayName(
+      "the FHIR export leaves out absent elements: no empty strings, arrays or objects (STD-20)")
+  void fhirOmitsAbsentElements() {
+    // No patient, member, pre-authorisation, diagnosis or sale number; no payer or provider name.
+    Claim claim = claim("CLM-000004", UUID.randomUUID(), UUID.randomUUID());
+    claim.setPatientName("  ");
+
+    Map<String, Object> bundle = FhirClaims.bundle("BAT-000002", null, "", "TZS", List.of(claim));
+    String json = JsonMapper.builder().build().writeValueAsString(bundle);
+
+    assertThat(json)
+        .doesNotContain("\"\"")
+        .doesNotContain("[]")
+        .doesNotContain("{}")
+        .doesNotContain("null")
+        .doesNotContain("\"patient\"")
+        .doesNotContain("\"insurer\"")
+        .doesNotContain("\"provider\"")
+        .doesNotContain("\"preAuthRef\"")
+        .doesNotContain("\"supportingInfo\"")
+        .doesNotContain("\"diagnosis\"")
+        .contains("\"resourceType\":\"Claim\"")
+        .contains("\"code\":\"pharmacy\"")
+        .contains("Amoxicillin 250mg")
+        .contains("\"currency\":\"TZS\"");
+
+    // Present values still go out where they belong.
+    claim.setMemberNumber("NHIF-1");
+    claim.setPreauthNumber("PA-7");
+    claim.setSaleNumber("INV-HQ-000001");
+    String full =
+        JsonMapper.builder()
+            .build()
+            .writeValueAsString(
+                FhirClaims.bundle("BAT-000002", "NHIF", "Afya", "TZS", List.of(claim)));
+    assertThat(full)
+        .contains("\"preAuthRef\":[\"PA-7\"]")
+        .contains("\"valueString\":\"INV-HQ-000001\"")
+        .contains("\"coverage\":{\"display\":\"NHIF-1\"}")
+        .contains("\"insurer\":{\"display\":\"NHIF\"}")
+        .doesNotContain("\"\"");
+  }
+
   private ClaimView decide(Claim claim, UUID product, String approved, RejectedTo to) {
     return insurance.adjudicate(
         claim.getUid(),

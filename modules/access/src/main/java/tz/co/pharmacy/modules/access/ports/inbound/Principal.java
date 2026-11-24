@@ -10,7 +10,10 @@ import java.util.UUID;
  * their own account routes. {@code secondFactor}: this session proved a second factor (an
  * authenticator or recovery code, or a passkey with user verification), as a pharmacy that requires
  * two-factor asks (G16). {@code verifiedAt}: when the session last proved its password or passkey,
- * at sign-in or by confirming it again; a sensitive account change needs it to be recent.
+ * at sign-in or by confirming it again; a sensitive account change needs it to be recent. {@code
+ * idleMinutes} and {@code activeAt}: the session's inactivity limit (null without one) and when the
+ * person last used the app, so the edge can hold the session to the limit of the pharmacy each
+ * request works in (AUTH-17).
  */
 public record Principal(
     UUID userUid,
@@ -21,7 +24,33 @@ public record Principal(
     boolean passwordChangeRequired,
     UUID sessionUid,
     boolean secondFactor,
-    Instant verifiedAt) {
+    Instant verifiedAt,
+    Integer idleMinutes,
+    Instant activeAt) {
+
+  public Principal(
+      UUID userUid,
+      String name,
+      String email,
+      boolean rootAdmin,
+      boolean twoFactorSetupRequired,
+      boolean passwordChangeRequired,
+      UUID sessionUid,
+      boolean secondFactor,
+      Instant verifiedAt) {
+    this(
+        userUid,
+        name,
+        email,
+        rootAdmin,
+        twoFactorSetupRequired,
+        passwordChangeRequired,
+        sessionUid,
+        secondFactor,
+        verifiedAt,
+        null,
+        null);
+  }
 
   public Principal(
       UUID userUid,
@@ -73,7 +102,9 @@ public record Principal(
         passwordChangeRequired,
         uid,
         secondFactor,
-        verifiedAt);
+        verifiedAt,
+        idleMinutes,
+        activeAt);
   }
 
   /** Whether the session proved its password or passkey at or after {@code since}. */

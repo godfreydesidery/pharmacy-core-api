@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Roots;
 import tz.co.pharmacy.support.Staff;
 
 /**
@@ -35,7 +36,7 @@ import tz.co.pharmacy.support.Staff;
  */
 class PrivacyAndRecordsTest extends IntegrationTest {
 
-  private static final String PASSWORD = "Staff#2026x";
+  private static final String PASSWORD = "Staff#2026x-strong";
 
   @Autowired DataSource dataSource;
 
@@ -63,12 +64,12 @@ class PrivacyAndRecordsTest extends IntegrationTest {
                 {"code":"%s","name":"Privacy %s","legalName":"Privacy %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Owner","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong")).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     hq = admin.in(tenant, branch);
@@ -453,7 +454,7 @@ class PrivacyAndRecordsTest extends IntegrationTest {
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("subject_under_legal_hold");
-    root.delete("/api/v1/platform/tenants/" + tenant + "/legal-hold").expect(200);
+    Roots.twoRoots(root, api(), "LIFT_LEGAL_HOLD", tenant, null).expect(200);
 
     // Who may: partners.manage and data.export (the pharmacist manages customers, exports none).
     pharmacist.post("/api/v1/customers/" + customer + "/anonymise", "{}").expect(403);

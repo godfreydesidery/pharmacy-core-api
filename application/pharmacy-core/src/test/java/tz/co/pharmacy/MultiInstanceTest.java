@@ -271,11 +271,14 @@ class MultiInstanceTest extends IntegrationTest {
     for (int i = 0; i < 5; i++) {
       anonymous
           .post(
-              "/api/v1/auth/sign-in", "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x\"}")
+              "/api/v1/auth/sign-in",
+              "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x-strong\"}")
           .expect(i < 4 ? 401 : 423);
     }
     anonymous
-        .post("/api/v1/auth/sign-in", "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x\"}")
+        .post(
+            "/api/v1/auth/sign-in",
+            "{\"email\":\"" + email + "\",\"password\":\"Wrong#2026x-strong\"}")
         .expect(423);
     // Instance B reads the same lock from the database.
     assertThat(new SharedWindows(dataSource).lockedFor("signin-email", email, Instant.now()))

@@ -44,7 +44,12 @@ class LedgerImpl implements Ledger {
   static final String OPENING_BALANCE = "OPENING_BALANCE";
   static final String VOUCHER = "VOUCHER";
   static final String SUPPLIER_RETURN = "SUPPLIER_RETURN";
+  static final String SUPPLIER_CREDIT = "SUPPLIER_CREDIT";
   static final String STOCK_ADJUSTMENT = "STOCK_ADJUSTMENT";
+  static final String SALE_DEBIT_NOTE = "SALE_DEBIT_NOTE";
+  static final String SUPPLIER_DEBIT_NOTE = "SUPPLIER_DEBIT_NOTE";
+  static final String EXPIRY_PROVISION = "EXPIRY_PROVISION";
+  static final String VAT_APPORTIONMENT = "VAT_APPORTIONMENT";
 
   private final JournalWriter writer;
   private final JournalEntryRepository entries;
@@ -137,6 +142,44 @@ class LedgerImpl implements Ledger {
 
   @Override
   @Transactional
+  public void postSaleDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal tax) {
+    writer.post(
+        SALE_DEBIT_NOTE,
+        debitNoteUid,
+        number,
+        "Sales debit note " + number,
+        branchUid,
+        date,
+        Postings.saleDebitNote(net, tax));
+  }
+
+  @Override
+  @Transactional
+  public void postSupplierDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal vat) {
+    writer.post(
+        SUPPLIER_DEBIT_NOTE,
+        debitNoteUid,
+        number,
+        "Supplier debit note " + number,
+        branchUid,
+        date,
+        Postings.supplierDebitNote(net, vat));
+  }
+
+  @Override
+  @Transactional
   public void postReceipt(ReceiptPosting posting) {
     writer.post(
         GOODS_RECEIPT,
@@ -155,7 +198,8 @@ class LedgerImpl implements Ledger {
       String number,
       java.util.UUID branchUid,
       java.time.LocalDate date,
-      java.math.BigDecimal value) {
+      java.math.BigDecimal value,
+      boolean awaitingCredit) {
     writer.post(
         SUPPLIER_RETURN,
         returnUid,
@@ -163,7 +207,27 @@ class LedgerImpl implements Ledger {
         "Return to supplier " + number,
         branchUid,
         date,
-        Postings.supplierReturn(value));
+        Postings.supplierReturn(value, awaitingCredit));
+  }
+
+  @Override
+  @Transactional
+  public void postSupplierCredit(
+      java.util.UUID returnUid,
+      String number,
+      String creditNoteNumber,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal returnValue,
+      java.math.BigDecimal creditBase) {
+    writer.post(
+        SUPPLIER_CREDIT,
+        returnUid,
+        creditNoteNumber,
+        "Supplier credit note " + creditNoteNumber + " for " + number,
+        branchUid,
+        date,
+        Postings.supplierCredit(returnValue, creditBase));
   }
 
   @Override

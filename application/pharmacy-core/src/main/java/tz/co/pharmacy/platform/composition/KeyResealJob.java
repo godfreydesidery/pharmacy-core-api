@@ -202,7 +202,8 @@ class KeyResealJob implements KeyRotation {
       String key = keyring.activeKey(column.purpose());
       for (Map.Entry<String, Long> entry : here.entrySet()) {
         byKey.merge(entry.getKey(), entry.getValue(), Long::sum);
-        if (!entry.getKey().equals(key)) {
+        // Keyed hashes stay under their key (they cannot be re-sealed); counted, not to move.
+        if (!column.keyedHash() && !entry.getKey().equals(key)) {
           toReseal += entry.getValue();
         }
       }
@@ -221,6 +222,7 @@ class KeyResealJob implements KeyRotation {
     Map<String, Long> unknown = new TreeMap<>(byKey);
     unknown.keySet().removeAll(keyring.keyIds());
     unknown.remove(SealedValues.PLAIN);
+    unknown.remove(SealedValues.UNKEYED);
     return new Status(active, keys, counts, unknown, toReseal, running.get(), lastRun.get());
   }
 

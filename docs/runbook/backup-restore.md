@@ -46,7 +46,7 @@ depend on AWS: it restores into any PostgreSQL 17+.
     days and expires after 7 years.
 - **Backup task:** an ECS scheduled task (EventBridge Scheduler, `cron(30 23 * * ? *)`, after the
   RDS window).
-  - The image is `postgres:17-alpine` with `apk add bash coreutils gnupg aws-cli`, plus
+  - The image is `postgres:18-alpine` with `apk add bash coreutils gnupg aws-cli`, plus
     `ops/backup/`. The `pg_dump` major version must be at least the server's.
   - Ephemeral storage of at least twice the dump size (Fargate encrypts it).
   - Environment, with secrets from Secrets Manager:

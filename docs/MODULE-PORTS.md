@@ -1011,3 +1011,48 @@ interface AdverseReactions {
 // access: Permissions.SALES_DISPENSE_RX, HEALTH_VIEW, ADR_REPORT (migration access V19 backfills them).
 // delivery: HealthFields (health.view) hides prescriptions, register patients and diagnosis codes.
 ```
+
+## Batch 10 stream 5: the owner's decisions of 24 Nov 2026
+
+```java
+// tenancy.ports.inbound (migration tenancy V18): SettingsView and ChangeSettingsCommand gain, before version / last,
+//   boolean sharedCounterPcs, boolean expiryProvisionEnabled, List<ProvisionBand> expiryProvisionBands,
+//   VatApportionmentMethod vatApportionmentMethod, BigDecimal vatFixedRecoverablePercent, int vatYearEndMonth,
+//   boolean vatRatioRoundUp (the 18-argument ChangeSettingsCommand constructor stays). SETTINGS_CHANGED is audited.
+record ProvisionBand(int daysToExpiry, BigDecimal percent) {}
+enum VatApportionmentMethod { AUTOMATIC, FIXED }
+
+// access (migration access V24 users.password_long_enough_alone): SecurityOverview gains int minPasswordLength,
+//   boolean passwordLongEnoughAlone. 422 password_too_short {minLength, twoFactor}; 409
+//   password_too_short_without_two_factor {minLength} from TwoFactorService.disable and PasskeyService.remove.
+
+// platform.approval (migration platform V12 root_approvals): RootApprovals request/list/find/claim/release/cancel.
+
+// finance.ports.inbound (migrations finance V11 journal_lines_debit_or_credit, V12 expiry_provisions, vat_apportionments)
+interface ExpiryProvisions { Optional<Run> find(YearMonth p); Run record(YearMonth p, LocalDate measuredOn, boolean enabled,
+  List<Band> bands, List<BranchMeasure> branches); List<Run> list(LocalDate from, LocalDate to); }
+interface VatApportionments { Optional<Run> find(YearMonth p, String kind); Run record(Measure m, LocalDate bookOn);
+  BigDecimal expenseInputVat(LocalDate from, LocalDate to); List<Run> runs(LocalDate from, LocalDate to); }
+interface MonthEndRuns { YearMonth lastCompleteMonth(); ExpiryProvisions.Run expiryProvision(YearMonth p);
+  List<VatApportionments.Run> vatApportionment(YearMonth p); }               // implemented in composition (MonthEndBooks)
+// Ledger gains postSaleDebitNote(...) and postSupplierDebitNote(...). VatSummary gains nonReclaimableInputVat,
+//   inputVatBeforeApportionment. Accounts 1210, 5110, 5120, 5150 join the default chart.
+
+// inventory.ports.inbound: StockQueries.stockByExpiry() -> List<ExpiryExposure(branchUid, expiryDate, cost)>.
+
+// sales (migrations sales V23 debit_notes, V24 fiscal kind DEBIT_NOTE)
+interface SaleDebitNotes { DebitNoteView issue(UUID saleUid, BigDecimal net, String taxCategory, String reason);
+  List<DebitNoteView> ofSale(UUID saleUid); void fiscalise(UUID debitNoteUid); }
+record SaleDebitNoteIssued(EventMetadata metadata, UUID debitNoteUid, String number, UUID saleUid, String saleNumber,
+  UUID branchUid, UUID customerUid, String taxCategory, BigDecimal net, BigDecimal tax, BigDecimal total) {}
+// FiscalDocumentKind gains DEBIT_NOTE; SalesSettings gains standardVatRatePercent(); VatCategoryLine gains
+//   debitNotesNet, debitNotesTax (included in net and tax).
+
+// purchasing (migration purchasing V11 supplier_debit_notes)
+interface SupplierDebitNotes { DebitNoteView record(UUID receiptUid, BigDecimal net, BigDecimal vat, String reason,
+  String reference); List<DebitNoteView> ofReceipt(UUID receiptUid); Totals totals(Instant from, Instant to);
+  List<InputVat> inputVat(Instant from, Instant to); }
+record SupplierDebitNoteRecorded(EventMetadata metadata, UUID debitNoteUid, String number, UUID goodsReceiptUid,
+  UUID branchUid, UUID supplierUid, BigDecimal net, BigDecimal vat, BigDecimal total) {}
+// SupplierActivity entries gain type DEBIT_NOTE; Totals.received counts receipts and debit notes.
+```

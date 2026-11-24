@@ -15,4 +15,6 @@ public record ReceiptLineView(
     BigDecimal lineTotal,
     /* {@code unitCost} in the base currency at the receipt's rate: what the stock costs. */
     BigDecimal baseUnitCost,
+    /* {@code lineTotal} in the base currency, converted once: the value the stock comes in at. */
+    BigDecimal baseValue,
     List<String> serialNumbers) {}

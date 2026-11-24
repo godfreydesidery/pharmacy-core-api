@@ -29,6 +29,7 @@ import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.delivery.api.Idempotent;
 import tz.co.pharmacy.delivery.api.Pages;
 import tz.co.pharmacy.delivery.api.RequiresFeature;
+import tz.co.pharmacy.modules.access.ports.inbound.Permissions;
 import tz.co.pharmacy.modules.insurance.ports.inbound.AdjudicationCommand;
 import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimBatchView;
 import tz.co.pharmacy.modules.insurance.ports.inbound.ClaimLineView;
@@ -51,6 +52,7 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.PlanFeature;
 import tz.co.pharmacy.platform.kernel.Checks;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.persistence.audit.AuditLog;
 
 /**
  * Insurance: payers, schemes and members (partners.*), claims, batches and remittances (finance.*),
@@ -63,6 +65,7 @@ public class InsuranceHandler {
 
   private final Insurance insurance;
   private final Checkout checkout;
+  private final AuditLog audit;
 
   // ---------------------------------------------------------------- payers and schemes
 
@@ -268,15 +271,26 @@ public class InsuranceHandler {
         insurance.batch(body.payerUid(), body.from(), body.to()), "Batch submitted");
   }
 
-  /** {@code ?format=CSV} or {@code JSON} (a FHIR R4 Bundle of Claim resources). */
+  /**
+   * {@code ?format=CSV} or {@code JSON} (a FHIR R4 Bundle of Claim resources). Every claim names
+   * its patient and carries the diagnosis (ICD-10): health data leaving in bulk, so the export
+   * needs {@code data.export} and {@code health.view} besides {@code finance.view} (STD-5, ISO-10),
+   * and each one is audited.
+   */
   @RequiresFeature(PlanFeature.INSURANCE)
   @GetMapping("/insurance/batches/{uid}/export")
-  @Access(scope = AccessScope.TENANT, permission = "finance.view")
+  @Access(
+      scope = AccessScope.TENANT,
+      allOf = {"finance.view", Permissions.INSURANCE_CLAIMS_EXPORT})
   public ResponseEntity<byte[]> export(
       @PathVariable UUID uid, @RequestParam(required = false) String format) {
     boolean json =
         format != null && (format.equalsIgnoreCase("JSON") || format.equalsIgnoreCase("FHIR"));
     byte[] body = insurance.exportBatch(uid, json ? "JSON" : "CSV");
+    audit.record(
+        "CLAIM_BATCH_EXPORTED", "ClaimBatch", uid, null, Map.of("format", json ? "JSON" : "CSV"));
+    // Its own entry: the edge writes no second DATA_EXPORTED for it (STD-22).
+    tz.co.pharmacy.delivery.edge.ExportAudit.recorded();
     return ResponseEntity.ok()
         .contentType(
             json

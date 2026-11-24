@@ -124,6 +124,35 @@ class CodeRulesTest {
         .check(CLASSES);
   }
 
+  /**
+   * Spring Modulith keeps every published event in {@code platform.event_publication}, one table
+   * for every pharmacy, with no row-level security (see platform V9): an event must carry nothing
+   * that lets someone in or spends money, such as a token, a password, a code or a key.
+   */
+  @Test
+  @DisplayName("domain events carry no secrets: no token, password, code, key or signature")
+  void eventsCarryNoSecrets() {
+    java.util.regex.Pattern secret =
+        java.util.regex.Pattern.compile(
+            "(?i).*(token|password|secret|otp|cvv|apikey|signature|hash|seed).*");
+    java.util.List<String> found = new java.util.ArrayList<>();
+    for (com.tngtech.archunit.core.domain.JavaClass type : CLASSES) {
+      if (!type.getPackageName().matches("tz\\.co\\.pharmacy\\.modules\\.[a-z]+\\.events")) {
+        continue;
+      }
+      Class<?> reflected = type.reflect();
+      if (!reflected.isRecord()) {
+        continue;
+      }
+      for (java.lang.reflect.RecordComponent component : reflected.getRecordComponents()) {
+        if (secret.matcher(component.getName()).matches()) {
+          found.add(reflected.getName() + "." + component.getName());
+        }
+      }
+    }
+    org.assertj.core.api.Assertions.assertThat(found).isEmpty();
+  }
+
   @Test
   @DisplayName("handlers live in delivery.api.v1")
   void handlersAreVersioned() {
@@ -133,5 +162,27 @@ class CodeRulesTest {
         .should()
         .resideInAPackage("tz.co.pharmacy.delivery.api.v1..")
         .check(CLASSES);
+  }
+
+  @Test
+  @DisplayName(
+      "the local stack runs the PostgreSQL major the tests and production run (18), backups alike")
+  void localStackRunsProductionPostgres() throws java.io.IOException {
+    java.nio.file.Path root = java.nio.file.Path.of("..").toAbsolutePath().normalize();
+    String pom = java.nio.file.Files.readString(root.resolve("pom.xml"));
+    java.util.regex.Matcher binaries =
+        java.util.regex.Pattern.compile("<embedded-postgres-binaries.version>(\\d+)\\.")
+            .matcher(pom);
+    org.assertj.core.api.Assertions.assertThat(binaries.find()).isTrue();
+    String major = binaries.group(1);
+    org.assertj.core.api.Assertions.assertThat(major).isEqualTo("18");
+    String compose = java.nio.file.Files.readString(root.resolve("docker-compose.yml"));
+    org.assertj.core.api.Assertions.assertThat(compose)
+        .containsPattern("(?m)^\\s*image: postgres:" + major + "\\s*$")
+        // Version 18 images keep their data under /var/lib/postgresql/<major>.
+        .containsPattern("(?m):/var/lib/postgresql\\s*$");
+    org.assertj.core.api.Assertions.assertThat(
+            java.nio.file.Files.readString(root.resolve("docs/runbook/backup-restore.md")))
+        .contains("`postgres:" + major + "-alpine`");
   }
 }

@@ -35,15 +35,30 @@ public interface Ledger {
   java.math.BigDecimal balance(String accountCode);
 
   /**
-   * Stock returned to a supplier at cost (a debit note): Dr 2000 accounts payable / Cr 1200
-   * inventory; idempotent per return.
+   * Stock returned to a supplier at cost (a debit note); idempotent per return. Awaiting the
+   * supplier's credit note (FRD-16): Dr 1160 / Cr 1200 inventory; a return from before credit
+   * notes: Dr 2000 accounts payable / Cr 1200.
    */
   void postSupplierReturn(
       java.util.UUID returnUid,
       String number,
       java.util.UUID branchUid,
       java.time.LocalDate date,
-      java.math.BigDecimal value);
+      java.math.BigDecimal value,
+      boolean awaitingCredit);
+
+  /**
+   * The supplier's credit note for a return: Dr 2000 (creditBase) / Cr 1160 (returnValue), the
+   * difference to 5100; idempotent per return.
+   */
+  void postSupplierCredit(
+      java.util.UUID returnUid,
+      String number,
+      String creditNoteNumber,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal returnValue,
+      java.math.BigDecimal creditBase);
 
   /**
    * A stock adjustment (damage, loss, expiry, count correction, destruction) at cost: Dr 5100 / Cr
@@ -55,6 +70,26 @@ public interface Ledger {
       java.util.UUID branchUid,
       java.time.LocalDate date,
       java.math.BigDecimal value);
+
+  /** A sales debit note (STD-2): Dr 1100 / Cr 4000 (net) and 2100 (tax); idempotent per note. */
+  void postSaleDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal tax);
+
+  /**
+   * A supplier's debit note (STD-2): Dr 5120 (net) and 1150 (VAT) / Cr 2000; idempotent per note.
+   */
+  void postSupplierDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal vat);
 
   /** A voucher sold: Dr the account paid into / Cr 2300; idempotent per voucher. */
   void postVoucherIssued(

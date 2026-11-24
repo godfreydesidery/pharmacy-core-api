@@ -32,7 +32,11 @@ class ChartOfAccounts {
           new Seed("1110", "Insurance Receivable", AccountType.ASSET),
           // STD-2: input VAT paid to suppliers, recoverable from TRA against output VAT (2100).
           new Seed("1150", "VAT Receivable", AccountType.ASSET),
+          // FRD-16: stock returned to suppliers, at cost, until their credit notes are recorded.
+          new Seed("1160", "Supplier Returns Awaiting Credit", AccountType.ASSET),
           new Seed("1200", "Inventory", AccountType.ASSET),
+          // STD-3: the expiry write-down, a contra-asset (credit balance) beside 1200.
+          new Seed("1210", "Inventory Expiry Provision", AccountType.ASSET),
           new Seed("2000", "Accounts Payable", AccountType.LIABILITY),
           new Seed("2100", "Tax Payable", AccountType.LIABILITY),
           new Seed("2300", "Vouchers Outstanding", AccountType.LIABILITY),
@@ -41,6 +45,11 @@ class ChartOfAccounts {
           new Seed("4100", "Sales Returns", AccountType.REVENUE),
           new Seed("5000", "Cost of Goods Sold", AccountType.EXPENSE),
           new Seed("5100", "Stock Losses & Adjustments", AccountType.EXPENSE),
+          new Seed("5110", "Expiry Write-down", AccountType.EXPENSE),
+          // STD-2: a supplier's debit note on goods already received (their cost is not changed).
+          new Seed("5120", "Purchase Price Differences", AccountType.EXPENSE),
+          // STD-2: input VAT that exempt sales use, which TRA does not give back.
+          new Seed("5150", "Non-reclaimable Input VAT", AccountType.EXPENSE),
           new Seed("6000", "Rent", AccountType.EXPENSE),
           new Seed("6010", "Utilities", AccountType.EXPENSE),
           new Seed("6020", "Salaries", AccountType.EXPENSE),

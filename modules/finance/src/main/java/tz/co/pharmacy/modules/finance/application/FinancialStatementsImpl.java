@@ -93,6 +93,14 @@ class FinancialStatementsImpl implements FinancialStatements {
         end);
     BigDecimal netOutput = totals[0].subtract(totals[1]);
     BigDecimal input = totals[3].subtract(totals[2]);
+    // 5150 Non-reclaimable input VAT: what the apportionment moved out of 1150 (STD-2).
+    BigDecimal nonReclaimable =
+        jdbc.queryForObject(
+            "select coalesce(sum(b.debit - b.credit), 0) from finance.account_daily_balances b"
+                + " where b.account_code = '5150' and b.day between ? and ?",
+            BigDecimal.class,
+            start,
+            end);
     return new VatSummary(
         start,
         end,
@@ -100,7 +108,9 @@ class FinancialStatementsImpl implements FinancialStatements {
         Amounts.money(totals[1]),
         Amounts.money(netOutput.subtract(input)),
         Amounts.money(input),
-        Amounts.money(netOutput));
+        Amounts.money(netOutput),
+        Amounts.money(nonReclaimable),
+        Amounts.money(input.add(nonReclaimable)));
   }
 
   private List<Line> lines(LocalDate asOf) {

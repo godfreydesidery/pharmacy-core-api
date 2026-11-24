@@ -69,7 +69,17 @@ server:
     min-response-size: 1KB
 
 pharmacy:
+  api:
+    # The API contract's semantic version (STD-16): sent as X-Api-Version on every /api answer, as
+    # info.version in the OpenAPI document and in /actuator/info. The major version is the one in
+    # the path (/api/v1); the minor goes up with each additive change to the contract (new routes,
+    # members, headers), the patch with fixes that change no contract. Breaking changes need /api/v2.
+    version: 1.10.0
   audit:
+    # OPS-18: the nightly audit-partitions job moves entries trapped in the default partition into
+    # their months itself (audit.repair_default_partition()); off, it alerts and the runbook says
+    # how (docs/runbook/deployment.md, "Audit default partition").
+    repair-default-partition: ${PHARMACY_AUDIT_REPAIR_DEFAULT_PARTITION:false}
     # PERF-7: rows of append-only ledgers that the automatic audit trail leaves out, besides the
     # entities marked @AuditIgnore (sales: SaleLine, SalePayment). Each table is its own record
     # (insert only: no update or delete grant, and a trigger refusing both), and its parent
@@ -248,6 +258,12 @@ pharmacy:
     # A sent account message (reset or invitation link, a code) keeps no text: the outbox and
     # backups hold no live secret. The local and test profiles keep it to follow links.
     keep-account-messages: false
+    # The senders that deliver after commit: this many threads and a queue of this many dispatches.
+    # Past the queue a dispatch is dropped (NOTIFY_REJECTED) and its queued messages are sent by
+    # the notification-retries job within a minute.
+    senders:
+      threads: ${PHARMACY_NOTIFY_THREADS:8}
+      queue: ${PHARMACY_NOTIFY_QUEUE:2000}
     # Local numbers (0712…) are sent as +<code>712… (255 = Tanzania).
     default-country-code: ${PHARMACY_NOTIFY_COUNTRY_CODE:255}
     email:
@@ -300,6 +316,10 @@ logging:
     format:
       console: ${pharmacy.log.formats.${PHARMACY_LOG_FORMAT:plain}:}
 
+info:
+  api:
+    version: ${pharmacy.api.version}
+
 management:
   server:
     # Unset: actuator shares the API's port and serves only health. Set (8081 on ECS): actuator
@@ -310,8 +330,22 @@ management:
     web:
       exposure:
         # Prometheus is published only on a separate management port (MetricsConfiguration), or on
-        # the API's port where pharmacy.management.metrics-on-api-port says so (local, test).
-        include: health,prometheus
+        # the API's port where pharmacy.management.metrics-on-api-port says so (local, test). Info
+        # says which build is running (STD-16): its version and time, and the API's version.
+        include: health,info,prometheus
+  info:
+    # Only the build (META-INF/build-info.properties) and the info.* values below; never the
+    # environment, the Java runtime or the operating system.
+    env:
+      enabled: true
+    java:
+      enabled: false
+    os:
+      enabled: false
+    process:
+      enabled: false
+    git:
+      enabled: false
   endpoint:
     health:
       probes:

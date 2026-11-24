@@ -183,7 +183,9 @@ class SessionIssuer {
         user.isPasswordChangeRequired(),
         session.getUid(),
         session.isSecondFactor(),
-        session.getVerifiedAt());
+        session.getVerifiedAt(),
+        session.getIdleMinutes(),
+        session.getActiveAt());
   }
 
   /** A sign-in by an authenticator code or a (user-verified) passkey proved two factors. */

@@ -30,6 +30,9 @@ public interface MembershipRepository
   List<Membership> findAllByTenantUidAndUserUidIn(
       UUID tenantUid, java.util.Collection<UUID> userUids);
 
+  /** The pharmacy's active members (who else could approve: Approvers.selfApprovalAllowed). */
+  List<Membership> findAllByTenantUidAndActiveTrue(UUID tenantUid);
+
   /** The pharmacy's active members: the seats its plan's users cap counts with its invitations. */
   long countByTenantUidAndActiveTrue(UUID tenantUid);
 
@@ -47,15 +50,21 @@ public interface MembershipRepository
   Integer lockSeats(@org.springframework.data.repository.query.Param("tenantUid") UUID tenantUid);
 
   /**
-   * When the member last worked in this pharmacy. Written directly, not through the entity, so the
+   * When the member last worked in this pharmacy, written only when the last note is older than
+   * {@code staleBefore} (or there is none): a conditional update, so every instance of the API
+   * writes it at most once per period whatever it remembers (the instances' own notes only save the
+   * round trip). Returns 1 when written. Written directly, not through the entity, so the
    * bookkeeping leaves no "membership updated" entry in the pharmacy's audit every few minutes.
    */
   @org.springframework.data.jpa.repository.Modifying
   @org.springframework.data.jpa.repository.Query(
       "update Membership m set m.lastActiveAt = :at"
-          + " where m.userUid = :user and m.tenantUid = :tenant")
+          + " where m.userUid = :user and m.tenantUid = :tenant"
+          + " and (m.lastActiveAt is null or m.lastActiveAt < :staleBefore)")
   int workedAt(
       @org.springframework.data.repository.query.Param("user") UUID userUid,
       @org.springframework.data.repository.query.Param("tenant") UUID tenantUid,
-      @org.springframework.data.repository.query.Param("at") java.time.Instant at);
+      @org.springframework.data.repository.query.Param("at") java.time.Instant at,
+      @org.springframework.data.repository.query.Param("staleBefore")
+          java.time.Instant staleBefore);
 }

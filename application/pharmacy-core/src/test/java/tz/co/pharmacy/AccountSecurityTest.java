@@ -56,12 +56,12 @@ class AccountSecurityTest extends IntegrationTest {
                 {"code":"%s","name":"Secure %s","legalName":"Secure %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Amina Hassan","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Amina Hassan","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    person = anonymous.as(anonymous.signIn(email, "Admin#2026x"));
+    person = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong"));
   }
 
   private static String newPhone() {
@@ -95,12 +95,12 @@ class AccountSecurityTest extends IntegrationTest {
     person
         .post(
             "/api/v1/auth/email-change",
-            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(next))
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(next))
         .expect(202);
     assertThat(person.get("/api/v1/auth/security").expect(200).string("$.data.pendingEmail"))
         .isEqualTo(next);
     // Nothing changed yet: the old email still signs in.
-    anonymous.signIn(email, "Admin#2026x");
+    anonymous.signIn(email, "Admin#2026x-strong");
 
     String token =
         Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", next, true));
@@ -113,14 +113,79 @@ class AccountSecurityTest extends IntegrationTest {
     anonymous
         .post(
             "/api/v1/auth/sign-in",
-            "{\"email\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(email))
+            "{\"email\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(email))
         .expect(401);
-    Api renamed = anonymous.as(anonymous.signIn(next, "Admin#2026x"));
+    Api renamed = anonymous.as(anonymous.signIn(next, "Admin#2026x-strong"));
     assertThat(outbox.platformMessage("access.email_changed", "EMAIL", email, true))
         .contains("ne***@test.local");
     assertThat(history(renamed)).contains("EMAIL_CHANGE_REQUESTED", "EMAIL_CHANGED", "SIGN_IN");
     // The pharmacy's list shows the new address.
     assertThat(renamed.in(tenant, null).get("/api/v1/users").expect(200).body()).contains(next);
+  }
+
+  @Test
+  @DisplayName(
+      "AUTH-13 the old address may undo an email change: back, a new password, every session out")
+  void revertEmailChange() {
+    String next = "moved." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
+    person
+        .post(
+            "/api/v1/auth/email-change",
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(next))
+        .expect(202);
+    String confirm =
+        Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", next, true));
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(confirm))
+        .expect(200);
+    Api mover = anonymous.as(anonymous.signIn(next, "Admin#2026x-strong"));
+
+    // The old address is told, with a link that undoes it.
+    String notice = outbox.platformMessage("access.email_changed", "EMAIL", email, true);
+    assertThat(notice).contains("/revert-email?token=").contains("7 days");
+    String revert = Outbox.token(notice);
+    // A confirm link it is not.
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(revert))
+        .expect(422);
+
+    // Whoever moved the account asks to move it on: the way back stays open.
+    String third = "third." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
+    mover
+        .post(
+            "/api/v1/auth/email-change",
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(third))
+        .expect(202);
+    String onward =
+        Outbox.token(outbox.platformMessage("access.email_confirm", "EMAIL", third, true));
+
+    String body = "{\"token\":\"%s\",\"newPassword\":\"%s\"}";
+    assertThat(
+            anonymous
+                .post("/api/v1/auth/email-change/revert", body.formatted(revert, ""))
+                .expect(422)
+                .string("$.reason"))
+        .isEqualTo("password_required");
+    anonymous
+        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Back#2026-home-strong"))
+        .expect(200);
+
+    // The old address and the new password sign in; the mover's session and address do not.
+    mover.get("/api/v1/auth/me").expect(401);
+    Api back = anonymous.as(anonymous.signIn(email, "Back#2026-home-strong"));
+    anonymous
+        .post(
+            "/api/v1/auth/sign-in",
+            "{\"email\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(next))
+        .expect(401);
+    // Single use, and the onward change asked for meanwhile is cancelled.
+    anonymous
+        .post("/api/v1/auth/email-change/revert", body.formatted(revert, "Again#2026-home"))
+        .expect(422);
+    anonymous
+        .post("/api/v1/auth/email-change/confirm", "{\"token\":\"%s\"}".formatted(onward))
+        .expect(422);
+    assertThat(history(back)).contains("EMAIL_CHANGED", "EMAIL_CHANGE_REVERTED");
   }
 
   @Test
@@ -132,7 +197,7 @@ class AccountSecurityTest extends IntegrationTest {
             """
             {"code":"%s","name":"Other","legalName":"Other Ltd","country":"TZ","currency":"TZS",
              "timezone":"Africa/Dar_es_Salaam","headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Other","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Other","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(
                     "TK" + UUID.randomUUID().toString().substring(0, 4).toUpperCase(), other))
@@ -140,7 +205,7 @@ class AccountSecurityTest extends IntegrationTest {
     person
         .post(
             "/api/v1/auth/email-change",
-            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x\"}".formatted(other))
+            "{\"newEmail\":\"%s\",\"password\":\"Admin#2026x-strong\"}".formatted(other))
         .expect(202);
     assertThat(outbox.platformMessage("access.email_in_use", "EMAIL", other, true)).isNotBlank();
     assertThat(outbox.platformMessage("access.email_confirm", "EMAIL", other, false)).isNull();
@@ -185,12 +250,12 @@ class AccountSecurityTest extends IntegrationTest {
             """
             {"code":"%s","name":"Second","legalName":"Second Ltd","country":"TZ","currency":"TZS",
              "timezone":"Africa/Dar_es_Salaam","headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Baraka","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Baraka","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(
                     "SC" + UUID.randomUUID().toString().substring(0, 4).toUpperCase(), second))
         .expect(201);
-    Api other = anonymous.as(anonymous.signIn(second, "Admin#2026x"));
+    Api other = anonymous.as(anonymous.signIn(second, "Admin#2026x-strong"));
     other.post("/api/v1/auth/phone", "{\"phone\":\"%s\"}".formatted(phone)).expect(202);
     String otherCode =
         Api.eventuallyValue(
@@ -234,11 +299,11 @@ class AccountSecurityTest extends IntegrationTest {
     anonymous
         .post(
             "/api/v1/auth/password-reset/phone/complete",
-            "{\"phone\":\"%s\",\"code\":\"%s\",\"newPassword\":\"Fresh#2026xyz\"}"
+            "{\"phone\":\"%s\",\"code\":\"%s\",\"newPassword\":\"Fresh#2026xyz-strong\"}"
                 .formatted(phone, code))
         .expect(200);
     person.get("/api/v1/auth/me").expect(401);
-    anonymous.signIn(email, "Fresh#2026xyz");
+    anonymous.signIn(email, "Fresh#2026xyz-strong");
     assertThat(outbox.platformMessage("access.password_changed", "EMAIL", email, true))
         .isNotBlank();
   }
@@ -266,7 +331,7 @@ class AccountSecurityTest extends IntegrationTest {
             anonymous
                 .post(
                     "/api/v1/auth/email-change/confirm",
-                    "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz\"}".formatted(token))
+                    "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz-strong\"}".formatted(token))
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("recovery_on_hold");
@@ -279,7 +344,7 @@ class AccountSecurityTest extends IntegrationTest {
     anonymous
         .post(
             "/api/v1/auth/email-change/confirm",
-            "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz\"}".formatted(token))
+            "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz-strong\"}".formatted(token))
         .expect(422);
 
     // Started again and left alone, after the hold it moves the account and sets the password.
@@ -300,10 +365,10 @@ class AccountSecurityTest extends IntegrationTest {
     anonymous
         .post(
             "/api/v1/auth/email-change/confirm",
-            "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz\"}".formatted(second))
+            "{\"token\":\"%s\",\"newPassword\":\"Back#2026xyz-strong\"}".formatted(second))
         .expect(200);
     person.get("/api/v1/auth/me").expect(401);
-    Api back = anonymous.as(anonymous.signIn(fresh, "Back#2026xyz"));
+    Api back = anonymous.as(anonymous.signIn(fresh, "Back#2026xyz-strong"));
     assertThat(history(back))
         .contains("RECOVERY_STARTED", "RECOVERY_CANCELLED", "RECOVERY_COMPLETED");
   }
@@ -312,13 +377,13 @@ class AccountSecurityTest extends IntegrationTest {
   @DisplayName("staff logins have no email change, phone or recovery of their own")
   void managedLoginsRefused() {
     Api admin = person.in(tenant, null);
-    Staff.Login juma = Staff.login(admin, anonymous, "Juma", "CASHIER", "Juma#2026xyz");
-    Api staff = anonymous.as(anonymous.signIn(juma.signIn(), "Juma#2026xyz"));
+    Staff.Login juma = Staff.login(admin, anonymous, "Juma", "CASHIER", "Juma#2026xyz-strong");
+    Api staff = anonymous.as(anonymous.signIn(juma.signIn(), "Juma#2026xyz-strong"));
     assertThat(
             staff
                 .post(
                     "/api/v1/auth/email-change",
-                    "{\"newEmail\":\"juma@test.local\",\"password\":\"Juma#2026xyz\"}")
+                    "{\"newEmail\":\"juma@test.local\",\"password\":\"Juma#2026xyz-strong\"}")
                 .expect(422)
                 .string("$.reason"))
         .isEqualTo("managed_login");

@@ -32,8 +32,8 @@ import tz.co.pharmacy.support.Staff;
  */
 class ControlsSalesTest extends IntegrationTest {
 
-  private static final String CLERK_PASSWORD = "Pharm#2026x";
-  private static final String ADMIN_PASSWORD = "Admin#2026x";
+  private static final String CLERK_PASSWORD = "Pharm#2026x-strong";
+  private static final String ADMIN_PASSWORD = "Admin#2026x-strong";
 
   @Autowired DataSource dataSource;
 
@@ -286,10 +286,11 @@ class ControlsSalesTest extends IntegrationTest {
     assertThat(money(sold, "$.data.discountTotal")).isEqualTo(1_500.0);
 
     // Still only for those who may give a discount at all.
-    Staff.Login till = Staff.login(admin, anonymous, "Till Cashier", "CASHIER", "Cashier#2026x");
+    Staff.Login till =
+        Staff.login(admin, anonymous, "Till Cashier", "CASHIER", "Cashier#2026x-strong");
     Api cashier =
         anonymous
-            .as(anonymous.signIn(till.signIn(), "Cashier#2026x"))
+            .as(anonymous.signIn(till.signIn(), "Cashier#2026x-strong"))
             .in(tenantUid, branchOf(clerk));
     assertThat(
             sellRaw(cashier, product, 1, null, "\"discountPercent\":15")

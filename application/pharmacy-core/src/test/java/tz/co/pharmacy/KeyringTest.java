@@ -66,6 +66,9 @@ class KeyringTest extends IntegrationTest {
   @Value("${pharmacy.database.owner-password}")
   String ownerPassword;
 
+  /** A job lock the test holds (see {@link #holdJob}); released at the latest after each test. */
+  private Connection heldJob;
+
   private Api anonymous;
   private Api root;
   private Api self;
@@ -86,12 +89,12 @@ class KeyringTest extends IntegrationTest {
                 {"code":"%s","name":"Keys %s","legalName":"Keys %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Neema Joseph","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Neema Joseph","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    self = anonymous.as(anonymous.signIn(email, "Admin#2026x"));
+    self = anonymous.as(anonymous.signIn(email, "Admin#2026x-strong"));
     admin = self.in(tenant, null);
   }
 
@@ -157,6 +160,11 @@ class KeyringTest extends IntegrationTest {
     assertThat(keyring.open(Purpose.TOTP, sealedSeed)).isEqualTo(seed);
     ownerUpdate("update access.users set totp_secret = ? where email = ?", legacySeal(seed), email);
 
+    // The webhook retry round (every second in the tests) seals any plain webhook secret it finds
+    // (WebhooksImpl.retryDue): it is held off while the plain previous secret below is planted and
+    // counted, or it may seal it first and the count reads 0 (the intermittent failure at
+    // "previous_secret ... plain"). The lock is the one SingleRunner takes for the job.
+    heldJob = holdJob("webhook-retries");
     // A webhook secret sealed before the rotation, and a previous one still in plain text.
     Response webhook =
         admin
@@ -194,7 +202,7 @@ class KeyringTest extends IntegrationTest {
         anonymous
             .post(
                 "/api/v1/auth/sign-in",
-                "{\"email\":\"" + email + "\",\"password\":\"Admin#2026x\"}")
+                "{\"email\":\"" + email + "\",\"password\":\"Admin#2026x-strong\"}")
             .expect(202);
     anonymous
         .post(
@@ -213,6 +221,7 @@ class KeyringTest extends IntegrationTest {
     assertThat(before.read("$.data.toReseal", Long.class)).isGreaterThanOrEqualTo(4);
     assertThat(before.read("$.data.active.totp", String.class)).isEqualTo("testtotp");
     assertThat(removable(before, "legacy")).isFalse();
+    releaseJob();
 
     root.post("/api/v1/platform/keys/reseal", "{}").expect(202);
     Response after = waitForRun();
@@ -238,6 +247,20 @@ class KeyringTest extends IntegrationTest {
     assertThat(keysOf(after, "notifications.provider_settings.secrets"))
         .containsOnly("testproviders");
     assertThat(after.read("$.data.toReseal", Long.class)).isZero();
+    // Keyed hashes (recovery and SMS codes, AUTH-16) cannot be re-sealed: a code hashed under the
+    // legacy key keeps the key in use until it is used up or replaced. Once none is left, it may
+    // go.
+    try (Connection connection = ownerConnection();
+        PreparedStatement recovery =
+            connection.prepareStatement(
+                "delete from access.recovery_codes where code_hash like 'h1:legacy:%'");
+        PreparedStatement phone =
+            connection.prepareStatement(
+                "delete from access.phone_codes where code_hash like 'h1:legacy:%'")) {
+      recovery.executeUpdate();
+      phone.executeUpdate();
+    }
+    after = root.get("/api/v1/platform/keys").expect(200);
     assertThat(removable(after, "legacy")).isTrue();
     assertThat(removable(after, "testtotp")).isFalse();
 
@@ -331,6 +354,31 @@ class KeyringTest extends IntegrationTest {
       assertThat(row.next()).isTrue();
       return row.getString(1);
     }
+  }
+
+  @org.junit.jupiter.api.AfterEach
+  void releaseJob() throws SQLException {
+    if (heldJob != null) {
+      heldJob.close();
+      heldJob = null;
+    }
+  }
+
+  /**
+   * Holds the job lock {@link tz.co.pharmacy.platform.persistence.SingleRunner} takes for {@code
+   * job} (waiting for a round in progress), until the connection is closed.
+   */
+  private Connection holdJob(String job) throws SQLException {
+    Connection connection = ownerConnection();
+    try (PreparedStatement lock =
+        connection.prepareStatement("select pg_advisory_lock(hashtextextended(?, 0))")) {
+      lock.setString(1, "job:" + job);
+      lock.execute();
+    } catch (SQLException failure) {
+      connection.close();
+      throw failure;
+    }
+    return connection;
   }
 
   private void ownerUpdate(String sql, Object... values) throws SQLException {

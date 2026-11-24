@@ -1,0 +1,24 @@
+-- Spring Modulith's event publication registry (platform.event_publication) holds every pharmacy's
+-- events in one table, with no tenant_uid and no row-level security (adversarial review of
+-- 23 Nov 2026, ISO-11). Row-level security is not added, on purpose:
+--
+--  * Modulith writes the rows with its own SQL (insert without a tenant column) and completes them
+--    from the listener's transaction, which may run in another pharmacy's scope or none (the
+--    platform's jobs, the event-resubmission job reading every incomplete event). A policy would
+--    hide rows from those transactions: a completion would update nothing, and the event would be
+--    delivered again and again; the resubmission would see nothing to resubmit.
+--  * A policy that lets a scope with no pharmacy see every row (as those paths need) protects
+--    nothing more than today: the application role is the one reading in every scope.
+--
+-- What is done instead (defence in depth):
+--  * events carry no secrets: no token, password or code, and a voucher's code only masked
+--    (architecture test CodeRulesTest.eventsCarryNoSecrets; VoucherIssued);
+--  * the application role keeps only what Modulith needs in its completion mode (UPDATE, the
+--    default): select, insert and update. The completed events are purged, and an erased pharmacy's
+--    events deleted, by the security-definer functions platform.purge_expired and
+--    platform.erase_tenant (platform V7), which run as the owner; the archive table (used only in
+--    the ARCHIVE completion mode, which this application does not use) is closed to it entirely;
+--  * no application code reads the payloads but Modulith itself and the ledger health check (which
+--    counts stale rows).
+revoke delete on platform.event_publication from ${application_role};
+revoke all on platform.event_publication_archive from ${application_role};

@@ -11,14 +11,17 @@ public class WebConfiguration implements WebMvcConfigurer {
 
   private final AccessInterceptor accessInterceptor;
   private final IdempotencyInterceptor idempotencyInterceptor;
+  private final ExportAudit exportAudit;
   private final String[] allowedOrigins;
 
   public WebConfiguration(
       AccessInterceptor accessInterceptor,
       IdempotencyInterceptor idempotencyInterceptor,
+      ExportAudit exportAudit,
       @Value("${pharmacy.edge.cors-allowed-origins:}") String[] allowedOrigins) {
     this.accessInterceptor = accessInterceptor;
     this.idempotencyInterceptor = idempotencyInterceptor;
+    this.exportAudit = exportAudit;
     this.allowedOrigins = allowedOrigins;
   }
 
@@ -27,6 +30,8 @@ public class WebConfiguration implements WebMvcConfigurer {
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(accessInterceptor).addPathPatterns("/api/**");
     registry.addInterceptor(idempotencyInterceptor).addPathPatterns("/api/**");
+    // Every file handed over is audited, once it is answered (STD-22).
+    registry.addInterceptor(exportAudit).addPathPatterns("/api/**");
   }
 
   @Override
@@ -38,12 +43,15 @@ public class WebConfiguration implements WebMvcConfigurer {
           .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
           .allowedHeaders("*")
           // Retry-After: the web waits as long as a 429 or 503 says before it sends again. ETag:
-          // the version a change names in If-Match (Preconditions).
+          // the version a change names in If-Match (Preconditions). Location: where a created
+          // resource is read; X-Api-Version: the API's version (STD-16).
           .exposedHeaders(
               EdgeFilter.CORRELATION_HEADER,
               IdempotencyFilter.REPLAYED_HEADER,
               "Retry-After",
-              "ETag")
+              "ETag",
+              "Location",
+              EdgeFilter.VERSION_HEADER)
           .maxAge(3600);
     }
   }

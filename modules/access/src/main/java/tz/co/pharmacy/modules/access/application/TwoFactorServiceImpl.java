@@ -104,7 +104,9 @@ class TwoFactorServiceImpl implements TwoFactorService {
             .filter(change -> change.openAt(clock.instant()) && !change.isRecovery())
             .map(tz.co.pharmacy.modules.access.domain.EmailChange::getNewEmail)
             .findFirst()
-            .orElse(null));
+            .orElse(null),
+        Passwords.minimum(user.isTwoFactorEnabled() || passkeys.countByUserUid(userUid) > 0),
+        Boolean.TRUE.equals(user.getPasswordLongEnoughAlone()));
   }
 
   @Override
@@ -163,6 +165,10 @@ class TwoFactorServiceImpl implements TwoFactorService {
     User user = user(userUid);
     if (!user.isTwoFactorEnabled()) {
       return;
+    }
+    if (passkeys.countByUserUid(userUid) == 0) {
+      // Nothing would be left but the password (STD-21): it must have 15 characters.
+      SecondFactors.passwordMayStandAlone(user);
     }
     if (!secondFactor(user, code)) {
       throw invalidCode();
@@ -273,7 +279,8 @@ class TwoFactorServiceImpl implements TwoFactorService {
     }
     if (RecoveryCodes.looksLikeRecoveryCode(code)) {
       return recoveryCodes
-          .findByUserUidAndCodeHashAndUsedAtIsNull(user.getUid(), RecoveryCodes.hash(code))
+          .findFirstByUserUidAndCodeHashInAndUsedAtIsNull(
+              user.getUid(), RecoveryCodes.hashes(secrets, code))
           .map(
               recovery -> {
                 recovery.use(clock.instant());
@@ -294,7 +301,7 @@ class TwoFactorServiceImpl implements TwoFactorService {
     recoveryCodes.deleteAllOf(userUid);
     List<String> codes = RecoveryCodes.generate();
     for (String code : codes) {
-      recoveryCodes.save(new RecoveryCode(userUid, RecoveryCodes.hash(code)));
+      recoveryCodes.save(new RecoveryCode(userUid, RecoveryCodes.hash(secrets, code)));
     }
     return codes;
   }

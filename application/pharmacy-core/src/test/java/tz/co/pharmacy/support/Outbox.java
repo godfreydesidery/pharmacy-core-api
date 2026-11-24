@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
 
 /**
  * Reads what the platform sent, as a test's mailbox: the invitation link in the email queued for an
- * address. Only the token's hash is stored, so the email is the one place the token is.
+ * address. Only the token's hash is stored, so the email is the one place the token is. An account
+ * message is sealed until it is sent (AUTH-8): only sent ones are read.
  */
 public final class Outbox {
 
@@ -75,7 +76,7 @@ public final class Outbox {
         PreparedStatement query =
             connection.prepareStatement(
                 "select body from notifications.messages where template_key = ? and channel = ?"
-                    + " and to_address = ? order by id desc limit 1")) {
+                    + " and to_address = ? and not sealed order by id desc limit 1")) {
       query.setString(1, templateKey);
       query.setString(2, channel);
       query.setString(3, address);
@@ -97,7 +98,8 @@ public final class Outbox {
       try (PreparedStatement query =
           connection.prepareStatement(
               "select body from notifications.messages where template_key = 'access.invitation'"
-                  + " and channel = 'EMAIL' and to_address = ? order by id desc limit 1")) {
+                  + " and channel = 'EMAIL' and to_address = ? and not sealed"
+                  + " order by id desc limit 1")) {
         query.setString(1, email);
         try (ResultSet rows = query.executeQuery()) {
           if (!rows.next()) {

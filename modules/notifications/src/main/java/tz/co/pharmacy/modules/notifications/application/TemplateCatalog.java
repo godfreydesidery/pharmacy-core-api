@@ -226,6 +226,30 @@ final class TemplateCatalog {
         new Default(
             "Your sign-in email was changed",
             "Hello {{name}}, your Pharmacy Core sign-in email was changed to {{newEmail}} on"
+                + " {{time}}. If this was not you, undo it within {{days}} days: {{revertLink}}"
+                + " The link puts this address back, asks you for a new password and signs out"
+                + " every device. Then contact your pharmacy or Pharmacy Core support.",
+            "Your Pharmacy Core sign-in email was changed to {{newEmail}}. Not you? Undo it:"
+                + " {{revertLink}}"),
+        new Default(
+            "Barua pepe yako ya kuingia imebadilishwa",
+            "Habari {{name}}, barua pepe yako ya kuingia Pharmacy Core imebadilishwa kuwa"
+                + " {{newEmail}} tarehe {{time}}. Kama si wewe, tengua ndani ya siku {{days}}:"
+                + " {{revertLink}} Kiungo hiki kinarudisha anwani hii, kinakuomba nenosiri jipya na"
+                + " kutoa kila kifaa. Kisha wasiliana na famasia yako au msaada wa Pharmacy Core.",
+            "Barua pepe yako ya Pharmacy Core imebadilishwa kuwa {{newEmail}}. Si wewe? Tengua:"
+                + " {{revertLink}}"),
+        Map.of(
+            "name", "Amina Hassan",
+            "newEmail", "a***@example.com",
+            "time", "22 Nov 2026 10:15",
+            "days", 7,
+            "revertLink", "/revert-email?token=..."));
+    define(
+        TemplateKeys.ACCESS_EMAIL_RECOVERED,
+        new Default(
+            "Your sign-in email was changed",
+            "Hello {{name}}, your Pharmacy Core sign-in email was changed to {{newEmail}} on"
                 + " {{time}}. If this was not you, contact your pharmacy or Pharmacy Core support"
                 + " at once.",
             "Your Pharmacy Core sign-in email was changed to {{newEmail}}. Not you? Contact"
@@ -469,6 +493,31 @@ final class TemplateCatalog {
             "{{month}}: SMS {{cap}} za kifurushi cha {{planName}} zimekwisha. SMS zaidi hazitumwi;"
                 + " ongeza mtoa huduma wako wa SMS au panda kifurushi."),
         Map.of("planName", "Starter", "cap", 200, "month", "2026-11"));
+    define(
+        TemplateKeys.SENSITIVE_DIGEST,
+        new Default(
+            "{{pharmacyName}}: {{count}} sensitive actions on {{date}}",
+            "Sensitive actions at {{pharmacyName}} on {{date}}:\n{{summary}}\n\n{{items}}\n\nOpen the"
+                + " audit trail to see each one in full. You get this digest because you manage the"
+                + " pharmacy's settings; it can be turned off in Settings.",
+            "{{count}} sensitive actions on {{date}}:\n{{summary}}\nOpen the audit trail for each"
+                + " one."),
+        new Default(
+            "{{pharmacyName}}: vitendo nyeti {{count}} tarehe {{date}}",
+            "Vitendo nyeti katika {{pharmacyName}} tarehe {{date}}:\n{{summary}}\n\n{{items}}\n\n"
+                + "Fungua kumbukumbu za ukaguzi kuona kila kimoja kwa ukamilifu. Unapokea muhtasari"
+                + " huu kwa sababu unasimamia mipangilio ya famasia; unaweza kuuzima kwenye Mipangilio.",
+            "Vitendo nyeti {{count}} tarehe {{date}}:\n{{summary}}\nFungua kumbukumbu za ukaguzi"
+                + " kuona kila kimoja."),
+        Map.of(
+            "pharmacyName", "Afya Pharmacy",
+            "date", "23 Nov 2026",
+            "count", 3,
+            "summary", "• Refunds and returns: 1\n• Approvals granted: 2",
+            "items",
+                "• 10:12 Return SRN-HQ-000004 12000.00 (amina@afya.co.tz)\n"
+                    + "• 10:11 Approved refund 12000.00 (Juma)",
+            "link", "/admin/audit"));
   }
 
   private TemplateCatalog() {}

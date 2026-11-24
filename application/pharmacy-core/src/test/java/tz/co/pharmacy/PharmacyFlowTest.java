@@ -29,7 +29,8 @@ class PharmacyFlowTest extends IntegrationTest {
     Tenant afya = onboard(root, "AF" + suffix, "afya-" + suffix + "@test.local");
     Tenant tiba = onboard(root, "TB" + suffix, "tiba-" + suffix + "@test.local");
 
-    Api admin = anonymous.as(anonymous.signIn(afya.adminEmail, "Admin#2026x")).in(afya.uid, null);
+    Api admin =
+        anonymous.as(anonymous.signIn(afya.adminEmail, "Admin#2026x-strong")).in(afya.uid, null);
     Response me = admin.get("/api/v1/auth/me").expect(200);
     assertThat(me.read("$.data.memberships[0].tenantUid", String.class)).isEqualTo(afya.uid);
     String branch = me.read("$.data.memberships[0].branches[0].uid", String.class);
@@ -140,7 +141,7 @@ class PharmacyFlowTest extends IntegrationTest {
 
     // The other tenant sees nothing of Afya's, and cannot act in Afya.
     Api tibaAdmin =
-        anonymous.as(anonymous.signIn(tiba.adminEmail, "Admin#2026x")).in(tiba.uid, null);
+        anonymous.as(anonymous.signIn(tiba.adminEmail, "Admin#2026x-strong")).in(tiba.uid, null);
     assertThat(
             tibaAdmin
                 .get("/api/v1/products")
@@ -175,7 +176,7 @@ class PharmacyFlowTest extends IntegrationTest {
                 {"code":"%s","name":"Pharmacy %s","legalName":"Pharmacy %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office","address":"Samora Ave","phone":"+255700000000"},
-                 "admin":{"name":"Admin %s","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin %s","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, code, adminEmail))
             .expect(201);

@@ -64,12 +64,12 @@ class TillServerSideTest extends IntegrationTest {
                 {"code":"%s","name":"Till %s","legalName":"Till %s Ltd","country":"TZ",
                  "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
                  "headOffice":{"code":"HQ","name":"Head Office"},
-                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+                 "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
                 """
                     .formatted(code, code, code, email))
             .expect(201)
             .string("$.data.uid");
-    token = anonymous.signIn(email, "Admin#2026x");
+    token = anonymous.signIn(email, "Admin#2026x-strong");
     admin = anonymous.as(token).in(tenant, null);
     String branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
@@ -259,8 +259,7 @@ class TillServerSideTest extends IntegrationTest {
     assertThat(problem.read("$.reason", String.class)).isEqualTo("session_idle");
     assertThat(problem.read("$.idleMinutes", Integer.class)).isEqualTo(15);
     assertThat(problem.read("$.status", Integer.class)).isEqualTo(401);
-    assertThat(problem.read("$.type", String.class))
-        .isEqualTo("https://pharmacy-core/problems/session_idle");
+    assertThat(problem.read("$.type", String.class)).isEqualTo("/problems/session_idle");
     assertThat(problem.read("$.title", String.class)).isEqualTo("Unauthenticated");
     assertThat(problem.read("$.correlationId", String.class)).isNotBlank();
     assertThat(problem.read("$.detail", String.class))
@@ -298,7 +297,7 @@ class TillServerSideTest extends IntegrationTest {
       assertThat(refused.getContentType()).startsWith("application/problem+json");
       Map<String, Object> body = JsonPath.parse(refused.getContentAsString()).read("$");
       assertThat(body)
-          .containsEntry("type", "https://pharmacy-core/problems/server_busy")
+          .containsEntry("type", "/problems/server_busy")
           .containsEntry("title", "Service unavailable")
           .containsEntry("status", 503)
           .containsEntry("detail", "The server is busy with other requests; retry in a moment.")

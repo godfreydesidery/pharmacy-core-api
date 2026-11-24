@@ -23,6 +23,7 @@ import tz.co.pharmacy.modules.finance.ports.inbound.SalePosting;
 import tz.co.pharmacy.modules.inventory.events.BatchCostAveraged;
 import tz.co.pharmacy.modules.inventory.events.StockAdjusted;
 import tz.co.pharmacy.modules.purchasing.events.GoodsReceived;
+import tz.co.pharmacy.modules.purchasing.events.SupplierCredited;
 import tz.co.pharmacy.modules.purchasing.events.SupplierReturned;
 import tz.co.pharmacy.modules.sales.events.SaleCompleted;
 import tz.co.pharmacy.modules.sales.events.SaleReturnReleased;
@@ -194,7 +195,44 @@ public class LedgerReactions {
                             baseTotal(event),
                             foreign(event) ? event.currency() : null,
                             foreign(event) ? event.total() : null,
-                            baseVat(event)))));
+                            baseVat(event),
+                            event.baseRounding()))));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(tz.co.pharmacy.modules.sales.events.SaleDebitNoteIssued event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSaleDebitNote(
+                        event.debitNoteUid(),
+                        event.number(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.net(),
+                        event.tax())));
+  }
+
+  @Async
+  @TransactionalEventListener
+  public void on(tz.co.pharmacy.modules.purchasing.events.SupplierDebitNoteRecorded event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSupplierDebitNote(
+                        event.debitNoteUid(),
+                        event.number(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.net(),
+                        event.vat())));
   }
 
   @Async
@@ -211,7 +249,28 @@ public class LedgerReactions {
                         event.number(),
                         event.branchUid(),
                         localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
-                        event.total())));
+                        event.total(),
+                        Boolean.TRUE.equals(event.awaitingCredit()))));
+  }
+
+  /** The supplier's credit note for a return: off what is owed, out of 1160 (FRD-16). */
+  @Async
+  @TransactionalEventListener
+  public void on(SupplierCredited event) {
+    EventScopes.run(
+        event.metadata(),
+        SERVICE,
+        () ->
+            once(
+                () ->
+                    ledger.postSupplierCredit(
+                        event.returnUid(),
+                        event.number(),
+                        event.creditNoteNumber(),
+                        event.branchUid(),
+                        localDate(event.metadata().tenantUid(), event.metadata().occurredAt()),
+                        event.returnValue(),
+                        event.creditBase())));
   }
 
   @Async

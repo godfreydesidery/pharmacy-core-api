@@ -18,6 +18,12 @@ public final class TemplateKeys {
   public static final String ACCESS_EMAIL_CONFIRM = "access.email_confirm";
   public static final String ACCESS_EMAIL_IN_USE = "access.email_in_use";
   public static final String ACCESS_EMAIL_CHANGED = "access.email_changed";
+
+  /**
+   * To the old address after a recovery: changed, with no undo link (its mailbox was the lost one).
+   */
+  public static final String ACCESS_EMAIL_RECOVERED = "access.email_recovered";
+
   public static final String ACCESS_PASSWORD_CHANGED = "access.password_changed";
   public static final String ACCESS_PHONE_REMOVED = "access.phone_removed";
   public static final String ACCESS_RECOVERY_STARTED = "access.recovery_started";
@@ -36,6 +42,12 @@ public final class TemplateKeys {
    */
   public static final String SMS_CAP_REACHED = "tenant.sms_cap_reached";
 
+  /**
+   * In-app and by email, to the owners and admins, each morning: the day before's sensitive actions
+   * (FRD-19), unless the pharmacy turned the digest off.
+   */
+  public static final String SENSITIVE_DIGEST = "tenant.sensitive_digest";
+
   public static final List<String> ALL =
       List.of(
           STOCK_LOW,
@@ -51,6 +63,7 @@ public final class TemplateKeys {
           ACCESS_EMAIL_CONFIRM,
           ACCESS_EMAIL_IN_USE,
           ACCESS_EMAIL_CHANGED,
+          ACCESS_EMAIL_RECOVERED,
           ACCESS_PASSWORD_CHANGED,
           ACCESS_PHONE_REMOVED,
           ACCESS_RECOVERY_STARTED,
@@ -63,7 +76,8 @@ public final class TemplateKeys {
           TENANT_WELCOME,
           SUBSCRIPTION_DUE,
           SUBSCRIPTION_PAST_DUE,
-          SMS_CAP_REACHED);
+          SMS_CAP_REACHED,
+          SENSITIVE_DIGEST);
 
   /** Preference categories; {@code access} messages are always sent. */
   public static final List<String> CATEGORIES =
@@ -78,7 +92,12 @@ public final class TemplateKeys {
       case SALE_RECEIPT -> "sales";
       case DAILY_SUMMARY -> "reports";
       case CUSTOMER_OVERDUE -> "customers";
-      case TENANT_WELCOME, SUBSCRIPTION_DUE, SUBSCRIPTION_PAST_DUE, SMS_CAP_REACHED -> "tenant";
+      case TENANT_WELCOME,
+          SUBSCRIPTION_DUE,
+          SUBSCRIPTION_PAST_DUE,
+          SMS_CAP_REACHED,
+          SENSITIVE_DIGEST ->
+          "tenant";
       default -> "access";
     };
   }

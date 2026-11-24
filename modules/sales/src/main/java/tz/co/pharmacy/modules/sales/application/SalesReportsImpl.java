@@ -218,7 +218,9 @@ class SalesReportsImpl implements SalesReports {
         tz.co.pharmacy.platform.kernel.TaxCategory.values()) {
       figures.put(
           category.name(),
-          new BigDecimal[] {Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO});
+          new BigDecimal[] {
+            Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO, Amounts.ZERO
+          });
     }
     jdbc.query(
         "select "
@@ -251,6 +253,19 @@ class SalesReportsImpl implements SalesReports {
           }
         },
         args);
+    // Sales debit notes (STD-2): more charged on a sale, under the category they were issued in.
+    jdbc.query(
+        "select d.tax_category as category, coalesce(sum(d.net), 0) as net,"
+            + " coalesce(sum(d.tax), 0) as tax from sales.debit_notes d"
+            + " where d.created_at >= ? and d.created_at < ? group by 1",
+        r -> {
+          BigDecimal[] row = figures.get(r.getString("category"));
+          if (row != null) {
+            row[4] = row[4].add(r.getBigDecimal("net"));
+            row[5] = row[5].add(r.getBigDecimal("tax"));
+          }
+        },
+        args);
     List<VatCategoryLine> lines = new ArrayList<>();
     figures.forEach(
         (category, row) ->
@@ -261,8 +276,10 @@ class SalesReportsImpl implements SalesReports {
                     Amounts.money(row[1]),
                     Amounts.money(row[2]),
                     Amounts.money(row[3]),
-                    Amounts.money(row[0].subtract(row[2])),
-                    Amounts.money(row[1].subtract(row[3])))));
+                    Amounts.money(row[0].subtract(row[2]).add(row[4])),
+                    Amounts.money(row[1].subtract(row[3]).add(row[5])),
+                    Amounts.money(row[4]),
+                    Amounts.money(row[5]))));
     return lines;
   }
 

@@ -80,6 +80,21 @@ public class GoodsReceipt extends TenantEntity {
     this.baseTotal = Amounts.money(baseLines.add(this.baseVatTotal));
   }
 
+  /** {@code baseTotal} less the lines' and the VAT's base values: the conversion's rounding. */
+  private BigDecimal baseRounding = Amounts.ZERO;
+
+  /**
+   * Records the base values (STD-17): {@code payable}, the total converted once (what is owed in
+   * base, so the whole total paid at this rate settles it); {@code baseLines}, the lines each
+   * converted once (what the stock comes in at); {@code baseVat}, the VAT converted once. The few
+   * minor units between the payable and the other two are the conversion's rounding.
+   */
+  public void settleBase(BigDecimal payable, BigDecimal baseLines, BigDecimal baseVat) {
+    this.baseVatTotal = baseVat == null ? Amounts.ZERO : baseVat;
+    this.baseTotal = Amounts.money(payable);
+    this.baseRounding = Amounts.money(this.baseTotal.subtract(baseLines).subtract(baseVatTotal));
+  }
+
   /** The lines' total, without the VAT. */
   public BigDecimal linesTotal() {
     return Amounts.money(total.subtract(vatTotal == null ? Amounts.ZERO : vatTotal), currency);

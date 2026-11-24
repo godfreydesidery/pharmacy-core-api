@@ -22,10 +22,12 @@ class SignedBlobsService implements SignedBlobs {
 
   private final ObjectStorage storage;
   private final BlobUrls urls;
+  private final UploadClaims claims;
 
-  SignedBlobsService(ObjectStorage storage, BlobUrls urls) {
+  SignedBlobsService(ObjectStorage storage, BlobUrls urls, UploadClaims claims) {
     this.storage = storage;
     this.urls = urls;
+    this.claims = claims;
   }
 
   @Override
@@ -41,7 +43,15 @@ class SignedBlobsService implements SignedBlobs {
     if (size > FileRules.MAX_SIZE) {
       throw tooLarge();
     }
-    storage.put(key, type, new Capped(content), size < 0 ? -1 : size);
+    // One link, one upload (INT-9): a second PUT of the key is refused, even once the file is
+    // complete, so a leaked link cannot replace checked bytes.
+    claims.claim(key, java.time.Instant.ofEpochSecond(expires));
+    try {
+      storage.put(key, type, new Capped(content), size < 0 ? -1 : size);
+    } catch (RuntimeException failed) {
+      claims.release(key);
+      throw failed;
+    }
   }
 
   @Override

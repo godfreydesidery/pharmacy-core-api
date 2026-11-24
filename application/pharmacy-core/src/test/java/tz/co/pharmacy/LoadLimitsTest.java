@@ -84,7 +84,7 @@ class LoadLimitsTest extends IntegrationTest {
     root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
     code = "LL" + UUID.randomUUID().toString().substring(0, 4).toUpperCase(Locale.ROOT);
     tenant = register(code);
-    admin = anonymous.as(anonymous.signIn(email(code), "Admin#2026x")).in(tenant, null);
+    admin = anonymous.as(anonymous.signIn(email(code), "Admin#2026x-strong")).in(tenant, null);
     branch =
         admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
     till = admin.in(tenant, branch);
@@ -97,7 +97,7 @@ class LoadLimitsTest extends IntegrationTest {
             {"code":"%s","name":"Load %s","legalName":"Load %s Ltd","country":"TZ",
              "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
              "headOffice":{"code":"HQ","name":"Head Office"},
-             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x"}}
+             "admin":{"name":"Admin","email":"%s","password":"Admin#2026x-strong"}}
             """
                 .formatted(code, code, code, email(code)))
         .expect(201)
@@ -353,7 +353,7 @@ class LoadLimitsTest extends IntegrationTest {
   @Test
   @DisplayName("the edge reads the pharmacy, membership and branch once per 30 s: 1 transaction")
   void edgeCache() {
-    Api fresh = anonymous.as(anonymous.signIn(email(code), "Admin#2026x"));
+    Api fresh = anonymous.as(anonymous.signIn(email(code), "Admin#2026x-strong"));
     // The session's first request in the pharmacy notes the visit (a write, every 5 minutes).
     fresh.in(tenant, null).get("/api/v1/branches").expect(200);
     Api inBranch = fresh.in(tenant, branch);
@@ -371,7 +371,7 @@ class LoadLimitsTest extends IntegrationTest {
   @Test
   @DisplayName("signing out, a deactivated member and a suspended pharmacy take effect at once")
   void revocation() {
-    String password = "Cashier#2026x";
+    String password = "Cashier#2026x-strong";
     Staff.Login cashier = Staff.login(admin, anonymous, "Cashier", "CASHIER", password);
     Api cashierApi = anonymous.as(anonymous.signIn(cashier.signIn(), password)).in(tenant, branch);
     String cashierUid = cashierApi.get("/api/v1/auth/me").expect(200).string("$.data.user.uid");

@@ -41,6 +41,10 @@ class LedgerSourcesAdapter implements LedgerSources {
       select 'SUPPLIER_RETURN', uid, number, branch_uid, created_at from purchasing.supplier_returns
        where created_at >= ? and created_at < ? and total <> 0
       union all
+      select 'SUPPLIER_CREDIT', uid, credit_note_number, branch_uid, credited_at
+        from purchasing.supplier_returns
+       where credited_at >= ? and credited_at < ? and credit_base_amount is not null
+      union all
       select 'CUSTOMER_PAYMENT', uid, reference, null, created_at from receivables.entries
        where created_at >= ? and created_at < ? and type = 'PAYMENT'
       union all
@@ -51,9 +55,17 @@ class LedgerSourcesAdapter implements LedgerSources {
         from inventory.movements m join inventory.batches b on b.uid = m.batch_uid
        where m.created_at >= ? and m.created_at < ? and m.type = 'ADJUSTMENT'
          and m.quantity_change <> 0 and b.unit_cost > 0
+      union all
+      select 'SALE_DEBIT_NOTE', uid, number, branch_uid, created_at from sales.debit_notes
+       where created_at >= ? and created_at < ?
+      union all
+      select 'SUPPLIER_DEBIT_NOTE', uid, number, branch_uid, created_at
+        from purchasing.supplier_debit_notes
+       where created_at >= ? and created_at < ?
       """;
 
-  private static final int RANGES = 9;
+  /* Each source reads one [from, before) range: two placeholders apiece. */
+  private static final int RANGES = (int) SOURCES.chars().filter(c -> c == '?').count() / 2;
 
   private final JdbcTemplate jdbc;
 

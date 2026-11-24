@@ -34,6 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
+import tz.co.pharmacy.delivery.api.HealthFields;
 import tz.co.pharmacy.modules.files.ports.inbound.DownloadLink;
 import tz.co.pharmacy.modules.files.ports.inbound.FileRules;
 import tz.co.pharmacy.modules.files.ports.inbound.FileView;
@@ -45,6 +46,7 @@ import tz.co.pharmacy.modules.sales.ports.inbound.SaleService;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.Uids;
+import tz.co.pharmacy.platform.persistence.audit.AuditLog;
 
 /**
  * Files and attachments (contract "Files"). The browser uploads with a presigned PUT: begin, PUT
@@ -57,6 +59,13 @@ import tz.co.pharmacy.platform.kernel.Uids;
  * {@code sales.view}, and deleting it (evidence of a dispensing) {@code settings.manage}. A sale's
  * files also follow the sale's branch, so a user limited to one branch reaches only its sales'
  * files. The tenant's own files (the logo) are seen by every member.
+ *
+ * <p>A prescription scan is health data (STD-5, Tanzania's PDPA 2022): every file of a sale (the
+ * point of sale attaches the prescription to it) and any file whose purpose is {@code PRESCRIPTION}
+ * is listed, linked and downloaded only with {@code health.view} besides the owner type's
+ * permission, and each link handed out for one is audited ({@code PRESCRIPTION_FILE_VIEWED}), as
+ * the routes that show a prescription's detail are. Attaching one still needs only the owner type's
+ * attach permission: a cashier records the scan at the till without reading it back.
  */
 @RestController
 @RequestMapping("/api/v1/files")
@@ -80,9 +89,16 @@ public class FilesHandler {
           "EXPENSE", new Rule("finance.view", "finance.manage", "finance.manage"),
           "OTHER", new Rule("settings.manage", "settings.manage", "settings.manage"));
 
+  /** Owner types whose every file is health data: a sale's files are its prescription scans. */
+  static final java.util.Set<String> HEALTH_OWNER_TYPES = java.util.Set.of("SALE");
+
+  /** The purpose that makes a file health data, whatever it is attached to. */
+  static final String PRESCRIPTION = "PRESCRIPTION";
+
   private final Files files;
   private final SignedBlobs blobs;
   private final SaleService sales;
+  private final AuditLog audit;
 
   @PostMapping("/uploads")
   @ResponseStatus(HttpStatus.CREATED)
@@ -141,21 +157,28 @@ public class FilesHandler {
       throw Refusal.invalid("owner_required", "Name the sale with ownerUid.", "ownerUid");
     }
     requireOwner(type, owner);
-    return ApiResponse.ok(files.attachments(type, owner), "Files retrieved");
+    if (HEALTH_OWNER_TYPES.contains(type)) {
+      requireHealth();
+    }
+    // Elsewhere a prescription scan is left out for a caller who may not read health details.
+    boolean health = HealthFields.visible();
+    return ApiResponse.ok(
+        files.attachments(type, owner).stream().filter(file -> health || !isHealth(file)).toList(),
+        "Files retrieved");
   }
 
   /** A presigned GET for an {@code <img src>} or a link, valid five minutes. */
   @GetMapping("/{fileUid}/url")
   @Access(scope = AccessScope.TENANT)
   public ApiResponse<DownloadLink> url(@PathVariable UUID fileUid) {
-    reachable(fileUid, Rule::view);
+    healthRead(reachable(fileUid, Rule::view));
     return ApiResponse.ok(files.downloadLink(fileUid), "Download link");
   }
 
   @GetMapping("/{fileUid}/download")
   @Access(scope = AccessScope.TENANT)
   public ResponseEntity<Void> download(@PathVariable UUID fileUid) {
-    reachable(fileUid, Rule::view);
+    healthRead(reachable(fileUid, Rule::view));
     return ResponseEntity.status(HttpStatus.FOUND)
         .location(URI.create(files.downloadUrl(fileUid)))
         .build();
@@ -232,6 +255,36 @@ public class FilesHandler {
       throw Refusal.notFound("file_not_found", "No such file.");
     }
     return file;
+  }
+
+  /** Whether the file is health data: a prescription scan. */
+  static boolean isHealth(FileView file) {
+    return HEALTH_OWNER_TYPES.contains(file.ownerType()) || PRESCRIPTION.equals(file.purpose());
+  }
+
+  /** 403 forbidden without health.view. */
+  private static void requireHealth() {
+    if (!HealthFields.visible()) {
+      throw Refusal.forbidden(
+          "forbidden",
+          "Your role does not include the permission " + HealthFields.PERMISSION + ".");
+    }
+  }
+
+  /**
+   * A link to a prescription scan needs health.view, and who was given one is recorded, as for
+   * every read of a prescription's detail (STD-5).
+   */
+  private void healthRead(FileView file) {
+    if (!isHealth(file)) {
+      return;
+    }
+    requireHealth();
+    Map<String, Object> details = new java.util.LinkedHashMap<>();
+    details.put("ownerType", file.ownerType());
+    details.put("ownerUid", file.ownerUid() == null ? null : file.ownerUid().toString());
+    details.put("purpose", file.purpose());
+    audit.record("PRESCRIPTION_FILE_VIEWED", "File", file.uid(), null, details);
   }
 
   private static void require(String ownerType, Function<Rule, String> action) {
