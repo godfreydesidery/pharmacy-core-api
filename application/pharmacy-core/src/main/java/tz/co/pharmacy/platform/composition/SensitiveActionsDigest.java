@@ -47,7 +47,8 @@ import tz.co.pharmacy.platform.persistence.jobs.JobRun;
  *   <li>refunds and returns (each sale return);
  *   <li>write-offs, adjustments and destructions of stock;
  *   <li>approvals granted, among them deep discounts and promotions, period unlocks, medicine class
- *       changes and credit write-offs, which always need one;
+ *       changes and credit write-offs, which always need one; an owner's approval of their own
+ *       request (the owner alone) is counted and listed as a self-approval;
  *   <li>role and permission changes, and changes to who works in the pharmacy;
  *   <li>moves of the books' period lock, vouchers issued, medicine class changes and debts written
  *       off.
@@ -56,7 +57,9 @@ import tz.co.pharmacy.platform.persistence.jobs.JobRun;
  * <p>A pharmacy turns it off in Settings ({@code sensitiveDigest}; on by default). Nothing to
  * report sends nothing. The job wakes every 15 minutes on one instance ({@link SingleRunner}), and
  * the digest's dedup key (its day) sends it once a day per person and channel, whichever instance
- * runs it. At most {@value #ITEMS} actions are listed; the counts cover them all.
+ * runs it. At most {@value #ITEMS} actions are listed; the counts cover them all. Each person gets
+ * it in their own language (English or Swahili): the template, the headings and every listed
+ * action.
  */
 @Component
 class SensitiveActionsDigest {
@@ -73,14 +76,18 @@ class SensitiveActionsDigest {
   static final int HOUR = 7;
 
   private static final Logger log = LoggerFactory.getLogger(SensitiveActionsDigest.class);
+  private static final Locale SWAHILI = Locale.forLanguageTag("sw");
   private static final DateTimeFormatter DAY =
       DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
+  private static final DateTimeFormatter DAY_SW =
+      DateTimeFormatter.ofPattern("d MMM yyyy", SWAHILI);
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
   /** The explicit audit actions a digest reads. */
   static final Set<String> ACTIONS =
       Set.of(
           "APPROVAL_GRANTED",
+          "APPROVAL_SELF_GRANTED",
           "STOCK_ADJUSTED",
           "PERIOD_LOCK_CHANGED",
           "SCHEDULE_CHANGED",
@@ -93,22 +100,48 @@ class SensitiveActionsDigest {
 
   /** One kind of sensitive action, as the digest groups them. */
   enum Kind {
-    RETURNS("Refunds and returns"),
-    STOCK("Write-offs, adjustments and destructions"),
-    APPROVALS("Approvals granted"),
-    DISCOUNTS("Deep discounts and promotions approved"),
-    ROLES("Role, permission and staff changes"),
-    PERIOD("Period lock changes"),
-    VOUCHERS("Vouchers issued"),
-    SCHEDULE("Medicine class changes"),
-    WRITE_OFFS("Debts written off");
+    RETURNS("Refunds and returns", "Marejesho ya fedha na bidhaa"),
+    STOCK("Write-offs, adjustments and destructions", "Kufuta, kurekebisha na kuharibu bidhaa"),
+    APPROVALS("Approvals granted", "Idhini zilizotolewa"),
+    SELF_APPROVALS(
+        "Approvals the owner gave their own requests",
+        "Idhini za mmiliki kwa maombi yake mwenyewe"),
+    DISCOUNTS("Deep discounts and promotions approved", "Punguzo na ofa kubwa zilizoidhinishwa"),
+    ROLES("Role, permission and staff changes", "Mabadiliko ya majukumu, ruhusa na wafanyakazi"),
+    PERIOD("Period lock changes", "Mabadiliko ya kufunga kipindi cha hesabu"),
+    VOUCHERS("Vouchers issued", "Vocha zilizotolewa"),
+    SCHEDULE("Medicine class changes", "Mabadiliko ya daraja la dawa"),
+    WRITE_OFFS("Debts written off", "Madeni yaliyofutwa");
 
     final String title;
+    final String titleSw;
 
-    Kind(String title) {
+    Kind(String title, String titleSw) {
       this.title = title;
+      this.titleSw = titleSw;
+    }
+
+    String title(boolean sw) {
+      return sw ? titleSw : title;
     }
   }
+
+  /** The approval actions in Swahili (English reads the action's own name). */
+  static final Map<String, String> APPROVAL_ACTIONS_SW =
+      Map.ofEntries(
+          Map.entry("REFUND", "kurejesha fedha"),
+          Map.entry("LATE_RETURN", "kurudisha bidhaa baada ya muda wa kurudisha"),
+          Map.entry("STOCK_WRITE_OFF", "kufuta bidhaa"),
+          Map.entry("CONTROLLED_WRITE_OFF", "kufuta dawa inayodhibitiwa"),
+          Map.entry("LATE_OPENING_STOCK", "bidhaa za mwanzo katika tawi lililokwisha kuuza"),
+          Map.entry("VOUCHER", "vocha"),
+          Map.entry("DEEP_DISCOUNT", "punguzo zaidi ya kiwango cha juu"),
+          Map.entry("DEEP_PROMOTION", "ofa yenye punguzo zaidi ya kiwango cha juu"),
+          Map.entry("PERIOD_UNLOCK", "kufungua kipindi kilichofungwa cha hesabu"),
+          Map.entry("SCHEDULE_CHANGE", "kubadilisha daraja la utoaji wa dawa"),
+          Map.entry("CREDIT_WRITE_OFF", "kufuta deni la mteja"),
+          Map.entry("SHIFT_VARIANCE", "kufunga zamu yenye tofauti ya fedha"),
+          Map.entry("TRANSFER_SHORTFALL", "upungufu wa uhamisho"));
 
   /** One action in the digest. */
   record Item(Kind kind, Instant at, String actor, String what) {}
@@ -171,17 +204,43 @@ class SensitiveActionsDigest {
       return false;
     }
     ZoneId zone = zone(tenant);
-    List<Item> items =
-        items(
-            audit.between(
-                day.atStartOfDay(zone).toInstant(),
-                day.plusDays(1).atStartOfDay(zone).toInstant(),
-                ACTIONS,
-                ENTITIES,
-                READ));
-    if (items.isEmpty()) {
+    List<AuditEntryView> entries =
+        audit.between(
+            day.atStartOfDay(zone).toInstant(),
+            day.plusDays(1).atStartOfDay(zone).toInstant(),
+            ACTIONS,
+            ENTITIES,
+            READ);
+    if (items(entries, false).isEmpty()) {
       return false;
     }
+    // Built once per language: each person reads the digest in their own (en or sw).
+    Map<Boolean, Map<String, Object>> byLanguage = new java.util.HashMap<>();
+    List<Recipient> recipients = directory.usersWithPermission("settings.manage", null);
+    for (Recipient recipient : recipients) {
+      Map<String, Object> params =
+          byLanguage.computeIfAbsent(
+              swahili(recipient), sw -> params(tenant.name(), day, zone, entries, sw));
+      notifier.send(
+          new NotificationRequest(
+              TemplateKeys.SENSITIVE_DIGEST,
+              recipient,
+              EnumSet.of(Channel.IN_APP, Channel.EMAIL),
+              params,
+              TemplateKeys.SENSITIVE_DIGEST + ":" + day));
+    }
+    return !recipients.isEmpty();
+  }
+
+  static boolean swahili(Recipient recipient) {
+    return recipient.locale() != null
+        && recipient.locale().toLowerCase(Locale.ROOT).startsWith("sw");
+  }
+
+  /** The digest template's parameters in English or ({@code sw}) Swahili. */
+  static Map<String, Object> params(
+      String pharmacyName, LocalDate day, ZoneId zone, List<AuditEntryView> entries, boolean sw) {
+    List<Item> items = items(entries, sw);
     Map<Kind, Integer> counts = new LinkedHashMap<>();
     for (Kind kind : Kind.values()) {
       int count = (int) items.stream().filter(i -> i.kind() == kind).count();
@@ -192,7 +251,7 @@ class SensitiveActionsDigest {
     StringBuilder summary = new StringBuilder();
     counts.forEach(
         (kind, count) ->
-            summary.append("• ").append(kind.title).append(": ").append(count).append('\n'));
+            summary.append("• ").append(kind.title(sw)).append(": ").append(count).append('\n'));
     StringBuilder list = new StringBuilder();
     items.stream()
         .limit(ITEMS)
@@ -206,34 +265,33 @@ class SensitiveActionsDigest {
                     .append(item.actor())
                     .append(")\n"));
     if (items.size() > ITEMS) {
-      list.append("… and ").append(items.size() - ITEMS).append(" more in the audit trail.\n");
+      int more = items.size() - ITEMS;
+      list.append(
+          sw
+              ? "… na vingine " + more + " katika kumbukumbu za ukaguzi.\n"
+              : "… and " + more + " more in the audit trail.\n");
     }
     Map<String, Object> params = new LinkedHashMap<>();
-    params.put("pharmacyName", tenant.name());
-    params.put("date", DAY.format(day));
+    params.put("pharmacyName", pharmacyName);
+    params.put("date", (sw ? DAY_SW : DAY).format(day));
     params.put("count", items.size());
     params.put("summary", summary.toString().strip());
     params.put("items", list.toString().strip());
     params.put("severity", "warning");
     params.put("link", "/admin/audit?from=" + day + "&to=" + day);
-    List<Recipient> recipients = directory.usersWithPermission("settings.manage", null);
-    for (Recipient recipient : recipients) {
-      notifier.send(
-          new NotificationRequest(
-              TemplateKeys.SENSITIVE_DIGEST,
-              recipient,
-              EnumSet.of(Channel.IN_APP, Channel.EMAIL),
-              params,
-              TemplateKeys.SENSITIVE_DIGEST + ":" + day));
-    }
-    return !recipients.isEmpty();
+    return params;
   }
 
   /** The sensitive actions among the entries, oldest first. */
   static List<Item> items(List<AuditEntryView> entries) {
+    return items(entries, false);
+  }
+
+  /** The same, its words in Swahili when {@code sw}. */
+  static List<Item> items(List<AuditEntryView> entries, boolean sw) {
     List<Item> items = new ArrayList<>();
     for (AuditEntryView e : entries) {
-      Item item = item(e);
+      Item item = item(e, sw);
       if (item != null) {
         items.add(item);
       }
@@ -244,33 +302,48 @@ class SensitiveActionsDigest {
 
   /** What one entry is, in the digest's words; null when it is not a sensitive action. */
   static Item item(AuditEntryView e) {
+    return item(e, false);
+  }
+
+  /** The same, in Swahili when {@code sw}. */
+  static Item item(AuditEntryView e, boolean sw) {
     Map<String, Object> after = e.after() == null ? Map.of() : e.after();
     String label = e.label() == null ? "" : " " + e.label();
     String actor = e.actor();
     String action = e.action();
     String type = e.entityType() == null ? "" : e.entityType();
     return switch (action) {
-      case "APPROVAL_GRANTED" -> {
+      case "APPROVAL_GRANTED", "APPROVAL_SELF_GRANTED" -> {
         String approved = String.valueOf(after.getOrDefault("action", "?"));
+        boolean self =
+            "APPROVAL_SELF_GRANTED".equals(action)
+                || "true".equals(String.valueOf(after.get("selfApproved")));
         Kind kind =
-            approved.equals("DEEP_DISCOUNT") || approved.equals("DEEP_PROMOTION")
-                ? Kind.DISCOUNTS
-                : Kind.APPROVALS;
+            self
+                ? Kind.SELF_APPROVALS
+                : approved.equals("DEEP_DISCOUNT") || approved.equals("DEEP_PROMOTION")
+                    ? Kind.DISCOUNTS
+                    : Kind.APPROVALS;
+        String english = approved.toLowerCase(Locale.ROOT).replace('_', ' ');
+        String what = sw ? APPROVAL_ACTIONS_SW.getOrDefault(approved, english) : english;
+        String verb;
+        if (self) {
+          verb = sw ? "Ameidhinisha ombi lake mwenyewe: " : "Self-approved (own request) ";
+        } else {
+          verb = sw ? "Imeidhinishwa: " : "Approved ";
+        }
         yield new Item(
             kind,
             e.at(),
             String.valueOf(after.getOrDefault("approvedBy", actor)),
-            "Approved "
-                + approved.toLowerCase(Locale.ROOT).replace('_', ' ')
-                + amount(after.get("amount"))
-                + text(after.get("reference")));
+            verb + what + amount(after.get("amount")) + text(after.get("reference")));
       }
       case "STOCK_ADJUSTED" ->
           new Item(
               Kind.STOCK,
               e.at(),
               actor,
-              "Stock adjusted: "
+              (sw ? "Bidhaa zimerekebishwa: " : "Stock adjusted: ")
                   + after.getOrDefault("product", "?")
                   + " "
                   + after.getOrDefault("quantityChange", "")
@@ -283,7 +356,7 @@ class SensitiveActionsDigest {
               Kind.PERIOD,
               e.at(),
               actor,
-              "Books locked through "
+              (sw ? "Hesabu zimefungwa hadi " : "Books locked through ")
                   + (e.before() == null ? "—" : e.before().getOrDefault("lockedThrough", "—"))
                   + " → "
                   + after.getOrDefault("lockedThrough", "—"));
@@ -292,21 +365,41 @@ class SensitiveActionsDigest {
               Kind.SCHEDULE,
               e.at(),
               actor,
-              after.getOrDefault("product", "A medicine")
-                  + " class "
+              after.getOrDefault("product", sw ? "Dawa" : "A medicine")
+                  + (sw ? " daraja " : " class ")
                   + (e.before() == null ? "?" : e.before().getOrDefault("schedule", "?"))
                   + " → "
                   + after.getOrDefault("schedule", "?"));
-      case "ROLE_PERMISSIONS_CHANGED", "MEMBER_LEFT" ->
-          new Item(Kind.ROLES, e.at(), actor, readable(action) + label);
-      case "CREATE", "UPDATE", "DELETE" -> change(e, type, label, after);
+      case "ROLE_PERMISSIONS_CHANGED" ->
+          new Item(
+              Kind.ROLES,
+              e.at(),
+              actor,
+              (sw ? "Ruhusa za jukumu zimebadilishwa" : readable(action)) + label);
+      case "MEMBER_LEFT" ->
+          new Item(
+              Kind.ROLES, e.at(), actor, (sw ? "Mfanyakazi ameondoka" : readable(action)) + label);
+      case "CREATE", "UPDATE", "DELETE" -> change(e, type, label, after, sw);
       default -> null;
     };
   }
 
   private static Item change(
-      AuditEntryView e, String type, String label, Map<String, Object> after) {
+      AuditEntryView e, String type, String label, Map<String, Object> after, boolean sw) {
     String verb = e.action().toLowerCase(Locale.ROOT) + "d";
+    // Swahili verbs agree with their noun: jukumu (li-), ruhusa (i-).
+    String roleVerb =
+        switch (e.action()) {
+          case "CREATE" -> "limeundwa";
+          case "DELETE" -> "limefutwa";
+          default -> "limebadilishwa";
+        };
+    String accessVerb =
+        switch (e.action()) {
+          case "CREATE" -> "imetolewa";
+          case "DELETE" -> "imeondolewa";
+          default -> "imebadilishwa";
+        };
     return switch (type) {
       case "SaleReturn" ->
           "CREATE".equals(e.action())
@@ -314,27 +407,47 @@ class SensitiveActionsDigest {
                   Kind.RETURNS,
                   e.at(),
                   e.actor(),
-                  "Return" + label + amount(after.get("refundTotal")))
+                  (sw ? "Marejesho" : "Return") + label + amount(after.get("refundTotal")))
               : null;
       case "Destruction" ->
           "CREATE".equals(e.action())
-              ? new Item(Kind.STOCK, e.at(), e.actor(), "Destruction" + label)
+              ? new Item(
+                  Kind.STOCK,
+                  e.at(),
+                  e.actor(),
+                  (sw ? "Uharibifu wa bidhaa" : "Destruction") + label)
               : null;
       case "Voucher" ->
           "CREATE".equals(e.action())
               ? new Item(
-                  Kind.VOUCHERS, e.at(), e.actor(), "Voucher" + label + amount(after.get("value")))
+                  Kind.VOUCHERS,
+                  e.at(),
+                  e.actor(),
+                  (sw ? "Vocha" : "Voucher") + label + amount(after.get("value")))
               : null;
-      case "Role" -> new Item(Kind.ROLES, e.at(), e.actor(), "Role" + label + " " + verb);
+      case "Role" ->
+          new Item(
+              Kind.ROLES,
+              e.at(),
+              e.actor(),
+              sw ? "Jukumu" + label + " " + roleVerb : "Role" + label + " " + verb);
       case "Membership" ->
-          new Item(Kind.ROLES, e.at(), e.actor(), "Staff access" + label + " " + verb);
+          new Item(
+              Kind.ROLES,
+              e.at(),
+              e.actor(),
+              sw
+                  ? "Ruhusa ya mfanyakazi" + label + " " + accessVerb
+                  : "Staff access" + label + " " + verb);
       case "Entry" ->
           "CREATE".equals(e.action()) && "WRITE_OFF".equals(String.valueOf(after.get("type")))
               ? new Item(
                   Kind.WRITE_OFFS,
                   e.at(),
                   e.actor(),
-                  "Debt written off" + label + amount(after.get("amount")))
+                  (sw ? "Deni limefutwa" : "Debt written off")
+                      + label
+                      + amount(after.get("amount")))
               : null;
       default -> null;
     };
