@@ -37,10 +37,12 @@ public class SupplierReturnHandler {
   @Access(scope = AccessScope.BRANCH, permission = "purchasing.view")
   public ApiResponse<Page<SupplierReturnView>> list(
       @RequestParam(required = false) UUID supplierUid,
+      @RequestParam(required = false) String status,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit) {
     return ApiResponse.ok(
-        supplierReturns.list(supplierUid, Pages.of(cursor, limit)), "Supplier returns retrieved");
+        supplierReturns.list(supplierUid, status, Pages.of(cursor, limit)),
+        "Supplier returns retrieved");
   }
 
   @GetMapping("/{uid}")
@@ -55,5 +57,18 @@ public class SupplierReturnHandler {
   @Access(scope = AccessScope.BRANCH, permission = "purchasing.receive")
   public ApiResponse<SupplierReturnView> record(@RequestBody ReturnToSupplierCommand body) {
     return ApiResponse.created(receiving.returnToSupplier(body), "Supplier return recorded");
+  }
+
+  /**
+   * The supplier's credit note for a pending return (FRD-16): from then on the return lowers what
+   * is owed to the supplier and what is open on its goods receipt. Recorded by whoever keeps the
+   * supplier accounts, at any branch they may use.
+   */
+  @Idempotent
+  @PostMapping("/{uid}/credit-note")
+  @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.manage")
+  public ApiResponse<SupplierReturnView> credit(
+      @PathVariable UUID uid, @RequestBody SupplierReturns.CreditNoteCommand body) {
+    return ApiResponse.ok(supplierReturns.credit(uid, body), "Credit note recorded");
   }
 }

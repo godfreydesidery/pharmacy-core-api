@@ -109,7 +109,9 @@ class ReceivingService implements Receiving {
                 line.baseUnitCost(),
                 MovementType.RECEIPT,
                 receipt.number(),
-                line.serialNumbers()));
+                line.serialNumbers(),
+                // Its line converted once (STD-17): the stock is worth what the books post for it.
+                line.baseValue()));
       } catch (Refusal refusal) {
         throw refusal.field() == null || refusal.field().startsWith("lines[")
             ? refusal

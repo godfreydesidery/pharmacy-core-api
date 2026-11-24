@@ -21,6 +21,17 @@ final class PurchasingViews {
         .setScale(4, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
   }
 
+  /**
+   * A line total in base, converted once (STD-17): what its stock came in at. A base-currency line
+   * is already in base (and is read without the per-transaction look-up of the base scale).
+   */
+  static java.math.BigDecimal baseValue(
+      java.math.BigDecimal lineTotal, java.math.BigDecimal exchangeRate) {
+    return exchangeRate.compareTo(java.math.BigDecimal.ONE) == 0
+        ? lineTotal
+        : Amounts.money(lineTotal.multiply(exchangeRate));
+  }
+
   static PurchaseOrderView order(PurchaseOrder order) {
     return new PurchaseOrderView(
         order.getUid(),
@@ -75,6 +86,7 @@ final class PurchasingViews {
                         line.getUnitCost(),
                         line.getLineTotal(),
                         baseUnitCost(line.getUnitCost(), receipt.getExchangeRate()),
+                        baseValue(line.getLineTotal(), receipt.getExchangeRate()),
                         line.getSerialNumbers()))
             .toList(),
         receipt.getCreatedAt(),

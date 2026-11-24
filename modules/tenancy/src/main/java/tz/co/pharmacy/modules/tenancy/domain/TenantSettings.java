@@ -62,6 +62,9 @@ public class TenantSettings extends TenantEntity {
   /** The pharmacy's Taxpayer Identification Number: 9 digits in Tanzania (verify), or null. */
   private String tin;
 
+  /** FRD-19: the owners' and admins' daily digest of sensitive actions (on by default). */
+  private boolean sensitiveDigest = true;
+
   /** The pharmacy's VAT Registration Number (TRA), upper case, or null. */
   private String vrn;
 
@@ -141,6 +144,12 @@ public class TenantSettings extends TenantEntity {
     }
     if (vrn != null) {
       this.vrn = vrn.isBlank() ? null : vrn;
+    }
+  }
+
+  public void changeSensitiveDigest(Boolean sensitiveDigest) {
+    if (sensitiveDigest != null) {
+      this.sensitiveDigest = sensitiveDigest;
     }
   }
 

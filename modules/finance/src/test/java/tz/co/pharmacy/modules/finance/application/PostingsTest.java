@@ -80,6 +80,50 @@ class PostingsTest {
   }
 
   @Test
+  void aSupplierReturnWaitsForItsCreditNote() {
+    // FRD-16: out of stock into 1160 at once; the credit note moves it to the payable.
+    List<Postings.Line> pending = Postings.supplierReturn(new BigDecimal("200.00"), true);
+    assertThat(amount(pending, "1160", true)).isEqualByComparingTo("200.00");
+    assertThat(amount(pending, "1200", false)).isEqualByComparingTo("200.00");
+    assertThat(pending).noneMatch(l -> l.accountCode().equals("2000"));
+    List<Postings.Line> legacy = Postings.supplierReturn(new BigDecimal("200.00"), false);
+    assertThat(amount(legacy, "2000", true)).isEqualByComparingTo("200.00");
+
+    List<Postings.Line> less =
+        Postings.supplierCredit(new BigDecimal("200.00"), new BigDecimal("180.00"));
+    assertThat(sum(less, true)).isEqualByComparingTo(sum(less, false));
+    assertThat(amount(less, "2000", true)).isEqualByComparingTo("180.00");
+    assertThat(amount(less, "1160", false)).isEqualByComparingTo("200.00");
+    assertThat(amount(less, "5100", true)).isEqualByComparingTo("20.00");
+    List<Postings.Line> more =
+        Postings.supplierCredit(new BigDecimal("200.00"), new BigDecimal("230.00"));
+    assertThat(amount(more, "5100", false)).isEqualByComparingTo("30.00");
+    assertThat(sum(more, true)).isEqualByComparingTo(sum(more, false));
+  }
+
+  @Test
+  void aForeignReceiptPostsItsConversionRounding() {
+    // STD-17: payable 17,790.17 (the total converted once), goods 17,790.18 (three lines each
+    // converted once): 7000 takes the 0.01 the other way.
+    List<Postings.Line> receipt =
+        Postings.receipt(
+            new ReceiptPosting(
+                UUID.randomUUID(),
+                "GRN-HQ-000009",
+                UUID.randomUUID(),
+                LocalDate.now(),
+                new BigDecimal("17790.17"),
+                "USD",
+                new BigDecimal("6.93"),
+                BigDecimal.ZERO,
+                new BigDecimal("-0.01")));
+    assertThat(sum(receipt, true)).isEqualByComparingTo(sum(receipt, false));
+    assertThat(amount(receipt, "1200", true)).isEqualByComparingTo("17790.18");
+    assertThat(amount(receipt, "2000", false)).isEqualByComparingTo("17790.17");
+    assertThat(amount(receipt, "7000", false)).isEqualByComparingTo("0.01");
+  }
+
+  @Test
   void inputVatGoesToVatReceivable() {
     // STD-2: goods 10,000 and VAT 1,800 on the invoice, in USD at 2,650 noted on the payable.
     List<Postings.Line> receipt =

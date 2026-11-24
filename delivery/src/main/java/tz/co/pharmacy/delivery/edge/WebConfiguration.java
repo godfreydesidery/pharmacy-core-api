@@ -11,14 +11,17 @@ public class WebConfiguration implements WebMvcConfigurer {
 
   private final AccessInterceptor accessInterceptor;
   private final IdempotencyInterceptor idempotencyInterceptor;
+  private final ExportAudit exportAudit;
   private final String[] allowedOrigins;
 
   public WebConfiguration(
       AccessInterceptor accessInterceptor,
       IdempotencyInterceptor idempotencyInterceptor,
+      ExportAudit exportAudit,
       @Value("${pharmacy.edge.cors-allowed-origins:}") String[] allowedOrigins) {
     this.accessInterceptor = accessInterceptor;
     this.idempotencyInterceptor = idempotencyInterceptor;
+    this.exportAudit = exportAudit;
     this.allowedOrigins = allowedOrigins;
   }
 
@@ -27,6 +30,8 @@ public class WebConfiguration implements WebMvcConfigurer {
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(accessInterceptor).addPathPatterns("/api/**");
     registry.addInterceptor(idempotencyInterceptor).addPathPatterns("/api/**");
+    // Every file handed over is audited, once it is answered (STD-22).
+    registry.addInterceptor(exportAudit).addPathPatterns("/api/**");
   }
 
   @Override

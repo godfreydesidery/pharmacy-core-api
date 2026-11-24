@@ -14,7 +14,7 @@ public interface PurchasingCurrencies {
   /** Base units per 1 unit of {@code currency} on the day; 422 rate_missing. */
   BigDecimal rateToBase(String currency, LocalDate on);
 
-  /** {@code amount} times {@code rate}, rounded half-even to the base currency's minor units. */
+  /** {@code amount} times {@code rate}, rounded half-up to the base currency's minor units. */
   BigDecimal toBase(BigDecimal amount, BigDecimal rate);
 
   /** Today in the pharmacy's time zone; the rate of the day is looked up for it. */

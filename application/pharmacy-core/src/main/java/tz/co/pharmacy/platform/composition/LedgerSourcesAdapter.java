@@ -41,6 +41,10 @@ class LedgerSourcesAdapter implements LedgerSources {
       select 'SUPPLIER_RETURN', uid, number, branch_uid, created_at from purchasing.supplier_returns
        where created_at >= ? and created_at < ? and total <> 0
       union all
+      select 'SUPPLIER_CREDIT', uid, credit_note_number, branch_uid, credited_at
+        from purchasing.supplier_returns
+       where credited_at >= ? and credited_at < ? and credit_base_amount is not null
+      union all
       select 'CUSTOMER_PAYMENT', uid, reference, null, created_at from receivables.entries
        where created_at >= ? and created_at < ? and type = 'PAYMENT'
       union all
@@ -53,7 +57,7 @@ class LedgerSourcesAdapter implements LedgerSources {
          and m.quantity_change <> 0 and b.unit_cost > 0
       """;
 
-  private static final int RANGES = 9;
+  private static final int RANGES = 10;
 
   private final JdbcTemplate jdbc;
 

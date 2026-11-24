@@ -254,6 +254,7 @@ public class ExportHandler {
     filters.put("type", customerType == null ? "" : customerType.name());
     filters.put("format", format == null ? "xlsx" : format);
     audit.record("CUSTOMERS_EXPORTED", "Customer", null, null, filters);
+    tz.co.pharmacy.delivery.edge.ExportAudit.recorded();
     List<Column<CustomerView>> columns =
         List.of(
             column("Code", "Msimbo", CustomerView::code),

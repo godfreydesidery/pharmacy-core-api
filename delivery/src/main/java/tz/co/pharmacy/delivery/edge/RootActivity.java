@@ -1,44 +1,56 @@
 package tz.co.pharmacy.delivery.edge;
 
-import java.time.Duration;
-import java.time.Instant;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tz.co.pharmacy.platform.persistence.audit.AuditLog;
-import tz.co.pharmacy.platform.persistence.limits.SharedWindows;
 
 /**
- * Records in the tenant's own audit trail that a root administrator acted in it: once an hour per
- * administrator and tenant, so the trail shows the visit without an entry per request (the changes
- * they make are audited one by one anyway). The hour is counted in the database ({@link
- * SharedWindows}), so it holds across every instance of the API.
+ * Records every request of a root administrator (adversarial review FRD-19, STD-22): in the
+ * pharmacy's own audit trail when it acts in one ({@code ROOT_ACTED_IN_TENANT}), in the platform's
+ * otherwise ({@code ROOT_REQUEST}), with the route, the answer's status and its outcome, and (as
+ * every entry) the client address, user agent and session. Before, a pharmacy's trail showed a
+ * visit once an hour, so what root read in between was not on record. The changes root makes are
+ * audited one by one as well. Not recorded: root's own account routes outside any pharmacy (sign
+ * in, profile) and the live notification stream, which stays open.
  */
 @Component
 public class RootActivity {
 
   private static final Logger log = LoggerFactory.getLogger(RootActivity.class);
-  private static final Duration EVERY = Duration.ofHours(1);
-  private static final String KIND = "root-activity";
 
   private final AuditLog audit;
-  private final SharedWindows windows;
 
-  public RootActivity(AuditLog audit, SharedWindows windows) {
+  public RootActivity(AuditLog audit) {
     this.audit = audit;
-    this.windows = windows;
   }
 
-  /** Call with the request's tenant and actor already in context. */
-  void note(UUID rootUid, UUID tenantUid, String method, String path) {
+  /** Whether a root administrator's request is recorded. */
+  static boolean noted(HttpServletRequest request) {
+    String path = EdgeFilter.path(request);
+    return !EdgeFilter.STREAM_PATH.equals(path) && !EdgeFilter.accountRoute(request);
+  }
+
+  /**
+   * Call once the request is answered, with its tenant (null for the platform) and actor still in
+   * context.
+   */
+  void note(UUID rootUid, UUID tenantUid, String method, String path, int status) {
     try {
-      if (windows.acquire(KIND, rootUid + "/" + tenantUid, 1, EVERY, Instant.now()).isPresent()) {
-        return;
-      }
+      Map<String, Object> details = new LinkedHashMap<>();
+      details.put("request", method + " " + path);
+      details.put("status", status);
       audit.record(
-          "ROOT_ACTED_IN_TENANT", "User", rootUid, null, Map.of("request", method + " " + path));
+          tenantUid == null ? "ROOT_REQUEST" : "ROOT_ACTED_IN_TENANT",
+          "User",
+          rootUid,
+          null,
+          details,
+          status >= 400 ? "FAILURE" : "SUCCESS");
     } catch (RuntimeException failure) {
       log.warn("Could not audit root administrator activity: {}", failure.getMessage());
     }

@@ -25,6 +25,22 @@ public interface AuditLog {
       Map<String, Object> after);
 
   /**
+   * As {@link #record(String, String, UUID, Map, Map)} with its outcome given: SUCCESS, or FAILURE
+   * for an attempt that was refused or failed. Without it the outcome follows the action's name
+   * (SIGN_IN_FAILED is a FAILURE). The entry also notes the request's client address, user agent
+   * and session (STD-22).
+   */
+  default void record(
+      String action,
+      String entityType,
+      UUID entityUid,
+      Map<String, Object> before,
+      Map<String, Object> after,
+      String outcome) {
+    record(action, entityType, entityUid, before, after);
+  }
+
+  /**
    * The current scope's entries, newest first, filtered by any of action (such as SIGN_IN), entity
    * type, entity uid, actor (contains, any case) and an inclusive date range (UTC days).
    */
@@ -44,4 +60,16 @@ public interface AuditLog {
    * platform's record of the person and nothing a pharmacy wrote.
    */
   Page<AuditEntryView> securityEvents(UUID userUid, PageQuery query);
+
+  /**
+   * The current scope's entries in [from, before), oldest first, whose action is one of {@code
+   * actions} or whose record is of one of {@code entityTypes}; at most {@code limit}. For digests
+   * (FRD-19), not for paging.
+   */
+  java.util.List<AuditEntryView> between(
+      java.time.Instant from,
+      java.time.Instant before,
+      java.util.Collection<String> actions,
+      java.util.Collection<String> entityTypes,
+      int limit);
 }

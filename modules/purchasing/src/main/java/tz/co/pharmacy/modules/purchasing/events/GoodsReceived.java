@@ -26,7 +26,12 @@ public record GoodsReceived(
     BigDecimal baseTotal,
     /* The input VAT in {@code total}, in the receipt's currency and in the base. */
     BigDecimal vatTotal,
-    BigDecimal baseVatTotal)
+    BigDecimal baseVatTotal,
+    /*
+     * baseTotal less the base value of the lines (each converted once) and of the VAT: the
+     * conversion's rounding (STD-17), posted to 7000; null in events from before it was kept.
+     */
+    BigDecimal baseRounding)
     implements DomainEvent {
 
   public record Line(UUID productUid, String productName, int quantity, BigDecimal unitCost) {}

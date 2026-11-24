@@ -44,6 +44,7 @@ class LedgerImpl implements Ledger {
   static final String OPENING_BALANCE = "OPENING_BALANCE";
   static final String VOUCHER = "VOUCHER";
   static final String SUPPLIER_RETURN = "SUPPLIER_RETURN";
+  static final String SUPPLIER_CREDIT = "SUPPLIER_CREDIT";
   static final String STOCK_ADJUSTMENT = "STOCK_ADJUSTMENT";
 
   private final JournalWriter writer;
@@ -155,7 +156,8 @@ class LedgerImpl implements Ledger {
       String number,
       java.util.UUID branchUid,
       java.time.LocalDate date,
-      java.math.BigDecimal value) {
+      java.math.BigDecimal value,
+      boolean awaitingCredit) {
     writer.post(
         SUPPLIER_RETURN,
         returnUid,
@@ -163,7 +165,27 @@ class LedgerImpl implements Ledger {
         "Return to supplier " + number,
         branchUid,
         date,
-        Postings.supplierReturn(value));
+        Postings.supplierReturn(value, awaitingCredit));
+  }
+
+  @Override
+  @Transactional
+  public void postSupplierCredit(
+      java.util.UUID returnUid,
+      String number,
+      String creditNoteNumber,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal returnValue,
+      java.math.BigDecimal creditBase) {
+    writer.post(
+        SUPPLIER_CREDIT,
+        returnUid,
+        creditNoteNumber,
+        "Supplier credit note " + creditNoteNumber + " for " + number,
+        branchUid,
+        date,
+        Postings.supplierCredit(returnValue, creditBase));
   }
 
   @Override

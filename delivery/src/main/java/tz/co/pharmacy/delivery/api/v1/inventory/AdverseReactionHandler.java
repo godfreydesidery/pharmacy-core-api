@@ -133,6 +133,7 @@ public class AdverseReactionHandler {
   public ResponseEntity<byte[]> export(@PathVariable UUID uid) {
     AdverseReactionView r = find(uid);
     audit.record("ADR_EXPORTED", "AdverseReaction", uid, null, Map.of("number", r.number()));
+    tz.co.pharmacy.delivery.edge.ExportAudit.recorded();
     List<String[]> rows = new ArrayList<>();
     rows.add(new String[] {"Section", "Field", "Value"});
     String patient = "A. Patient information";

@@ -132,8 +132,16 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
           ReceiptTracking.serials(line));
     }
     receipt.chargeVat(vat);
+    // STD-17: each amount converted once, half-up to the base currency's minor units, as checkout
+    // converts a foreign tender: the payable from the total, the stock from each line, the VAT on
+    // its own; the rounding between them is kept and posted (7000).
+    BigDecimal baseLines =
+        receipt.getLines().stream()
+            .map(l -> currencies.toBase(l.getLineTotal(), priced.rate()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
     receipt.settleBase(
-        currencies.toBase(receipt.linesTotal(), priced.rate()),
+        currencies.toBase(receipt.getTotal(), priced.rate()),
+        baseLines,
         receipt.getVatTotal().signum() == 0
             ? Amounts.ZERO
             : currencies.toBase(receipt.getVatTotal(), priced.rate()));
@@ -154,7 +162,8 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
                 saved.getExchangeRate(),
                 saved.getBaseTotal(),
                 saved.getVatTotal(),
-                saved.getBaseVatTotal()));
+                saved.getBaseVatTotal(),
+                saved.getBaseRounding()));
     return PurchasingViews.receipt(saved);
   }
 

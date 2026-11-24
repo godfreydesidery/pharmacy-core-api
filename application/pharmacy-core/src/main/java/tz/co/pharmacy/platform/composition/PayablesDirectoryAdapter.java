@@ -1,13 +1,16 @@
 package tz.co.pharmacy.platform.composition;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import tz.co.pharmacy.modules.finance.ports.outbound.PayablesDirectory;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierService;
 import tz.co.pharmacy.modules.partners.ports.inbound.SupplierView;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.GoodsReceiptService;
+import tz.co.pharmacy.modules.purchasing.ports.inbound.SupplierReturns;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 /** Binds finance's view of payables to purchasing (receipts as booked) and partners (names). */
@@ -16,14 +19,18 @@ class PayablesDirectoryAdapter implements PayablesDirectory {
 
   private final GoodsReceiptService receipts;
   private final SupplierService suppliers;
+  private final SupplierReturns returns;
 
-  PayablesDirectoryAdapter(GoodsReceiptService receipts, SupplierService suppliers) {
+  PayablesDirectoryAdapter(
+      GoodsReceiptService receipts, SupplierService suppliers, SupplierReturns returns) {
+    this.returns = returns;
     this.receipts = receipts;
     this.suppliers = suppliers;
   }
 
   @Override
   public List<BookedReceipt> receipts(Collection<UUID> receiptUids) {
+    Map<UUID, BigDecimal> credited = returns.creditedAgainst(receiptUids);
     return receipts.findAll(receiptUids).stream()
         .map(
             receipt ->
@@ -33,7 +40,8 @@ class PayablesDirectoryAdapter implements PayablesDirectory {
                     receipt.supplierUid(),
                     receipt.currency(),
                     receipt.exchangeRate(),
-                    receipt.total()))
+                    receipt.total(),
+                    credited.getOrDefault(receipt.uid(), BigDecimal.ZERO)))
         .toList();
   }
 

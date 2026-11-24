@@ -35,15 +35,30 @@ public interface Ledger {
   java.math.BigDecimal balance(String accountCode);
 
   /**
-   * Stock returned to a supplier at cost (a debit note): Dr 2000 accounts payable / Cr 1200
-   * inventory; idempotent per return.
+   * Stock returned to a supplier at cost (a debit note); idempotent per return. Awaiting the
+   * supplier's credit note (FRD-16): Dr 1160 / Cr 1200 inventory; a return from before credit
+   * notes: Dr 2000 accounts payable / Cr 1200.
    */
   void postSupplierReturn(
       java.util.UUID returnUid,
       String number,
       java.util.UUID branchUid,
       java.time.LocalDate date,
-      java.math.BigDecimal value);
+      java.math.BigDecimal value,
+      boolean awaitingCredit);
+
+  /**
+   * The supplier's credit note for a return: Dr 2000 (creditBase) / Cr 1160 (returnValue), the
+   * difference to 5100; idempotent per return.
+   */
+  void postSupplierCredit(
+      java.util.UUID returnUid,
+      String number,
+      String creditNoteNumber,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal returnValue,
+      java.math.BigDecimal creditBase);
 
   /**
    * A stock adjustment (damage, loss, expiry, count correction, destruction) at cost: Dr 5100 / Cr

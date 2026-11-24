@@ -92,6 +92,8 @@ public final class Spreadsheet {
     List<String> headings =
         columns.stream().map(column -> swahili ? column.sw() : column.en()).toList();
     String file = name + "-" + LocalDate.now(zone) + (csv ? ".csv" : ".xlsx");
+    // For the export's audit entry (STD-22).
+    tz.co.pharmacy.delivery.edge.ExportAudit.rows(rows.size());
     byte[] body =
         csv
             ? csv(headings, columns, rows, zone, swahili)
