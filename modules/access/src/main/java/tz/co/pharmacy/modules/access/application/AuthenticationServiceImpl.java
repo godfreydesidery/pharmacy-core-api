@@ -340,6 +340,41 @@ class AuthenticationServiceImpl implements AuthenticationService {
         session.getExpiresAt());
   }
 
+  @Override
+  public void workingUnderLimit(Principal principal, Integer pharmacyIdleMinutes) {
+    if (principal == null || principal.rootAdmin() || principal.sessionUid() == null) {
+      return;
+    }
+    Integer limit = idle.minutesFor(false, pharmacyIdleMinutes);
+    Integer current = principal.idleMinutes();
+    if (limit == null || current == null || pharmacyIdleMinutes == null) {
+      // No limit at all (switched off), or none on this session.
+      return;
+    }
+    Instant now = clock.instant();
+    Instant activeAt = principal.activeAt();
+    if (activeAt != null && !activeAt.plus(Duration.ofMinutes(limit)).isAfter(now)) {
+      // Unused for longer than this pharmacy allows: the session ends, as at its own limit.
+      Optional<Live> live =
+          reads.execute(
+              status ->
+                  sessions
+                      .findByUid(principal.sessionUid())
+                      .flatMap(
+                          session ->
+                              users
+                                  .findByUid(session.getUserUid())
+                                  .map(user -> new Live(session, user, principal))));
+      if (live != null && live.isPresent()) {
+        issuer.endIdle(live.get().session().getId(), live.get().user(), limit);
+      }
+      throw idleRefusal(limit);
+    }
+    if (limit < current) {
+      writes.executeWithoutResult(status -> sessions.lowerIdle(principal.sessionUid(), limit));
+    }
+  }
+
   /** The live session of {@code token} with its active user; null otherwise. */
   private Live liveSession(String token, Instant now) {
     if (token == null || token.isBlank()) {

@@ -53,10 +53,18 @@ public class EdgeAccessCache {
       UUID sessionUid, UUID userUid, boolean rootAdmin, UUID tenantUid, UUID branchUid) {}
 
   /**
-   * The pharmacy, the membership (null for a root administrator) and the branch (null when the
-   * request names none).
+   * The pharmacy, the membership (null for a root administrator), the branch (null when the request
+   * names none) and the pharmacy's inactivity limit in minutes (null when not read: a root
+   * administrator, or a refused request). A change of the limit is seen within the cache's 30
+   * seconds.
    */
-  public record Access(TenantView tenant, MembershipGrant grant, BranchView branch) {}
+  public record Access(
+      TenantView tenant, MembershipGrant grant, BranchView branch, Integer idleMinutes) {
+
+    public Access(TenantView tenant, MembershipGrant grant, BranchView branch) {
+      this(tenant, grant, branch, null);
+    }
+  }
 
   private final Cache<Key, Access> cache;
   private final PostgresSignals signals;

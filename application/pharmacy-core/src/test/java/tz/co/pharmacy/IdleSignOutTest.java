@@ -154,4 +154,29 @@ class IdleSignOutTest extends IntegrationTest {
             .read("$.data.items[?(@.after.reason == 'IDLE')]");
     assertThat(idle).hasSize(1);
   }
+
+  @Test
+  @DisplayName(
+      "AUTH-17 each request is held to its pharmacy's limit, whatever pharmacy the app reports in")
+  void eachRequestKeepsItsPharmacysLimit() {
+    admin.put("/api/v1/settings", "{\"idleMinutes\":5}").expect(200);
+
+    // A script reports activity outside the pharmacy (the platform's 15 minutes) and works in it.
+    String token = anonymous.signIn(email, "Admin#2026x");
+    Api outside = anonymous.as(token);
+    Api inside = outside.in(tenant, null);
+    assertThat(outside.post("/api/v1/auth/activity", "{}").expect(200).string("$.data.idleMinutes"))
+        .isEqualTo("15");
+    lastUsed(6);
+    // Past the pharmacy's 5 minutes: its requests end the session.
+    assertThat(inside.get("/api/v1/settings").expect(401).string("$.reason"))
+        .isEqualTo("session_idle");
+    outside.get("/api/v1/auth/me").expect(401);
+
+    // A request in the pharmacy makes its stricter limit the session's, wherever it reports next.
+    Api fresh = anonymous.as(anonymous.signIn(email, "Admin#2026x"));
+    fresh.in(tenant, null).get("/api/v1/settings").expect(200);
+    assertThat(fresh.post("/api/v1/auth/activity", "{}").expect(200).string("$.data.idleMinutes"))
+        .isEqualTo("5");
+  }
 }
