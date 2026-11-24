@@ -14,9 +14,28 @@ import java.util.regex.Pattern;
  *     the table is read once, at platform scope
  * @param plainPrefix the prefix of values kept in plain text from before sealing ({@code whsec_}),
  *     or null: the re-seal seals them too
+ * @param keyedHash the values are keyed hashes ({@link Keyring#mac}), which cannot be re-sealed:
+ *     they are only counted, so a key still naming some is never reported removable. Older plain
+ *     hashes count as {@link SealedValues#UNKEYED}.
  */
 public record SealedColumn(
-    String table, String column, Purpose purpose, boolean tenantScoped, String plainPrefix) {
+    String table,
+    String column,
+    Purpose purpose,
+    boolean tenantScoped,
+    String plainPrefix,
+    boolean keyedHash) {
+
+  public SealedColumn(
+      String table, String column, Purpose purpose, boolean tenantScoped, String plainPrefix) {
+    this(table, column, purpose, tenantScoped, plainPrefix, false);
+  }
+
+  /** A column of keyed hashes ({@link Keyring#mac}) for {@code purpose}. */
+  public static SealedColumn keyedHashes(
+      String table, String column, Purpose purpose, boolean tenantScoped) {
+    return new SealedColumn(table, column, purpose, tenantScoped, null, true);
+  }
 
   private static final Pattern TABLE = Pattern.compile("[a-z_]+\\.[a-z_]+");
   private static final Pattern COLUMN = Pattern.compile("[a-z_]+");

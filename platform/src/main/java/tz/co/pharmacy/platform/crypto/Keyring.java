@@ -49,6 +49,9 @@ public class Keyring {
 
   public static final String VERSION = "v2";
 
+  /** The prefix of a keyed hash ({@link #mac}). */
+  public static final String MAC_VERSION = "h1";
+
   private static final Logger LOG = LoggerFactory.getLogger(Keyring.class);
   private static final int IV_BYTES = 12;
   private static final int TAG_BITS = 128;
@@ -144,6 +147,72 @@ public class Keyring {
   /** Opens a value and seals it again with the purpose's active key. */
   public String reseal(Purpose purpose, String sealedText) {
     return seal(purpose, open(purpose, sealedText));
+  }
+
+  /**
+   * A keyed hash of {@code text} for {@code purpose}: {@code h1:<keyId>:<base64url HMAC-SHA-256>},
+   * under the purpose's active key. For short secrets that are only ever compared, never read back
+   * (recovery and SMS codes): unlike a bare SHA-256, a database copy alone does not let anyone try
+   * every possible code (NIST SP 800-63B §5.1.2.2, a salt or a secret pepper kept apart from the
+   * stored values; adversarial review AUTH-16). The HMAC key is derived from the named key for the
+   * purpose, so it differs from the AES key that key seals with.
+   */
+  public String mac(Purpose purpose, String text) {
+    String id = active.get(purpose);
+    return MAC_VERSION + ":" + id + ":" + macBody(id, purpose, text);
+  }
+
+  /**
+   * The keyed hashes {@code text} could be stored as, one per key in the keyring (the active key's
+   * first): for looking a stored hash up by value after the purpose's key has changed.
+   */
+  public List<String> macCandidates(Purpose purpose, String text) {
+    List<String> ids = new java.util.ArrayList<>();
+    ids.add(active.get(purpose));
+    keys.keySet().stream().filter(id -> !ids.contains(id)).forEach(ids::add);
+    return ids.stream()
+        .map(id -> MAC_VERSION + ":" + id + ":" + macBody(id, purpose, text))
+        .toList();
+  }
+
+  /**
+   * Whether {@code stored}, a value of {@link #mac}, is the keyed hash of {@code text}, compared in
+   * constant time; false when it is not one or its key is no longer in the keyring.
+   */
+  public boolean macMatches(Purpose purpose, String stored, String text) {
+    if (!isMac(stored)) {
+      return false;
+    }
+    String id = stored.substring(MAC_VERSION.length() + 1, stored.indexOf(':', 3));
+    if (!keys.containsKey(id)) {
+      return false;
+    }
+    String expected = MAC_VERSION + ":" + id + ":" + macBody(id, purpose, text);
+    return MessageDigest.isEqual(
+        expected.getBytes(StandardCharsets.UTF_8), stored.getBytes(StandardCharsets.UTF_8));
+  }
+
+  /** Whether {@code stored} is a keyed hash of {@link #mac} (rather than an older plain hash). */
+  public static boolean isMac(String stored) {
+    return stored != null
+        && stored.startsWith(MAC_VERSION + ":")
+        && stored.indexOf(':', MAC_VERSION.length() + 1) > MAC_VERSION.length() + 1;
+  }
+
+  private String macBody(String id, Purpose purpose, String text) {
+    try {
+      javax.crypto.Mac derive = javax.crypto.Mac.getInstance("HmacSHA256");
+      derive.init(new SecretKeySpec(keys.get(id).getEncoded(), "HmacSHA256"));
+      byte[] macKey =
+          derive.doFinal(("pharmacy/" + purpose.id() + "/mac").getBytes(StandardCharsets.UTF_8));
+      javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+      mac.init(new SecretKeySpec(macKey, "HmacSHA256"));
+      return Base64.getUrlEncoder()
+          .withoutPadding()
+          .encodeToString(mac.doFinal(text.getBytes(StandardCharsets.UTF_8)));
+    } catch (GeneralSecurityException impossible) {
+      throw new IllegalStateException("HmacSHA256 is unavailable", impossible);
+    }
   }
 
   /** The id of the key a value names: {@code legacy} for an unversioned one. */

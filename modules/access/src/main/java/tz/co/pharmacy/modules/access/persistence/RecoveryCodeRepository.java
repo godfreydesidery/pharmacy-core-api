@@ -10,7 +10,9 @@ import tz.co.pharmacy.modules.access.domain.RecoveryCode;
 
 public interface RecoveryCodeRepository extends JpaRepository<RecoveryCode, Long> {
 
-  Optional<RecoveryCode> findByUserUidAndCodeHashAndUsedAtIsNull(UUID userUid, String codeHash);
+  /** An unused code of the user stored as one of {@code codeHashes} (its keyed or legacy hash). */
+  Optional<RecoveryCode> findFirstByUserUidAndCodeHashInAndUsedAtIsNull(
+      UUID userUid, java.util.Collection<String> codeHashes);
 
   int countByUserUidAndUsedAtIsNull(UUID userUid);
 

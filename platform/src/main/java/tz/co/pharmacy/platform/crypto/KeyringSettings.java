@@ -25,7 +25,8 @@ import org.springframework.core.env.Environment;
  *       every value sealed before key ids existed, under the reserved id {@code legacy};
  *   <li>{@code pharmacy.sealing.<purpose>} ({@code PHARMACY_SEALING_TOTP}, {@code ..._PROVIDERS},
  *       {@code ..._WEBHOOKS}): the id of the key that seals new values of the purpose. Unset, the
- *       purpose keeps sealing with {@code legacy}.
+ *       purpose keeps sealing with {@code legacy}; {@code codes} and {@code messages}, which came
+ *       later, use the key of {@code totp} and {@code providers} instead (no new secret needed).
  * </ul>
  *
  * <p>Every key, whichever purpose seals with it, opens any value that names it: a purpose's active
@@ -71,7 +72,11 @@ public record KeyringSettings(
 
   /** The id of the key that seals the purpose's new values. */
   public String activeId(Purpose purpose) {
-    return active.getOrDefault(purpose, LEGACY);
+    String id = active.get(purpose);
+    if (id != null) {
+      return id;
+    }
+    return purpose.fallback() == null ? LEGACY : activeId(purpose.fallback());
   }
 
   /** Whether some purpose still seals with the legacy key. */

@@ -14,12 +14,38 @@ public enum Purpose {
   /** Message provider secrets: API keys, auth tokens, SMTP passwords (notifications). */
   PROVIDERS("providers"),
   /** Webhook signing secrets (integrations). */
-  WEBHOOKS("webhooks");
+  WEBHOOKS("webhooks"),
+  /**
+   * The pepper of short codes kept as keyed hashes (HMAC-SHA-256): two-factor recovery codes and
+   * SMS codes (access; adversarial review AUTH-16). Unset, it uses the key {@link #TOTP} seals
+   * with, so a server needs no new secret; each hash names its key, so a later change keeps them
+   * working.
+   */
+  CODES("codes", TOTP),
+  /**
+   * Account messages (reset, invitation and recovery links, codes) while they wait to be sent
+   * (notifications; AUTH-8). Unset, it uses the key {@link #PROVIDERS} seals with.
+   */
+  MESSAGES("messages", PROVIDERS);
 
   private final String id;
+  private final Purpose fallback;
 
   Purpose(String id) {
+    this(id, null);
+  }
+
+  Purpose(String id, Purpose fallback) {
     this.id = id;
+    this.fallback = fallback;
+  }
+
+  /**
+   * The purpose whose active key this one uses while {@code pharmacy.sealing.<id>} is unset; null:
+   * the legacy key.
+   */
+  public Purpose fallback() {
+    return fallback;
   }
 
   /** The purpose's name in configuration and status: {@code totp}, {@code providers}, ... */

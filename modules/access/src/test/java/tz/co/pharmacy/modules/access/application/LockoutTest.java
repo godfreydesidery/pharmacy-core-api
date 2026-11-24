@@ -56,8 +56,13 @@ class LockoutTest {
     assertThat(codes).hasSize(10).doesNotHaveDuplicates();
     String code = codes.getFirst();
     assertThat(RecoveryCodes.looksLikeRecoveryCode(code)).isTrue();
-    assertThat(RecoveryCodes.hash(code.toUpperCase().replace("-", "")))
-        .isEqualTo(RecoveryCodes.hash(code));
+    SecretBox secrets =
+        new SecretBox(
+            new tz.co.pharmacy.platform.crypto.Keyring(
+                new tz.co.pharmacy.platform.crypto.KeyringSettings(
+                    "lockout-test-key-0123456789abcdef", java.util.Map.of(), java.util.Map.of())));
+    assertThat(RecoveryCodes.hash(secrets, code.toUpperCase().replace("-", "")))
+        .isEqualTo(RecoveryCodes.hash(secrets, code));
     assertThat(RecoveryCodes.looksLikeRecoveryCode("123456")).isFalse();
   }
 }
