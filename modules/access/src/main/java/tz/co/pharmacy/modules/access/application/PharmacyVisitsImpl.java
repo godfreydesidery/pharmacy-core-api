@@ -40,11 +40,13 @@ class PharmacyVisitsImpl implements PharmacyVisits {
   private final Clock clock;
 
   /**
-   * When each session last noted work in each pharmacy, so most requests write nothing. A write
-   * throttle per instance, kept on purpose with several instances: what it saves is writes, and
-   * what must happen once is decided in the database ({@code access.enter_pharmacy} returns 1 to
-   * one caller only, so the SIGN_IN entry is audited once whichever instance serves the session).
-   * With N instances a session's last activity is written at most N times per {@link #EVERY}.
+   * When each session last noted work in each pharmacy, so most requests write nothing. A pure
+   * per-instance cache with no correctness role (adversarial review, Batch 5 "still open"): what
+   * must hold across instances is decided in PostgreSQL. {@code access.enter_pharmacy} returns 1 to
+   * one caller only, so the SIGN_IN entry is audited once whichever instance serves the session;
+   * and the last activity is a conditional update ({@code MembershipRepository.workedAt} writes
+   * only a note older than {@link #EVERY}), so with N instances it is still written at most once
+   * per period. Losing or clearing this map costs one extra round trip, never a wrong row.
    */
   private final Map<String, Instant> noted = new ConcurrentHashMap<>();
 
@@ -110,7 +112,7 @@ class PharmacyVisitsImpl implements PharmacyVisits {
                           tenantSwitch.within(
                               tenantUid,
                               () -> {
-                                memberships.workedAt(userUid, tenantUid, now);
+                                memberships.workedAt(userUid, tenantUid, now, now.minus(EVERY));
                                 if (first) {
                                   Map<String, Object> details = new LinkedHashMap<>();
                                   if (session != null) {
