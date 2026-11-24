@@ -182,6 +182,8 @@ class SettingsServiceImpl implements SettingsService {
           metadata ->
               new tz.co.pharmacy.modules.tenancy.events.StandardVatRateChanged(metadata, rate));
     }
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    settings.flush();
     return view(tenant, row);
   }
 
@@ -264,6 +266,7 @@ class SettingsServiceImpl implements SettingsService {
         row.isRequireOpenShift(),
         row.isVatRegistered(),
         row.getTin(),
-        row.getVrn());
+        row.getVrn(),
+        row.getVersion());
   }
 }

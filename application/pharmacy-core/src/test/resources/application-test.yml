@@ -44,6 +44,10 @@ pharmacy:
       # WebhookRetryTest's receiver: a loopback address the SSRF test does not use, allowed only here.
       allowed-hosts: 127.0.0.2
       retry-every-ms: 1000
+# The OpenAPI document (/v3/api-docs), which OpenApiDocumentTest compares with docs/openapi.json.
+springdoc:
+  api-docs:
+    enabled: true
 logging:
   level:
     org.springframework.modulith: WARN

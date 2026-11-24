@@ -19,4 +19,7 @@ public record CustomerView(
     Instant createdAt,
     PaymentTerms paymentTerms,
     /* When the person's data was anonymised (STD-5); null while they are a person on record. */
-    Instant anonymisedAt) {}
+    Instant anonymisedAt,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

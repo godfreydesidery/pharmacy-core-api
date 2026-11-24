@@ -83,10 +83,10 @@ class ProductImport implements Importer<ProductImport.Plan> {
                   "gtin",
                   "Barcode (GTIN)",
                   "Msimbopau (GTIN)",
-                  "The barcode: 8 to 14 digits. Format the column as Text so Excel keeps leading"
-                      + " zeros.",
-                  "Msimbopau: tarakimu 8 hadi 14. Weka safu kuwa Text ili Excel isifute sifuri za"
-                      + " mwanzo.")
+                  "The barcode (GTIN): 8, 12, 13 or 14 digits ending in a correct check digit."
+                      + " Format the column as Text so Excel keeps leading zeros.",
+                  "Msimbopau (GTIN): tarakimu 8, 12, 13 au 14 zinazoishia na tarakimu hakiki"
+                      + " sahihi. Weka safu kuwa Text ili Excel isifute sifuri za mwanzo.")
               .about("gtin"),
           optional(
               "atcCode",

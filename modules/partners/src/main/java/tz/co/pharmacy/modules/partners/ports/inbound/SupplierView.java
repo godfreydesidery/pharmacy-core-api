@@ -15,4 +15,7 @@ public record SupplierView(
     String address,
     boolean active,
     Instant createdAt,
-    int leadTimeDays) {}
+    int leadTimeDays,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

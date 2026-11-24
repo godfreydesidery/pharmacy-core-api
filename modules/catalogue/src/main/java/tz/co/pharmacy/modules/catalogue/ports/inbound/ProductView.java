@@ -41,4 +41,5 @@ public record ProductView(
     boolean requiresSerialAtSale,
     tz.co.pharmacy.platform.kernel.TaxCategory taxCategory,
     /* The TMDA registration number (STD-8), optional. */
-    String tmdaRegistrationNumber) {}
+    String tmdaRegistrationNumber)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

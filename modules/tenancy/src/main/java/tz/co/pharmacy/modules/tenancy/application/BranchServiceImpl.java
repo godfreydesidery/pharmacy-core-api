@@ -82,6 +82,8 @@ class BranchServiceImpl implements BranchService {
         Checks.optionalText(command.phone(), "phone", 40),
         Checks.optionalText(command.licenceNumber(), "licenceNumber", 60),
         active);
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    branches.flush();
     return view(branch);
   }
 
@@ -95,6 +97,7 @@ class BranchServiceImpl implements BranchService {
         branch.getLicenceNumber(),
         branch.isHeadOffice(),
         branch.isActive(),
-        branch.getCreatedAt());
+        branch.getCreatedAt(),
+        branch.getVersion());
   }
 }

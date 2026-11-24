@@ -26,11 +26,14 @@ public class SettingsHandler {
   private final SettingsService settings;
   private final Entitlements entitlements;
   private final tz.co.pharmacy.delivery.edge.TenantPolicies policies;
+  private final tz.co.pharmacy.delivery.edge.Preconditions preconditions;
 
   public SettingsHandler(
       SettingsService settings,
       Entitlements entitlements,
-      tz.co.pharmacy.delivery.edge.TenantPolicies policies) {
+      tz.co.pharmacy.delivery.edge.TenantPolicies policies,
+      tz.co.pharmacy.delivery.edge.Preconditions preconditions) {
+    this.preconditions = preconditions;
     this.policies = policies;
     this.settings = settings;
     this.entitlements = entitlements;
@@ -43,14 +46,25 @@ public class SettingsHandler {
     return ApiResponse.ok(settings.current(), "Settings retrieved");
   }
 
-  /** {@code currency} and {@code timezone} are fixed at registration and ignored here. */
+  /**
+   * {@code currency} and {@code timezone} are fixed at registration and ignored here, as is a
+   * {@code version} in the body (the web sends the settings back as it read them): the version goes
+   * in {@code If-Match}.
+   */
   @PutMapping
   @Access(scope = AccessScope.TENANT, permission = Permissions.SETTINGS_MANAGE)
+  @org.springframework.transaction.annotation.Transactional
   public ApiResponse<SettingsView> change(
-      @RequestBody SettingsRequest body, jakarta.servlet.http.HttpServletRequest request) {
+      @org.springframework.web.bind.annotation.RequestHeader(
+              value = tz.co.pharmacy.delivery.edge.Preconditions.IF_MATCH,
+              required = false)
+          String ifMatch,
+      @RequestBody SettingsRequest body,
+      jakarta.servlet.http.HttpServletRequest request) {
     if (body == null) {
       throw Refusal.malformed("Settings are required.");
     }
+    preconditions.ifMatch(ifMatch, () -> settings.current().version());
     if (Boolean.TRUE.equals(body.requireTwoFactor())
         && request.getAttribute(tz.co.pharmacy.delivery.edge.EdgeFilter.PRINCIPAL)
             instanceof tz.co.pharmacy.modules.access.ports.inbound.Principal principal

@@ -64,6 +64,8 @@ class CustomerServiceImpl implements CustomerService {
       throw anonymised();
     }
     customer.change(details(c, customer.isActive()));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    customers.flush();
     return view(customer);
   }
 
@@ -114,6 +116,7 @@ class CustomerServiceImpl implements CustomerService {
         c.isActive(),
         c.getCreatedAt(),
         c.getPaymentTerms(),
-        c.getAnonymisedAt());
+        c.getAnonymisedAt(),
+        c.getVersion());
   }
 }

@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.sales.domain;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
 import java.util.function.BiFunction;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
@@ -60,7 +59,7 @@ public final class Tender {
       }
     }
     int scale = Math.max(total.scale(), 0);
-    paid = paid.setScale(scale, RoundingMode.HALF_EVEN);
+    paid = paid.setScale(scale, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
     if (paid.compareTo(total) < 0) {
       throw Refusal.invalid(
               "payment_short",

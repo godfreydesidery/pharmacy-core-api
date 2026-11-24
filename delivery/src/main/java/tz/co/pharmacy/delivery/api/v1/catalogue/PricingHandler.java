@@ -45,6 +45,7 @@ public class PricingHandler {
   private final TenantCalendar calendar;
   private final tz.co.pharmacy.modules.insurance.ports.inbound.Insurance insurance;
   private final tz.co.pharmacy.modules.sales.ports.inbound.SaleService sales;
+  private final tz.co.pharmacy.delivery.edge.Preconditions preconditions;
 
   @GetMapping("/price-lists")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.view")
@@ -75,8 +76,21 @@ public class PricingHandler {
 
   @PutMapping("/price-lists/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "catalogue.manage")
+  @org.springframework.transaction.annotation.Transactional
   public ApiResponse<PriceListView> changePriceList(
-      @PathVariable UUID uid, @RequestBody PriceListCommand body) {
+      @PathVariable UUID uid,
+      @org.springframework.web.bind.annotation.RequestHeader(
+              value = tz.co.pharmacy.delivery.edge.Preconditions.IF_MATCH,
+              required = false)
+          String ifMatch,
+      @RequestBody PriceListCommand body) {
+    preconditions.ifMatch(
+        ifMatch,
+        () ->
+            pricing
+                .priceList(uid)
+                .orElseThrow(() -> Refusal.notFound("price_list_not_found", "No such price list."))
+                .version());
     return ApiResponse.ok(pricing.savePriceList(uid, body(body)), "Price list saved");
   }
 

@@ -157,6 +157,19 @@ are quiet. If a
 read model is ever found to disagree (`GET /finance/reconciliation/balances`), rebuild it as the owner, for one
 pharmacy at a time, with the same `insert ... select ... group by` as the migration after deleting its rows.
 
+### Reports instead of changes (Batch 9, STD-18)
+
+- `catalogue/V16` checks every product's GTIN against the GS1 check digit and changes nothing. It logs a WARNING per
+  pharmacy listing the products whose barcode fails (`sku=gtin`) and a NOTICE with the total; read the deploy log, or
+  list them later as the owner with `select * from catalogue.invalid_gtins();`. The pharmacy corrects them from the
+  product form (a product keeps its old GTIN until someone changes it). On the QA copy of 24 Nov 2026: 1 of 1
+  (`SK-PCM500`, `6001234567890`, check digit 9 expected).
+- `inventory/V12` logs a WARNING for each product whose batch numbers differ only in case and marks all but the first
+  recorded `case_twin` (no batch is renamed or merged; they keep their stock and movements). `inventory/V13` (outside
+  a transaction) marks any twin recorded meanwhile, then builds the unique index on `lower(batch_number)` per
+  product, which leaves the twins out. If V13 fails, `flyway repair` and run it again: its first statement drops a
+  half-built index. On the QA copy: 0 of 80 batches.
+
 ## Writing migrations that are safe on a live database
 
 `architecture-tests/MigrationSafetyTest` migrates an embedded PostgreSQL and checks every migration against the

@@ -5,7 +5,7 @@ The backend of **Pharmacy Core**: a multi-tenant, multi-branch pharmacy manageme
 | | |
 |---|---|
 | Stack | Java 21, Spring Boot 4.1, Spring Modulith 2.1, Hibernate 7, PostgreSQL 17, Flyway, springdoc (OpenAPI 3.1) |
-| Contract | [`pharmacy-core-docs/contracts/api-v1.md`](../pharmacy-core-docs/contracts/api-v1.md); the running app serves `/v3/api-docs` and `/swagger-ui.html` |
+| Contract | [`docs/openapi.json`](docs/openapi.json) is the complete reference (OpenAPI 3.1, generated from the code, checked in the build); [`pharmacy-core-docs/contracts/api-v1.md`](../pharmacy-core-docs/contracts/api-v1.md) is the human guide. The running app serves `/v3/api-docs` and `/swagger-ui.html` |
 | Module spec | [`docs/MODULE-PORTS.md`](docs/MODULE-PORTS.md): every module's ports, views and events (binding) |
 | Architecture | [`pharmacy-core-docs/architecture`](../pharmacy-core-docs/architecture/overview.md) |
 
@@ -139,6 +139,7 @@ Then set:
 | `PHARMACY_FISCAL_PROVIDER` | `none` | Fiscal document adapter: `none`, `simulator` (sim/local/test only) or a real adapter's value |
 | `PHARMACY_FISCAL_JOB_CRON` / `PHARMACY_FISCAL_RESEND_AFTER` | `0 */15 * * * *` / `PT10M` | The fiscal job (`fiscal-documents`): resend PENDING documents, close past days with a Z report per branch |
 | `PHARMACY_SWAGGER_ENABLED` | `true` | Serve `/v3/api-docs` and Swagger UI |
+| `PHARMACY_REQUIRE_IF_MATCH` | `false` | `true`: a change of an edited resource (product, customer, supplier, role, branch, price list, settings) without `If-Match` is refused 428 `precondition_required`. A stale `If-Match` is always 412 `precondition_failed` |
 | `PHARMACY_LOG_FORMAT` | — | `json` (or `ecs`) for one JSON object per line on stdout, Elastic Common Schema; `logstash`, `gelf` also work; unset is plain text |
 | `PHARMACY_PORT` | `8080` | HTTP port |
 | `PHARMACY_MANAGEMENT_PORT` | — | A separate port for actuator (health and `/actuator/prometheus`), e.g. `8081` on ECS; the API port keeps `/livez` and `/readyz`. Unset: actuator shares the API port and serves health only |
@@ -165,13 +166,15 @@ mvn verify
 - **`application/pharmacy-core` integration tests** run the whole app on a random port against an embedded PostgreSQL with the production roles. They include:
   - `PharmacyFlowTest`: root onboards two tenants, goods are received, a FEFO sale goes through, the ledger and dashboard catch up, and the tenants stay isolated;
   - `RowLevelSecurityTest`: every `tenant_uid` table has forced RLS, isolation fails closed, and the application role is unprivileged.
+  - `OpenApiDocumentTest`: `docs/openapi.json` is the document the code generates (see "The API contract" below).
 - **`architecture-tests`** contains `ModuleStructureTest` (Spring Modulith verify; it also writes module docs to `target/spring-modulith-docs`) and `CodeRulesTest` (ArchUnit).
 
 ## Conventions
 
 - **Formatting.** Google Java Format, enforced by Spotless in `verify`. Run `mvn spotless:apply` before committing.
 - **Identifiers.** Every record has a UUIDv7 `uid`, used in the API, events and other modules. Internal `id`s never leave a module.
-- **Money and time.** Money is `numeric(14,2)` / `BigDecimal`, through `Amounts`. Times are UTC `timestamptz`.
+- **Money and time.** Money is `numeric(14,2)` / `BigDecimal`, through `Amounts`. `Amounts.money(x)` rounds to the pharmacy's base currency's ISO 4217 minor units (0 for UGX and RWF, 2 for TZS, KES and USD); an amount in another currency uses `Amounts.money(x, currency)`. One rounding mode everywhere, half-up (`Amounts.ROUNDING`), conversions included. A base currency of more than 2 minor units (KWD) is refused, `currency_not_supported`. Times are UTC `timestamptz`.
+- **Edited resources.** A view of a row people edit implements `Versioned` (its `version`); its GET answers `ETag: "<version>"` and its PUT takes `@RequestHeader("If-Match")` and calls `Preconditions.ifMatch` inside the handler's transaction (412 `precondition_failed`; 428 when `pharmacy.http.require-if-match`).
 - **Refusals.** Use `Refusal.invalid/notFound/conflict/forbidden(reason, detail)` with a snake_case `reason`. Validate input with `Checks`.
 - **Migrations.** Append-only Flyway migrations per schema: `modules/<m>/src/main/resources/db/migration/<m>/V<n>__*.sql`. Never edit an applied migration.
 
@@ -197,7 +200,17 @@ mvn verify
    - `TENANT_OPTIONAL_BRANCH`: branch optional, for reports.
 3. Lists take `cursor` and `limit` and return `Page<T>`.
 4. Call modules only through their `ports.inbound`, or through an application service.
-5. Add the route to `pharmacy-core-docs/contracts/api-v1.md`.
+5. Add the route to `pharmacy-core-docs/contracts/api-v1.md`, and refresh `docs/openapi.json` (below).
+
+### The API contract
+
+`docs/openapi.json` is the OpenAPI 3.1 document the code serves at `/v3/api-docs`: every route, its body and answer, and what the edge enforces, read from the handler's annotations (`x-scope` and `x-permission` from `@Access`, with `x-permission-any-of`, `x-permission-all-of`, `x-step-up`; `x-idempotent`, `x-plan-feature`, `x-plan-limit`, `x-if-match`), the headers (`X-Tenant-Id`, `X-Branch-Id`, `Idempotency-Key`, `X-Approval`, `If-Match`) and the RFC 9457 problems (`components.schemas.Problem`). It is the complete reference; `api-v1.md` is the guide that explains the flows.
+
+`OpenApiDocumentTest` fails the build (and CI) when the committed file differs from what the code generates. After changing a route, refresh it, review the difference and commit it:
+
+```bash
+mvn -pl application/pharmacy-core -am verify -Dtest=OpenApiDocumentTest -Dsurefire.failIfNoSpecifiedTests=false -Dpharmacy.openapi.write=true
+```
 
 ## Integration points
 

@@ -33,4 +33,7 @@ public record SettingsView(
     boolean vatRegistered,
     /* Taxpayer Identification Number (9 digits) and VAT Registration Number; null when unset. */
     String tin,
-    String vrn) {}
+    String vrn,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

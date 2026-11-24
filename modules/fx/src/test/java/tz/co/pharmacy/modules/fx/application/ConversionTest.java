@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class ConversionTest {
 
   @Test
-  @DisplayName("amounts round half-even to the target currency's ISO 4217 minor units")
+  @DisplayName("amounts round half-up to the target currency's ISO 4217 minor units")
   void roundsToMinorUnits() {
     // 12.345 USD at 2650.5 TZS/USD = 32720.42250 → TZS has 2 decimals
     assertThat(Conversion.convert(new BigDecimal("12.345"), new BigDecimal("2650.5"), "TZS"))
@@ -20,11 +20,17 @@ class ConversionTest {
     // KWD has 3
     assertThat(Conversion.convert(new BigDecimal("1"), new BigDecimal("0.30715"), "KWD"))
         .isEqualByComparingTo("0.307");
-    // half-even: a tie goes to the even neighbour, so conversions do not drift upwards
+    // UGX has none either: 1,000.5 UGX is 1,001
+    assertThat(Conversion.convert(new BigDecimal("1000.5"), BigDecimal.ONE, "UGX"))
+        .isEqualByComparingTo("1001");
+    // half-up, the one rounding mode of money (Amounts.ROUNDING): a tie goes away from zero, the
+    // same for both neighbours, so a refund is exactly the negative of its sale
     assertThat(Conversion.convert(new BigDecimal("0.005"), BigDecimal.ONE, "USD"))
-        .isEqualByComparingTo("0.00");
+        .isEqualByComparingTo("0.01");
     assertThat(Conversion.convert(new BigDecimal("0.015"), BigDecimal.ONE, "USD"))
         .isEqualByComparingTo("0.02");
+    assertThat(Conversion.convert(new BigDecimal("-0.005"), BigDecimal.ONE, "USD"))
+        .isEqualByComparingTo("-0.01");
   }
 
   @Test
@@ -49,6 +55,9 @@ class ConversionTest {
     assertThat(Conversion.minorUnits("USD")).isEqualTo(2);
     assertThat(Conversion.minorUnits("JPY")).isZero();
     assertThat(Conversion.minorUnits("KWD")).isEqualTo(3);
+    assertThat(Conversion.minorUnits("UGX")).isZero();
+    assertThat(Conversion.minorUnits("RWF")).isZero();
+    assertThat(Conversion.minorUnits("KES")).isEqualTo(2);
   }
 
   @Test

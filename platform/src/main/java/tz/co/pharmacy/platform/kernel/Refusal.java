@@ -126,6 +126,16 @@ public class Refusal extends RuntimeException {
     return new Refusal(RefusalKind.UNAUTHENTICATED, reason, detail, null);
   }
 
+  /** 412 precondition_failed: the {@code If-Match} version is not the resource's. */
+  public static Refusal preconditionFailed(String detail) {
+    return new Refusal(RefusalKind.PRECONDITION_FAILED, "precondition_failed", detail, null);
+  }
+
+  /** 428 precondition_required: this change must name the version it was made from. */
+  public static Refusal preconditionRequired(String detail) {
+    return new Refusal(RefusalKind.PRECONDITION_REQUIRED, "precondition_required", detail, null);
+  }
+
   public static Refusal malformed(String detail) {
     return new Refusal(RefusalKind.MALFORMED, "malformed_request", detail, null);
   }

@@ -37,9 +37,13 @@ public class WebConfiguration implements WebMvcConfigurer {
           .allowedOrigins(allowedOrigins)
           .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
           .allowedHeaders("*")
-          // Retry-After: the web waits as long as a 429 or 503 says before it sends again.
+          // Retry-After: the web waits as long as a 429 or 503 says before it sends again. ETag:
+          // the version a change names in If-Match (Preconditions).
           .exposedHeaders(
-              EdgeFilter.CORRELATION_HEADER, IdempotencyFilter.REPLAYED_HEADER, "Retry-After")
+              EdgeFilter.CORRELATION_HEADER,
+              IdempotencyFilter.REPLAYED_HEADER,
+              "Retry-After",
+              "ETag")
           .maxAge(3600);
     }
   }

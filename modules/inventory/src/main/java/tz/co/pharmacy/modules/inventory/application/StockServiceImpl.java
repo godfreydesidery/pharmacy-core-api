@@ -788,7 +788,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
           "serialNumbers");
     }
     LocalDate batchExpiry = expiry;
-    Optional<Batch> existing = batches.findByProductUidAndBatchNumber(productUid, batchNumber);
+    Optional<Batch> existing = batches.numbered(productUid, batchNumber);
     Batch batch =
         existing.orElseGet(
             () -> batches.save(new Batch(productUid, batchNumber, batchExpiry, unitCost)));

@@ -54,9 +54,10 @@ public class GoodsReceipt extends TenantEntity {
 
   /** Adds the invoice's VAT, once the lines are in. */
   public void chargeVat(BigDecimal vat) {
-    BigDecimal amount = vat == null ? Amounts.ZERO : Amounts.money(vat);
+    // In the document's currency, like its lines (USD 2 decimals, UGX none).
+    BigDecimal amount = vat == null ? Amounts.ZERO : Amounts.money(vat, currency);
     this.vatTotal = amount;
-    this.total = Amounts.money(total.add(amount));
+    this.total = Amounts.money(total.add(amount), currency);
   }
 
   /** Prices the document in {@code currency} at {@code exchangeRate} base units per unit. */
@@ -81,7 +82,7 @@ public class GoodsReceipt extends TenantEntity {
 
   /** The lines' total, without the VAT. */
   public BigDecimal linesTotal() {
-    return Amounts.money(total.subtract(vatTotal == null ? Amounts.ZERO : vatTotal));
+    return Amounts.money(total.subtract(vatTotal == null ? Amounts.ZERO : vatTotal), currency);
   }
 
   /**
@@ -131,6 +132,6 @@ public class GoodsReceipt extends TenantEntity {
             unitCost,
             serialNumbers);
     lines.add(line);
-    total = Amounts.money(total.add(line.getLineTotal()));
+    total = Amounts.money(total.add(line.getLineTotal()), currency);
   }
 }

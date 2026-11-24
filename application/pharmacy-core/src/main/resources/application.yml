@@ -160,6 +160,11 @@ pharmacy:
     # Root administrators must add an authenticator app at their next sign-in (NIST 800-63B AAL2
     # for privileged accounts). Only the local and test profiles turn it off.
     require-2fa-for-root: ${PHARMACY_REQUIRE_2FA_FOR_ROOT:true}
+  http:
+    # A change of an edited resource (product, customer, supplier, role, branch, price list,
+    # settings) without If-Match is allowed (older clients); true answers it 428
+    # precondition_required. A stale If-Match is always 412 precondition_failed (STD-10).
+    require-if-match: ${PHARMACY_REQUIRE_IF_MATCH:false}
   edge:
     cors-allowed-origins: ${PHARMACY_CORS_ORIGINS:}
     # Fair share: requests one pharmacy may have in progress at once (keep it under the database
@@ -279,8 +284,11 @@ pharmacy:
 
 # The API map is for development: off on a server unless PHARMACY_SWAGGER_ENABLED=true.
 springdoc:
+  # Sorted keys: docs/openapi.json is this document, compared in the build (OpenApiDocumentTest).
+  writer-with-order-by-keys: true
   api-docs:
     enabled: ${PHARMACY_SWAGGER_ENABLED:false}
+    version: openapi_3_1
   swagger-ui:
     enabled: ${PHARMACY_SWAGGER_ENABLED:false}
 

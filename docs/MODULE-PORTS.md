@@ -19,6 +19,8 @@ Rules:
 - Migrations go in `modules/X/src/main/resources/db/migration/X/V1__X_schema.sql`, in schema `X`. Every tenant table carries `tenant_uid`, the standard columns and the RLS policy (see `TenantEntity` javadoc). Use `grant ... to ${application_role}`. Use `text` for strings, `numeric(14,2)` for money, `numeric(5,2)` for percents, `integer` for quantities, `timestamptz` and `date`, `uuid` for uids. Unique constraints that are per tenant include `tenant_uid`.
 - Hibernate runs with `ddl-auto: validate`, so the entity mapping must match the SQL exactly. Map enums with `@Enumerated(EnumType.STRING)` to `text` columns. Map child collections with `@OneToMany(mappedBy=…, cascade=ALL, orphanRemoval=true)` and `@ManyToOne(fetch=LAZY) @JoinColumn(name="…_id")`. Child rows are `TenantEntity` too.
 - Use `Refusal.*` for every rule violation, with a stable snake_case `reason`. Use `Checks.*` for input validation. Use `Amounts.*` for money arithmetic.
+- Money (Batch 9, STD-17): `Amounts.money(x)` rounds to the minor units of the pharmacy's base currency (ISO 4217: UGX 0, TZS 2), read once per transaction from the tenant registry; `Amounts.money(x, currency)` for an amount in a document's or tender's own currency (a USD purchase). One rounding mode, `Amounts.ROUNDING` (half-up), for amounts and conversions alike; rates and ratios keep 6 to 10 decimals until they become an amount.
+- Edited resources (Batch 9, STD-10): the views of rows people edit (BranchView, SettingsView, RoleView, ProductView, PriceListView, CustomerView, SupplierView) implement `platform.kernel.Versioned` with a last component `long version` (the row's `@Version`; PlanCard has `Long version`, null for Normal Sale). A service flushes before building the view it returns from a change, so the view carries the new version. Delivery sends it as `ETag` and checks `If-Match` (`delivery.edge.Preconditions`).
 - Paged lists newest first use `Keyset.page(repo, spec, query, mapper)`. Other orders use offset paging (`PageQuery.offset()`, `Page.offset(rows, query)`).
 - Publish events with `DomainEventPublisher.publish("type.name", meta -> new Foo(meta, …))` inside the writing transaction.
 - The current branch is `ExecutionContext.requireBranch()`. The current tenant is `ExecutionContext.requireTenant()` (or `TenantContext`). A report's branches are `ExecutionContext.reportBranches()`, where `null` means all.
@@ -65,6 +67,7 @@ interface TenantService {
       settings as the new tenant. Publishes tenant.registered. Refuses a duplicate code: 409 duplicate_code. */
   TenantView register(RegisterTenantCommand command);
   Optional<TenantView> find(UUID tenantUid);          // registry read, any scope
+  Optional<String> baseCurrency(UUID tenantUid);      // registry read, any scope (money's minor units)
   Page<TenantView> list(String q, PageQuery query);   // platform scope; branchCount may be 0 when not in tenant scope
   TenantView suspend(UUID tenantUid, String reason);
   TenantView reactivate(UUID tenantUid);

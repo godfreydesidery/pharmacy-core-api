@@ -4,21 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.Currency;
 import java.util.List;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tz.co.pharmacy.modules.sales.ports.inbound.PaymentMethod;
+import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Refusal;
 
 class TenderTest {
 
-  private static final BiFunction<BigDecimal, String, BigDecimal> ROUND =
-      (amount, currency) ->
-          amount.setScale(
-              Currency.getInstance(currency).getDefaultFractionDigits(), RoundingMode.HALF_EVEN);
+  /** As the application rounds: each currency's ISO 4217 minor units, half-up. */
+  private static final BiFunction<BigDecimal, String, BigDecimal> ROUND = Amounts::money;
+
   private static final BigDecimal USD_RATE = new BigDecimal("2650");
 
   @Test

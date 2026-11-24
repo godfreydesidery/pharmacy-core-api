@@ -16,7 +16,9 @@ final class PurchasingViews {
   /** A unit cost in the base currency, kept to 4 decimals so stock valuation does not drift. */
   static java.math.BigDecimal baseUnitCost(
       java.math.BigDecimal unitCost, java.math.BigDecimal exchangeRate) {
-    return unitCost.multiply(exchangeRate).setScale(4, java.math.RoundingMode.HALF_EVEN);
+    return unitCost
+        .multiply(exchangeRate)
+        .setScale(4, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
   }
 
   static PurchaseOrderView order(PurchaseOrder order) {

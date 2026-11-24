@@ -31,14 +31,17 @@ public class RoleHandler {
   private final UserAdministration users;
   private final RolePresets presets;
   private final tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache;
+  private final tz.co.pharmacy.delivery.edge.Preconditions preconditions;
 
   public RoleHandler(
       UserAdministration users,
       RolePresets presets,
-      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache) {
+      tz.co.pharmacy.delivery.edge.EdgeAccessCache accessCache,
+      tz.co.pharmacy.delivery.edge.Preconditions preconditions) {
     this.users = users;
     this.presets = presets;
     this.accessCache = accessCache;
+    this.preconditions = preconditions;
   }
 
   /** A role's permissions changed: its members' cached access is forgotten everywhere (PERF-9). */
@@ -51,6 +54,20 @@ public class RoleHandler {
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
   public ApiResponse<List<RoleView>> roles() {
     return ApiResponse.ok(users.roles(), "Roles retrieved");
+  }
+
+  /** One role, with its ETag (the version a change names in If-Match). */
+  @GetMapping("/roles/{roleUid}")
+  @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
+  public ApiResponse<RoleView> role(@PathVariable UUID roleUid) {
+    return ApiResponse.ok(find(roleUid), "Role retrieved");
+  }
+
+  private RoleView find(UUID roleUid) {
+    return users.roles().stream()
+        .filter(role -> role.uid().equals(roleUid))
+        .findFirst()
+        .orElseThrow(() -> Refusal.notFound("role_not_found", "No such role."));
   }
 
   @PostMapping("/roles")
@@ -68,10 +85,18 @@ public class RoleHandler {
 
   @PutMapping("/roles/{roleUid}")
   @Access(scope = AccessScope.TENANT, permission = Permissions.USERS_MANAGE)
-  public ApiResponse<RoleView> change(@PathVariable UUID roleUid, @RequestBody RoleRequest body) {
+  @org.springframework.transaction.annotation.Transactional
+  public ApiResponse<RoleView> change(
+      @PathVariable UUID roleUid,
+      @org.springframework.web.bind.annotation.RequestHeader(
+              value = tz.co.pharmacy.delivery.edge.Preconditions.IF_MATCH,
+              required = false)
+          String ifMatch,
+      @RequestBody RoleRequest body) {
     if (body == null) {
       throw Refusal.malformed("A role is required.");
     }
+    preconditions.ifMatch(ifMatch, () -> find(roleUid).version());
     return ApiResponse.ok(
         forgetPharmacy(
             users.changeRole(
