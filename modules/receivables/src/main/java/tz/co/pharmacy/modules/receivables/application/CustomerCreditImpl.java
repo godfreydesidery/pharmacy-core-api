@@ -580,10 +580,24 @@ class CustomerCreditImpl implements CustomerCredit {
         accounts
             .findByCustomerUid(customerUid)
             .orElseGet(
-                () ->
-                    accounts.save(
-                        new CreditAccount(
-                            customerUid, facts.name(), facts.creditLimit(), facts.termsDays())));
+                () -> {
+                  // A customer's first entry opens the account. Two at once (two claim
+                  // rejections charged to one new patient, a charge and a payment) would both
+                  // insert it and the second fail on the unique key: the customer's credit lock
+                  // (an advisory lock, held to the end of the transaction, on every instance)
+                  // makes the second wait, then read the account the first committed.
+                  accounts.lockCredit(customerUid);
+                  return accounts
+                      .findByCustomerUid(customerUid)
+                      .orElseGet(
+                          () ->
+                              accounts.save(
+                                  new CreditAccount(
+                                      customerUid,
+                                      facts.name(),
+                                      facts.creditLimit(),
+                                      facts.termsDays())));
+                });
     account.refresh(facts.name(), facts.creditLimit(), facts.termsDays());
     return account;
   }
