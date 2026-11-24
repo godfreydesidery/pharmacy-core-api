@@ -90,11 +90,17 @@ class SaleServiceImpl implements SaleService {
 
   private static final Set<String> SCHEDULES = Set.of("OTC", "PRESCRIPTION", "CONTROLLED");
 
+  /** A branch's invoice series in platform.document_sequences: "sale:" and the branch code. */
+  static final String SALE_SERIES = "sale:";
+
   @Override
   @Transactional
   public String nextSaleNumber() {
     UUID branch = ExecutionContext.requireBranch();
-    return documentNumbers.format(settings.invoicePrefix() + "-" + settings.branchCode(branch), 6);
+    String code = settings.branchCode(branch);
+    // One series per branch whatever the invoice prefix (STD-4, sales V21): a new prefix carries
+    // on from the branch's last number instead of starting again at 1.
+    return documentNumbers.format(SALE_SERIES + code, settings.invoicePrefix() + "-" + code, 6);
   }
 
   @Override

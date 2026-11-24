@@ -11,15 +11,19 @@ import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchCommand;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchService;
 import tz.co.pharmacy.modules.tenancy.ports.inbound.BranchView;
 import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.PhoneNumbers;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantLocale;
 
 @Service
 class BranchServiceImpl implements BranchService {
 
   private final BranchRepository branches;
+  private final TenantLocale locale;
 
-  BranchServiceImpl(BranchRepository branches) {
+  BranchServiceImpl(BranchRepository branches, TenantLocale locale) {
     this.branches = branches;
+    this.locale = locale;
   }
 
   @Override
@@ -53,7 +57,7 @@ class BranchServiceImpl implements BranchService {
                 code,
                 Checks.text(command.name(), "name", 120),
                 Checks.optionalText(command.address(), "address", 300),
-                Checks.optionalText(command.phone(), "phone", 40),
+                PhoneNumbers.forStorage(command.phone(), null, locale.country(), "phone"),
                 Checks.optionalText(command.licenceNumber(), "licenceNumber", 60),
                 false));
     return view(branch);
@@ -79,7 +83,7 @@ class BranchServiceImpl implements BranchService {
         code,
         Checks.text(command.name(), "name", 120),
         Checks.optionalText(command.address(), "address", 300),
-        Checks.optionalText(command.phone(), "phone", 40),
+        PhoneNumbers.forStorage(command.phone(), branch.getPhone(), locale.country(), "phone"),
         Checks.optionalText(command.licenceNumber(), "licenceNumber", 60),
         active);
     // Flushed, so the view carries the version this change gave the row (its new ETag).

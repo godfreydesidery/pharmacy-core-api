@@ -47,6 +47,17 @@ public class DocumentNumbers {
   /** The next formatted number, such as {@code next("INV-HQ", 6)} = "INV-HQ-000123". */
   @Transactional(propagation = Propagation.MANDATORY)
   public String format(String prefix, int digits) {
-    return prefix + "-" + String.format("%0" + digits + "d", next(prefix));
+    return format(prefix, prefix, digits);
+  }
+
+  /**
+   * The next number of {@code series}, shown after {@code prefix}: {@code format("sale:HQ",
+   * "INV-HQ", 6)} = "INV-HQ-000124". The series is counted, not the prefix, so a document whose
+   * prefix the pharmacy chooses (its invoice prefix) carries on counting when the prefix changes
+   * instead of starting again at 1 (STD-4).
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public String format(String series, String prefix, int digits) {
+    return prefix + "-" + String.format("%0" + digits + "d", next(series));
   }
 }

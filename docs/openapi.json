@@ -4646,6 +4646,9 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "selfApproved" : {
+            "type" : "boolean"
+          },
           "token" : {
             "type" : "string"
           }
@@ -14282,9 +14285,9 @@
     }
   },
   "info" : {
-    "description" : "Multi-tenant, multi-branch pharmacy management. Send Authorization: Bearer <token>, X-Tenant-Id and, on branch routes, X-Branch-Id. Successes use the envelope {success, code, message, timestamp, data}; refusals are RFC 9457 problems (application/problem+json) with a stable `reason`. Each operation's x-scope and x-permission say who may call it. The guide is pharmacy-core-docs/contracts/api-v1.md; this document is the complete reference.",
+    "description" : "Multi-tenant, multi-branch pharmacy management. Send Authorization: Bearer <token>, X-Tenant-Id and, on branch routes, X-Branch-Id. Successes use the envelope {success, code, message, timestamp, data}; refusals are RFC 9457 problems (application/problem+json) with a stable `reason`; a problem's type is /problems/<reason> on this server. A 401 names its scheme in WWW-Authenticate (Bearer); a 201 names what it created in Location when that has a route of its own; every answer carries X-Api-Version, this document's version. Each operation's x-scope and x-permission say who may call it. The guide is pharmacy-core-docs/contracts/api-v1.md; this document is the complete reference.",
     "title" : "Pharmacy Core API",
-    "version" : "v1"
+    "version" : "1.10.0"
   },
   "openapi" : "3.1.0",
   "paths" : {
@@ -36512,6 +36515,39 @@
         "x-permission" : "integrations.manage",
         "x-plan-feature" : "INTEGRATIONS",
         "x-scope" : "TENANT"
+      }
+    },
+    "/problems/{reason}" : {
+      "get" : {
+        "description" : "**Access:** scope PUBLIC.",
+        "operationId" : "ProblemTypesHandler_describe",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reason",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string"
+                }
+              }
+            },
+            "description" : "OK"
+          },
+          "default" : {
+            "$ref" : "#/components/responses/Problem"
+          }
+        },
+        "security" : [ ],
+        "tags" : [ "problem-types-handler" ],
+        "x-permission" : "",
+        "x-scope" : "PUBLIC"
       }
     }
   },

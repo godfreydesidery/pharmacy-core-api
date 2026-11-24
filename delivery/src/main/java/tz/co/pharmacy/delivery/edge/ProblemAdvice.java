@@ -39,6 +39,9 @@ public class ProblemAdvice {
     Problems.members(refusal, ExecutionContext.correlationId().orElse(null), problem::setProperty);
     ResponseEntity.BodyBuilder answer =
         ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON);
+    if (status == 401) {
+      answer.header(Problems.WWW_AUTHENTICATE, Problems.challenge(refusal.reason()));
+    }
     if (refusal.retryAfterSeconds() != null) {
       answer.header("Retry-After", String.valueOf(refusal.retryAfterSeconds()));
     }
@@ -196,8 +199,11 @@ public class ProblemAdvice {
       problem.setProperty("field", field);
     }
     problem.setProperty("correlationId", ExecutionContext.correlationId().orElse(null));
-    return ResponseEntity.status(status)
-        .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-        .body(problem);
+    ResponseEntity.BodyBuilder answer =
+        ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON);
+    if (status == 401) {
+      answer.header(Problems.WWW_AUTHENTICATE, Problems.challenge(reason));
+    }
+    return answer.body(problem);
   }
 }

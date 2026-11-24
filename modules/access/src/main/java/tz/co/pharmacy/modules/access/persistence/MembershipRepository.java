@@ -30,6 +30,9 @@ public interface MembershipRepository
   List<Membership> findAllByTenantUidAndUserUidIn(
       UUID tenantUid, java.util.Collection<UUID> userUids);
 
+  /** The pharmacy's active members (who else could approve: Approvers.selfApprovalAllowed). */
+  List<Membership> findAllByTenantUidAndActiveTrue(UUID tenantUid);
+
   /** The pharmacy's active members: the seats its plan's users cap counts with its invitations. */
   long countByTenantUidAndActiveTrue(UUID tenantUid);
 

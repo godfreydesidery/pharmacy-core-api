@@ -560,18 +560,9 @@ class UserAdministrationImpl implements UserAdministration {
         number, Checks.optionalText(d.jobTitle(), "jobTitle", 80), workPhone, workEmail);
   }
 
+  /** A staff login's contact phone in E.164 (STD-19): local forms such as 0754 000 111 too. */
   static String phone(String value) {
-    if (value == null || value.isBlank()) {
-      return null;
-    }
-    String phone = value.replaceAll("[\\s-]", "");
-    if (!phone.matches("^\\+[1-9][0-9]{7,14}$")) {
-      throw Refusal.invalid(
-          "invalid_phone",
-          "Enter the phone in international form, such as +255754000111.",
-          "phone");
-    }
-    return phone;
+    return value == null || value.isBlank() ? null : Phones.normalise(value);
   }
 
   @Override

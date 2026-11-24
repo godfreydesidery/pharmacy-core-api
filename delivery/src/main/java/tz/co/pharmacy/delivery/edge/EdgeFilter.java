@@ -53,6 +53,9 @@ public class EdgeFilter extends OncePerRequestFilter {
   public static final String BRANCH_HEADER = "X-Branch-Id";
   public static final String CORRELATION_HEADER = "X-Correlation-Id";
 
+  /** The API's semantic version on every answer (STD-16; pharmacy.api.version). */
+  public static final String VERSION_HEADER = "X-Api-Version";
+
   /** The live notification stream (Server-Sent Events). */
   public static final String STREAM_PATH = "/api/v1/notifications/stream";
 
@@ -76,6 +79,7 @@ public class EdgeFilter extends OncePerRequestFilter {
   private final tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService settings;
   private final TransactionTemplate reads;
   private final int authRequestsPerMinute;
+  private final String apiVersion;
 
   public EdgeFilter(
       AuthenticationService authentication,
@@ -89,7 +93,9 @@ public class EdgeFilter extends OncePerRequestFilter {
       EdgeAccessCache accessCache,
       tz.co.pharmacy.modules.tenancy.ports.inbound.SettingsService settings,
       PlatformTransactionManager transactions,
-      @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute) {
+      @Value("${pharmacy.edge.auth-requests-per-minute:20}") int authRequestsPerMinute,
+      @Value("${pharmacy.api.version}") String apiVersion) {
+    this.apiVersion = apiVersion;
     this.fairShare = fairShare;
     this.accessCache = accessCache;
     this.settings = settings;
@@ -165,6 +171,7 @@ public class EdgeFilter extends OncePerRequestFilter {
       throws ServletException, IOException {
     String correlationId = correlationId(request);
     response.setHeader(CORRELATION_HEADER, correlationId);
+    response.setHeader(VERSION_HEADER, apiVersion);
     SecurityHeaders.apply(request, response);
     MDC.put("correlationId", correlationId);
     Frame root = null;
