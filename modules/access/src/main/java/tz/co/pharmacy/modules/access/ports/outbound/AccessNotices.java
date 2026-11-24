@@ -32,9 +32,19 @@ public interface AccessNotices {
   /** To an address someone tried to take for an account while it already has one. */
   void emailInUse(String email);
 
-  /** To the old address (and the verified phone): the sign-in email is now {@code newEmail}. */
+  /**
+   * To the old address (and the verified phone): the sign-in email is now {@code newEmail}. With
+   * {@code revertLink} (not after a recovery), the link that undoes it for {@link
+   * tz.co.pharmacy.modules.access.ports.inbound.AccountSecurity#EMAIL_REVERT_DAYS} days (AUTH-13).
+   */
   void emailChanged(
-      UUID userUid, String name, String oldEmail, String phone, String newEmail, Instant at);
+      UUID userUid,
+      String name,
+      String oldEmail,
+      String phone,
+      String newEmail,
+      Instant at,
+      String revertLink);
 
   /** To the mailbox (and the verified phone): the password was changed or reset. */
   void passwordChanged(UUID userUid, String name, String email, String phone, Instant at);

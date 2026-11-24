@@ -70,6 +70,7 @@ class AccountSecurityImpl implements AccountSecurity {
   static final Duration PHONE_RESET_FRESHNESS = Duration.ofDays(180);
 
   private final Passwords passwords;
+  private final SecretBox secrets;
   private final TwoFactorServiceImpl twoFactor;
   private final AuthenticationServiceImpl authentication;
   private final SignInGuard guard;
@@ -90,6 +91,7 @@ class AccountSecurityImpl implements AccountSecurity {
       tz.co.pharmacy.modules.access.persistence.PasskeyRepository passkeys,
       tz.co.pharmacy.modules.access.persistence.PasswordResetRepository resets,
       Passwords passwords,
+      SecretBox secrets,
       TwoFactorServiceImpl twoFactor,
       AuthenticationServiceImpl authentication,
       SignInGuard guard,
@@ -108,6 +110,7 @@ class AccountSecurityImpl implements AccountSecurity {
     this.passkeys = passkeys;
     this.resets = resets;
     this.passwords = passwords;
+    this.secrets = secrets;
     this.twoFactor = twoFactor;
     this.authentication = authentication;
     this.guard = guard;
@@ -167,7 +170,7 @@ class AccountSecurityImpl implements AccountSecurity {
     EmailChange change =
         changes
             .findByTokenHash(Tokens.hash(token == null ? "" : token.trim()))
-            .filter(found -> found.openAt(now))
+            .filter(found -> !found.isRevert() && found.openAt(now))
             .orElseThrow(AccountSecurityImpl::invalidToken);
     if (!change.usableAt(now)) {
       throw Refusal.invalid(
@@ -232,6 +235,9 @@ class AccountSecurityImpl implements AccountSecurity {
                   details.put("sessionsRevoked", sessions.revokeAll(target.getUid(), now, null));
                   audit.record("EMAIL_CHANGED", "User", target.getUid(), null, details);
                 }
+                // The old address may undo it for a week (AUTH-13); not after a recovery, whose old
+                // mailbox is the one that was lost, and which it was told of and could cancel.
+                String revert = row.isRecovery() ? null : revertLink(target, oldEmail, row, now);
                 String phone = target.hasVerifiedPhone() ? target.getPhone() : null;
                 notices.ifAvailable(
                     notice -> {
@@ -241,7 +247,8 @@ class AccountSecurityImpl implements AccountSecurity {
                           oldEmail,
                           phone,
                           mask(row.getNewEmail()),
-                          now);
+                          now,
+                          revert);
                       if (row.isRecovery()) {
                         notice.passwordChanged(
                             target.getUid(), target.getName(), row.getNewEmail(), null, now);
@@ -282,12 +289,114 @@ class AccountSecurityImpl implements AccountSecurity {
         });
   }
 
+  /**
+   * Records the single-use link that undoes this change, valid {@link #EMAIL_REVERT_DAYS} days, and
+   * returns it for the notice to the old address. In the change's transaction.
+   */
+  private String revertLink(User target, String oldEmail, EmailChange change, Instant now) {
+    String token = "per_" + Tokens.newToken().substring(4);
+    changes.save(
+        new EmailChange(
+            target.getUid(),
+            EmailChange.REVERT,
+            change.getNewEmail(),
+            oldEmail,
+            Tokens.hash(token),
+            null,
+            null,
+            now.plus(Duration.ofDays(EMAIL_REVERT_DAYS)),
+            false,
+            null,
+            change.getRequestedIp()));
+    return webUrl + "/revert-email?token=" + token;
+  }
+
+  @Override
+  public void revertEmail(String token, String newPassword) {
+    Instant now = clock.instant();
+    EmailChange revert =
+        changes
+            .findByTokenHash(Tokens.hash(token == null ? "" : token.trim()))
+            .filter(found -> found.isRevert() && found.openAt(now))
+            .orElseThrow(AccountSecurityImpl::invalidToken);
+    User user = users.findByUid(revert.getUserUid()).orElseThrow(AccountSecurityImpl::invalidToken);
+    if (newPassword == null || newPassword.isBlank()) {
+      throw Refusal.invalid("password_required", "Choose a new password.", "newPassword");
+    }
+    // The rule is checked now; the costly hash only once the link is known to be good (AUTH-6).
+    Passwords.acceptable(newPassword, "newPassword", revert.getNewEmail());
+    String hash = passwords.hash(newPassword, "newPassword", revert.getNewEmail());
+    ExecutionContext.callAs(
+        SessionIssuer.userFrame(user),
+        () -> {
+          writes.executeWithoutResult(
+              status -> {
+                EmailChange row =
+                    changes
+                        .findByTokenHash(revert.getTokenHash())
+                        .filter(found -> found.isRevert() && found.openAt(now))
+                        .orElseThrow(AccountSecurityImpl::invalidToken);
+                User target =
+                    users
+                        .findByUid(row.getUserUid())
+                        .orElseThrow(AccountSecurityImpl::invalidToken);
+                String restored = row.getNewEmail();
+                if (users
+                    .findByEmail(restored)
+                    .filter(other -> !other.getUid().equals(target.getUid()))
+                    .isPresent()) {
+                  throw Refusal.conflict(
+                      "email_taken", "That address has another account now; contact support.");
+                }
+                row.use(now);
+                Instant changedAt = row.getCreatedAt() == null ? now : row.getCreatedAt();
+                for (EmailChange other :
+                    changes.findByUserUidOrderByCreatedAtDesc(target.getUid())) {
+                  // Whatever was asked for since: open changes, and revert links of later changes
+                  // (the earliest revert wins, so a later mover cannot undo the owner's undo).
+                  boolean later =
+                      other.getCreatedAt() != null && other.getCreatedAt().isAfter(changedAt);
+                  if (other.openAt(now) && (!other.isRevert() || later)) {
+                    other.cancel(now);
+                  }
+                }
+                String moved = target.getEmail();
+                target.changeEmail(restored);
+                target.changePassword(hash);
+                target.unlock();
+                boolean twoFactorReset =
+                    target.isTwoFactorEnabled()
+                        && target.getTwoFactorEnabledAt() != null
+                        && target.getTwoFactorEnabledAt().isAfter(changedAt);
+                if (twoFactorReset) {
+                  // Turned on after the change: by whoever moved the account, with their device.
+                  target.disableTwoFactor();
+                  recoveryCodes.deleteAllOf(target.getUid());
+                }
+                resets.closeOpen(target.getUid(), now);
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("from", mask(moved));
+                details.put("to", mask(restored));
+                details.put("sessionsRevoked", sessions.revokeAll(target.getUid(), now, null));
+                details.put("passkeysRemoved", passkeys.deleteByUserUid(target.getUid()));
+                details.put("twoFactorReset", twoFactorReset);
+                audit.record("EMAIL_CHANGE_REVERTED", "User", target.getUid(), null, details);
+                String phone = target.hasVerifiedPhone() ? target.getPhone() : null;
+                notices.ifAvailable(
+                    notice ->
+                        notice.passwordChanged(
+                            target.getUid(), target.getName(), restored, phone, now));
+              });
+          return null;
+        });
+  }
+
   @Override
   @Transactional(readOnly = true)
   public String pendingEmail(UUID userUid) {
     Instant now = clock.instant();
     return changes.findByUserUidOrderByCreatedAtDesc(userUid).stream()
-        .filter(change -> change.openAt(now) && !change.isRecovery())
+        .filter(change -> change.openAt(now) && !change.isRecovery() && !change.isRevert())
         .map(EmailChange::getNewEmail)
         .findFirst()
         .orElse(null);
@@ -316,7 +425,7 @@ class AccountSecurityImpl implements AccountSecurity {
         codes
             .findFirstByUserUidAndPurposeOrderByCreatedAtDesc(user.getUid(), VERIFY)
             .orElseThrow(AccountSecurityImpl::invalidCode);
-    if (!sent.tryCode(Tokens.hash(digits(code)), now)) {
+    if (!sent.tryCode(smsCode(code), now)) {
       throw invalidCode();
     }
     String number = sent.getPhone();
@@ -431,7 +540,7 @@ class AccountSecurityImpl implements AccountSecurity {
                         .findFirstByUserUidAndPurposeOrderByCreatedAtDesc(user.getUid(), RESET)
                         .filter(found -> found.getPhone().equals(number))
                         .orElse(null);
-                if (sent == null || !sent.tryCode(Tokens.hash(digits(code)), now)) {
+                if (sent == null || !sent.tryCode(smsCode(code), now)) {
                   // Keep the counted try, then refuse.
                   return;
                 }
@@ -785,7 +894,7 @@ class AccountSecurityImpl implements AccountSecurity {
             user.getUid(),
             purpose,
             number,
-            Tokens.hash(code),
+            secrets.codeHash(SMS + code),
             now.plus(Duration.ofMinutes(CODE_MINUTES)),
             ip(client)));
     audit.record(
@@ -799,13 +908,26 @@ class AccountSecurityImpl implements AccountSecurity {
             notice.verificationCode(user.getUid(), user.getName(), number, code, CODE_MINUTES));
   }
 
-  /** Earlier open changes and recoveries end: only the latest request counts. */
+  /**
+   * Earlier open changes and recoveries end: only the latest request counts. A revert link is left
+   * alone: whoever moved the account must not be able to take the old address's way back.
+   */
   private void closeOpen(UUID userUid, Instant now) {
     for (EmailChange change : changes.findByUserUidOrderByCreatedAtDesc(userUid)) {
-      if (change.openAt(now)) {
+      if (change.openAt(now) && !change.isRevert()) {
         change.cancel(now);
       }
     }
+  }
+
+  /** Domain separation of the SMS codes' keyed hashes from the recovery codes'. */
+  private static final String SMS = "sms:";
+
+  /** Whether a stored code hash is that of {@code code}: keyed, or the SHA-256 kept before. */
+  private java.util.function.Predicate<String> smsCode(String code) {
+    String typed = digits(code);
+    String legacy = Tokens.hash(typed);
+    return stored -> secrets.codeMatches(stored, SMS + typed, legacy);
   }
 
   private static String digits(String code) {

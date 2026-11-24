@@ -21,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tz.co.pharmacy.support.Api;
 import tz.co.pharmacy.support.Api.Response;
 import tz.co.pharmacy.support.IntegrationTest;
+import tz.co.pharmacy.support.Totp;
 
 /**
  * The security and privacy leftovers of the adversarial review of 23 Nov 2026 (Batch 10): a
@@ -37,6 +38,9 @@ class SecurityLeftoversTest extends IntegrationTest {
   private static final HttpClient HTTP = HttpClient.newHttpClient();
 
   @Autowired DataSource dataSource;
+  @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
+  @Autowired tz.co.pharmacy.modules.notifications.ports.inbound.Notifier notifier;
+  @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager entities;
 
   private Api anonymous;
   private Api admin;
@@ -249,6 +253,125 @@ class SecurityLeftoversTest extends IntegrationTest {
     assertThat(stored).isEqualTo(PDF);
   }
 
+  // ------------------------------------------------------------- AUTH-16: keyed code hashes
+
+  @Test
+  @DisplayName("recovery codes are kept as keyed hashes; a code kept as SHA-256 before still works")
+  void recoveryCodesAreKeyed() throws Exception {
+    String signIn = loginName("CASHIER");
+    Api staff = anonymous.as(anonymous.signIn(signIn, STAFF_PASSWORD));
+    String secret = staff.post("/api/v1/auth/2fa/setup", "{}").expect(200).string("$.data.secret");
+    List<String> codes =
+        staff
+            .post(
+                "/api/v1/auth/2fa/enable",
+                "{\"code\":\"" + Totp.code(secret, java.time.Instant.now()) + "\"}")
+            .expect(200)
+            .json()
+            .read("$.data.recoveryCodes");
+    assertThat(codes).hasSize(10);
+    String userUid =
+        jdbc()
+            .queryForObject(
+                "select uid::text from access.users where lower(email) = lower(?)",
+                String.class,
+                signIn);
+    List<String> stored =
+        jdbc()
+            .queryForList(
+                "select code_hash from access.recovery_codes where user_uid = ?::uuid",
+                String.class,
+                userUid);
+    assertThat(stored).hasSize(10).allMatch(hash -> hash.startsWith("h1:"));
+    String bare =
+        java.util.HexFormat.of()
+            .formatHex(
+                java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(
+                        ("recovery:" + codes.getFirst().replace("-", ""))
+                            .getBytes(StandardCharsets.UTF_8)));
+    assertThat(stored).doesNotContain(bare);
+
+    // A code stored before this release, as its SHA-256, still signs in: nobody is locked out.
+    String legacyCode = "abcd-efgh";
+    String legacy =
+        java.util.HexFormat.of()
+            .formatHex(
+                java.security.MessageDigest.getInstance("SHA-256")
+                    .digest("recovery:abcdefgh".getBytes(StandardCharsets.UTF_8)));
+    jdbc()
+        .update(
+            "insert into access.recovery_codes (uid, user_uid, code_hash, created_at, created_by)"
+                + " values (gen_random_uuid(), ?::uuid, ?, now(), 'test')",
+            userUid,
+            legacy);
+    verify(signIn, legacyCode).expect(201);
+    assertThat(verify(signIn, legacyCode).status()).isNotEqualTo(201);
+    verify(signIn, codes.get(1)).expect(201);
+  }
+
+  private Response verify(String signIn, String code) {
+    Response challenge =
+        anonymous
+            .post(
+                "/api/v1/auth/sign-in",
+                "{\"email\":\"" + signIn + "\",\"password\":\"" + STAFF_PASSWORD + "\"}")
+            .expect(202);
+    return anonymous.post(
+        "/api/v1/auth/sign-in/verify",
+        "{\"challengeToken\":\"%s\",\"code\":\"%s\"}"
+            .formatted(challenge.string("$.data.challengeToken"), code));
+  }
+
+  // ------------------------------------------------------------- AUTH-8: queued account messages
+
+  @Test
+  @DisplayName("a queued account message holds its link sealed; sent, the link is delivered")
+  void queuedAccountMessagesAreSealed() {
+    String address = "sealed." + UUID.randomUUID().toString().substring(0, 8) + "@test.local";
+    String token = "prt_" + UUID.randomUUID().toString().replace("-", "");
+    String link = "https://app.example/reset-password?token=" + token;
+    Map<String, Object> queued =
+        tz.co.pharmacy.platform.kernel.ExecutionContext.callAs(
+            tz.co.pharmacy.platform.kernel.ExecutionContext.Frame.service("test", null, null),
+            () ->
+                new org.springframework.transaction.support.TransactionTemplate(transactions)
+                    .execute(
+                        status -> {
+                          notifier.send(
+                              new tz.co.pharmacy.modules.notifications.ports.inbound
+                                  .NotificationRequest(
+                                  "access.password_reset",
+                                  new tz.co.pharmacy.modules.notifications.ports.inbound.Recipient(
+                                      null, "Amina", address, null, "en"),
+                                  java.util.Set.of(
+                                      tz.co.pharmacy.modules.notifications.ports.inbound.Channel
+                                          .EMAIL),
+                                  Map.of("link", link, "minutes", 30),
+                                  null));
+                          entities.flush();
+                          // Before the commit, nothing has been sent: this is the row at rest.
+                          return jdbc()
+                              .queryForMap(
+                                  "select body, html_body, sealed from notifications.messages"
+                                      + " where to_address = ?",
+                                  address);
+                        }));
+    assertThat(queued.get("sealed")).isEqualTo(true);
+    assertThat((String) queued.get("body")).doesNotContain(token).doesNotContain("reset-password");
+    assertThat(String.valueOf(queued.get("html_body"))).doesNotContain(token);
+
+    // The sender opened it: the test profile keeps sent account messages, so the link is there.
+    Api.eventually(
+        () ->
+            jdbc()
+                .queryForObject(
+                    "select body from notifications.messages where to_address = ?",
+                    String.class,
+                    address)
+                .contains(token));
+  }
+
   // ------------------------------------------------------------- helpers
 
   private Response sell(Api till, String patient) {
@@ -280,6 +403,15 @@ class SecurityLeftoversTest extends IntegrationTest {
 
   /** A staff login with {@code roleCode}, for every branch or {@code branch} only, signed in. */
   private Api login(String roleCode, String branch) {
+    return anonymous.as(anonymous.signIn(loginName(roleCode, branch), STAFF_PASSWORD));
+  }
+
+  private String loginName(String roleCode) {
+    return loginName(roleCode, null);
+  }
+
+  /** A staff login with {@code roleCode} and its own password ({@link #STAFF_PASSWORD}). */
+  private String loginName(String roleCode, String branch) {
     List<String> roles =
         admin
             .get("/api/v1/roles")
@@ -311,7 +443,7 @@ class SecurityLeftoversTest extends IntegrationTest {
             "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
                 .formatted(temporary, STAFF_PASSWORD))
         .expect(200);
-    return anonymous.as(anonymous.signIn(signIn, STAFF_PASSWORD));
+    return signIn;
   }
 
   private int put(String path, byte[] body) throws InterruptedException {
@@ -328,7 +460,6 @@ class SecurityLeftoversTest extends IntegrationTest {
     }
   }
 
-  @SuppressWarnings("unused")
   private JdbcTemplate jdbc() {
     return new JdbcTemplate(dataSource);
   }

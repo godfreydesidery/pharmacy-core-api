@@ -90,6 +90,18 @@ public class AccountSecurityHandler {
     return ApiResponse.ok("Email changed; sign in with the new address");
   }
 
+  /**
+   * From the notice sent to the old address after an email change (AUTH-13): puts the old address
+   * back with a new password and signs out every session. Single use, valid 7 days.
+   */
+  @PostMapping("/email-change/revert")
+  @Access(scope = AccessScope.PUBLIC)
+  public ApiResponse<Void> revertEmail(@RequestBody ConfirmRequest body) {
+    security.revertEmail(
+        body == null ? null : body.token(), body == null ? null : body.newPassword());
+    return ApiResponse.ok("Email change undone; sign in with your old address and new password");
+  }
+
   /** From the notice sent to the old email or phone. */
   @PostMapping("/recovery/cancel")
   @Access(scope = AccessScope.PUBLIC)

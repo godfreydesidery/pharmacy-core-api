@@ -14,7 +14,9 @@ import tz.co.pharmacy.platform.persistence.audit.AuditIgnore;
  * A change of sign-in email waiting for the new mailbox to confirm it. {@code CHANGE}: asked for by
  * the person. {@code RECOVERY}: asked for by a root admin for a person who lost their mailbox; it
  * can be used only from {@code notBefore}, and until then the person may cancel it from the notice
- * sent to their old email and phone. Token hashes only.
+ * sent to their old email and phone. {@code REVERT}: sent to the old address once a change is made,
+ * it puts {@code newEmail} (the old address) back in place of {@code oldEmail} for 7 days
+ * (AUTH-13). Token hashes only.
  */
 @Getter
 @Entity
@@ -25,6 +27,7 @@ public class EmailChange extends MutableEntity {
 
   public static final String CHANGE = "CHANGE";
   public static final String RECOVERY = "RECOVERY";
+  public static final String REVERT = "REVERT";
 
   private UUID userUid;
   private String kind;
@@ -77,6 +80,10 @@ public class EmailChange extends MutableEntity {
 
   public boolean isRecovery() {
     return RECOVERY.equals(kind);
+  }
+
+  public boolean isRevert() {
+    return REVERT.equals(kind);
   }
 
   public void use(Instant at) {
