@@ -372,6 +372,53 @@ class SecurityLeftoversTest extends IntegrationTest {
                 .contains(token));
   }
 
+  // ------------------------------------------------------------- ISO-11: the event registry
+
+  @Test
+  @DisplayName(
+      "the event registry keeps no voucher code, and the application cannot delete from it")
+  void eventRegistryKeepsNoSecrets() {
+    Response voucher =
+        admin
+            .in(tenant, hq)
+            .post("/api/v1/vouchers", "{\"value\":5000,\"paidBy\":\"CASH\"}")
+            .expect(201);
+    String code = voucher.string("$.data.code");
+    String uid = voucher.string("$.data.uid");
+    String event =
+        Api.eventuallyValue(
+            () ->
+                jdbc()
+                    .queryForList(
+                        "select serialized_event from platform.event_publication"
+                            + " where serialized_event like ?",
+                        String.class,
+                        "%" + uid + "%")
+                    .stream()
+                    .findFirst()
+                    .orElse(null));
+    assertThat(event).doesNotContain(code).contains(code.substring(code.length() - 4));
+    // Modulith needs select, insert and update; purging and erasure run as the owner.
+    assertThat(
+            jdbc()
+                .queryForObject(
+                    "select has_table_privilege('platform.event_publication', 'DELETE')",
+                    Boolean.class))
+        .isFalse();
+    assertThat(
+            jdbc()
+                .queryForObject(
+                    "select has_table_privilege('platform.event_publication_archive', 'SELECT')",
+                    Boolean.class))
+        .isFalse();
+    assertThat(
+            jdbc()
+                .queryForObject(
+                    "select has_table_privilege('platform.event_publication', 'UPDATE')",
+                    Boolean.class))
+        .isTrue();
+  }
+
   // ------------------------------------------------------------- helpers
 
   private Response sell(Api till, String patient) {

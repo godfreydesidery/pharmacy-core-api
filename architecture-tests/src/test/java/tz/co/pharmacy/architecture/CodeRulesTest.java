@@ -124,6 +124,35 @@ class CodeRulesTest {
         .check(CLASSES);
   }
 
+  /**
+   * Spring Modulith keeps every published event in {@code platform.event_publication}, one table
+   * for every pharmacy, with no row-level security (see platform V9): an event must carry nothing
+   * that lets someone in or spends money, such as a token, a password, a code or a key.
+   */
+  @Test
+  @DisplayName("domain events carry no secrets: no token, password, code, key or signature")
+  void eventsCarryNoSecrets() {
+    java.util.regex.Pattern secret =
+        java.util.regex.Pattern.compile(
+            "(?i).*(token|password|secret|otp|cvv|apikey|signature|hash|seed).*");
+    java.util.List<String> found = new java.util.ArrayList<>();
+    for (com.tngtech.archunit.core.domain.JavaClass type : CLASSES) {
+      if (!type.getPackageName().matches("tz\\.co\\.pharmacy\\.modules\\.[a-z]+\\.events")) {
+        continue;
+      }
+      Class<?> reflected = type.reflect();
+      if (!reflected.isRecord()) {
+        continue;
+      }
+      for (java.lang.reflect.RecordComponent component : reflected.getRecordComponents()) {
+        if (secret.matcher(component.getName()).matches()) {
+          found.add(reflected.getName() + "." + component.getName());
+        }
+      }
+    }
+    org.assertj.core.api.Assertions.assertThat(found).isEmpty();
+  }
+
   @Test
   @DisplayName("handlers live in delivery.api.v1")
   void handlersAreVersioned() {
