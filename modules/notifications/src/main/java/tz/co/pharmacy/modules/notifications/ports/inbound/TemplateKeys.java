@@ -36,6 +36,12 @@ public final class TemplateKeys {
    */
   public static final String SMS_CAP_REACHED = "tenant.sms_cap_reached";
 
+  /**
+   * In-app and by email, to the owners and admins, each morning: the day before's sensitive actions
+   * (FRD-19), unless the pharmacy turned the digest off.
+   */
+  public static final String SENSITIVE_DIGEST = "tenant.sensitive_digest";
+
   public static final List<String> ALL =
       List.of(
           STOCK_LOW,
@@ -63,7 +69,8 @@ public final class TemplateKeys {
           TENANT_WELCOME,
           SUBSCRIPTION_DUE,
           SUBSCRIPTION_PAST_DUE,
-          SMS_CAP_REACHED);
+          SMS_CAP_REACHED,
+          SENSITIVE_DIGEST);
 
   /** Preference categories; {@code access} messages are always sent. */
   public static final List<String> CATEGORIES =
@@ -78,7 +85,12 @@ public final class TemplateKeys {
       case SALE_RECEIPT -> "sales";
       case DAILY_SUMMARY -> "reports";
       case CUSTOMER_OVERDUE -> "customers";
-      case TENANT_WELCOME, SUBSCRIPTION_DUE, SUBSCRIPTION_PAST_DUE, SMS_CAP_REACHED -> "tenant";
+      case TENANT_WELCOME,
+          SUBSCRIPTION_DUE,
+          SUBSCRIPTION_PAST_DUE,
+          SMS_CAP_REACHED,
+          SENSITIVE_DIGEST ->
+          "tenant";
       default -> "access";
     };
   }

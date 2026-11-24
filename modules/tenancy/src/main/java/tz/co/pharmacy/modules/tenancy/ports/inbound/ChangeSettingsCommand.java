@@ -32,7 +32,51 @@ public record ChangeSettingsCommand(
     /* The TIN (9 digits; dashes and spaces are dropped); blank clears it, null keeps it. */
     String tin,
     /* The VRN; blank clears it, null keeps it. */
-    String vrn) {
+    String vrn,
+    /* FRD-19: send the daily digest of sensitive actions; null keeps it. */
+    Boolean sensitiveDigest) {
+
+  /** The command of the eighteen settings that came before the digest of sensitive actions. */
+  public ChangeSettingsCommand(
+      BigDecimal defaultTaxRatePercent,
+      String invoicePrefix,
+      String receiptFooter,
+      BigDecimal maxDiscountPercent,
+      Integer expiryAlertDays,
+      Boolean lowStockAlerts,
+      Boolean smsReceipts,
+      java.util.List<String> acceptedCurrencies,
+      Boolean pricesIncludeTax,
+      String look,
+      Integer idleMinutes,
+      Boolean requireTwoFactor,
+      BigDecimal approvalLimit,
+      Integer returnWindowDays,
+      Boolean requireOpenShift,
+      Boolean vatRegistered,
+      String tin,
+      String vrn) {
+    this(
+        defaultTaxRatePercent,
+        invoicePrefix,
+        receiptFooter,
+        maxDiscountPercent,
+        expiryAlertDays,
+        lowStockAlerts,
+        smsReceipts,
+        acceptedCurrencies,
+        pricesIncludeTax,
+        look,
+        idleMinutes,
+        requireTwoFactor,
+        approvalLimit,
+        returnWindowDays,
+        requireOpenShift,
+        vatRegistered,
+        tin,
+        vrn,
+        null);
+  }
 
   /** The command of the fifteen settings that came before VAT registration. */
   public ChangeSettingsCommand(

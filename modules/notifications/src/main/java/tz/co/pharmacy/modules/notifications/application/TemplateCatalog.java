@@ -469,6 +469,31 @@ final class TemplateCatalog {
             "{{month}}: SMS {{cap}} za kifurushi cha {{planName}} zimekwisha. SMS zaidi hazitumwi;"
                 + " ongeza mtoa huduma wako wa SMS au panda kifurushi."),
         Map.of("planName", "Starter", "cap", 200, "month", "2026-11"));
+    define(
+        TemplateKeys.SENSITIVE_DIGEST,
+        new Default(
+            "{{pharmacyName}}: {{count}} sensitive actions on {{date}}",
+            "Sensitive actions at {{pharmacyName}} on {{date}}:\n{{summary}}\n\n{{items}}\n\nOpen the"
+                + " audit trail to see each one in full. You get this digest because you manage the"
+                + " pharmacy's settings; it can be turned off in Settings.",
+            "{{count}} sensitive actions on {{date}}:\n{{summary}}\nOpen the audit trail for each"
+                + " one."),
+        new Default(
+            "{{pharmacyName}}: vitendo nyeti {{count}} tarehe {{date}}",
+            "Vitendo nyeti katika {{pharmacyName}} tarehe {{date}}:\n{{summary}}\n\n{{items}}\n\n"
+                + "Fungua kumbukumbu za ukaguzi kuona kila kimoja kwa ukamilifu. Unapokea muhtasari"
+                + " huu kwa sababu unasimamia mipangilio ya famasia; unaweza kuuzima kwenye Mipangilio.",
+            "Vitendo nyeti {{count}} tarehe {{date}}:\n{{summary}}\nFungua kumbukumbu za ukaguzi"
+                + " kuona kila kimoja."),
+        Map.of(
+            "pharmacyName", "Afya Pharmacy",
+            "date", "23 Nov 2026",
+            "count", 3,
+            "summary", "• Refunds and returns: 1\n• Approvals granted: 2",
+            "items",
+                "• 10:12 Return SRN-HQ-000004 12000.00 (amina@afya.co.tz)\n"
+                    + "• 10:11 Approved refund 12000.00 (Juma)",
+            "link", "/admin/audit"));
   }
 
   private TemplateCatalog() {}

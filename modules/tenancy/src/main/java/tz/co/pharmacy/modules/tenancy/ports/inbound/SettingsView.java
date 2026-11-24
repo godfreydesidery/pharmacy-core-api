@@ -34,6 +34,8 @@ public record SettingsView(
     /* Taxpayer Identification Number (9 digits) and VAT Registration Number; null when unset. */
     String tin,
     String vrn,
+    /* FRD-19: the owners' and admins' daily digest of sensitive actions is sent. */
+    boolean sensitiveDigest,
     /* The row's version: the ETag of the resource and what If-Match names. */
     long version)
     implements tz.co.pharmacy.platform.kernel.Versioned {}

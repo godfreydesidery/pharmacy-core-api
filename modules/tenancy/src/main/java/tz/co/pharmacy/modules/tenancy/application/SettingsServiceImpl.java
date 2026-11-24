@@ -152,6 +152,7 @@ class SettingsServiceImpl implements SettingsService {
         command.lowStockAlerts());
     row.changeVat(command.vatRegistered(), tin(command.tin()), vrn(command.vrn()));
     row.changeSmsReceipts(command.smsReceipts());
+    row.changeSensitiveDigest(command.sensitiveDigest());
     row.changePricesIncludeTax(command.pricesIncludeTax());
     row.changeLook(look(command.look()));
     row.changeIdleMinutes(command.idleMinutes());
@@ -267,6 +268,7 @@ class SettingsServiceImpl implements SettingsService {
         row.isVatRegistered(),
         row.getTin(),
         row.getVrn(),
+        row.isSensitiveDigest(),
         row.getVersion());
   }
 }

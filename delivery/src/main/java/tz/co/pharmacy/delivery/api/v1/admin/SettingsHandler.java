@@ -98,7 +98,8 @@ public class SettingsHandler {
                 body.requireOpenShift(),
                 body.vatRegistered(),
                 body.tin(),
-                body.vrn())),
+                body.vrn(),
+                body.sensitiveDigest())),
         "Settings changed");
   }
 
@@ -162,5 +163,6 @@ public class SettingsHandler {
       Boolean requireOpenShift,
       Boolean vatRegistered,
       String tin,
-      String vrn) {}
+      String vrn,
+      Boolean sensitiveDigest) {}
 }
