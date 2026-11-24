@@ -39,7 +39,15 @@ public final class Amounts {
   public static final BigDecimal ZERO = BigDecimal.ZERO.setScale(DEFAULT_SCALE);
   private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
-  private static volatile IntSupplier scaleSource = () -> DEFAULT_SCALE;
+  /**
+   * The installed sources, newest last. A list, not one field: an application context that closes
+   * (a test's own context, shut while the main one keeps running) takes its source out, and the one
+   * installed before it is used again rather than a source whose database is gone.
+   */
+  private static final java.util.List<IntSupplier> SCALE_SOURCES =
+      new java.util.concurrent.CopyOnWriteArrayList<>();
+
+  private static final IntSupplier DEFAULT_SOURCE = () -> DEFAULT_SCALE;
 
   private Amounts() {}
 
@@ -48,13 +56,28 @@ public final class Amounts {
    * reading the tenant's base currency once per transaction). Returns the source.
    */
   public static <S extends IntSupplier> S useScaleSource(S source) {
-    scaleSource = Objects.requireNonNull(source, "source");
+    SCALE_SOURCES.add(Objects.requireNonNull(source, "source"));
     return source;
+  }
+
+  /**
+   * Takes out a source installed by {@link #useScaleSource} (its application is closing); the one
+   * installed before it, or 2 without any, applies again.
+   */
+  public static void releaseScaleSource(IntSupplier source) {
+    SCALE_SOURCES.remove(source);
   }
 
   /** The minor units of the current pharmacy's base currency: 0 for UGX, 2 for TZS. */
   public static int scale() {
-    return scaleSource.getAsInt();
+    IntSupplier source;
+    try {
+      // One read of the copy-on-write array: safe while another thread installs or releases one.
+      source = SCALE_SOURCES.getLast();
+    } catch (java.util.NoSuchElementException none) {
+      source = DEFAULT_SOURCE;
+    }
+    return source.getAsInt();
   }
 
   /** An ISO 4217 currency's minor units (2 for a code the JDK does not know or has none for). */

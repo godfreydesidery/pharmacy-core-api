@@ -22,7 +22,7 @@ import tz.co.pharmacy.platform.persistence.TenantContext;
  * every instance always rounds as the registry says. Outside a transaction it is read each time.
  */
 @Component
-class TenantMoneyScale implements IntSupplier {
+class TenantMoneyScale implements IntSupplier, org.springframework.beans.factory.DisposableBean {
 
   private static final String KEY = TenantMoneyScale.class.getName() + ".scales";
 
@@ -31,6 +31,15 @@ class TenantMoneyScale implements IntSupplier {
   TenantMoneyScale(TenantService tenants) {
     this.tenants = tenants;
     Amounts.useScaleSource(this);
+  }
+
+  /**
+   * Out of {@link Amounts} when the context closes: its tenant registry is closing with it. Another
+   * context still running (tests start several) rounds with its own source again.
+   */
+  @Override
+  public void destroy() {
+    Amounts.releaseScaleSource(this);
   }
 
   @Override
