@@ -64,21 +64,29 @@ public class ApprovalHandler {
             ExecutionContext.actor().uid(),
             approver.userUid(),
             approver.name(),
-            Checks.optionalText(given.reference(), "reference", 200));
+            Checks.optionalText(given.reference(), "reference", 200),
+            approver.selfApproved());
     return ApiResponse.created(
         new ApprovalResponse(
             granted.token(),
             granted.action(),
             granted.amount(),
             approver.name(),
-            granted.expiresAt()),
-        "Approved by " + approver.name());
+            granted.expiresAt(),
+            granted.selfApproved()),
+        (granted.selfApproved() ? "Self-approved by " : "Approved by ") + approver.name());
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record ApprovalRequest(
       String action, BigDecimal amount, String reference, String login, String password) {}
 
+  /** {@code selfApproved}: the owner, alone able to approve here, approved their own request. */
   public record ApprovalResponse(
-      String token, String action, BigDecimal amount, String approvedBy, Instant expiresAt) {}
+      String token,
+      String action,
+      BigDecimal amount,
+      String approvedBy,
+      Instant expiresAt,
+      boolean selfApproved) {}
 }

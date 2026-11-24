@@ -131,10 +131,13 @@ class DestructionsImpl implements Destructions {
       controlled |= controls.controlled(batch.getProductUid());
     }
     // FRD-5: a controlled medicine always, other stock above the limit, needs a manager; the
-    // manager who approves is the destruction's witness.
+    // manager who approves is the destruction's witness. An owner who approved their own
+    // destruction (alone in the pharmacy) cannot also be its witness: a destruction is witnessed
+    // by someone other than the person destroying, so the witness's name is then required.
     Optional<StockControls.Approver> approver = controls.approveWriteOff(controlled, total, number);
+    boolean witnessed = approver.isPresent() && !approver.get().self();
     String typedWitness =
-        approver.isPresent()
+        witnessed
             ? Checks.optionalText(command.witnessName(), "witnessName", 200)
             : Checks.text(command.witnessName(), "witnessName", 200);
     Destruction destruction =
@@ -148,7 +151,8 @@ class DestructionsImpl implements Destructions {
             Checks.optionalText(command.certificateNumber(), "certificateNumber", 100),
             note);
     destruction.recordedBy(ExecutionContext.actor().name());
-    approver.ifPresent(a -> destruction.approvedBy(a.name(), a.uid()));
+    // A self-approval stays in the approvals and the audit trail; it witnesses nothing.
+    approver.filter(a -> !a.self()).ifPresent(a -> destruction.approvedBy(a.name(), a.uid()));
     controls.covered(
         () -> {
           for (Planned line : planned) {

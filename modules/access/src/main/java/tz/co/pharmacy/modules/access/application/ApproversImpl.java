@@ -2,6 +2,7 @@ package tz.co.pharmacy.modules.access.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,11 @@ class ApproversImpl implements Approvers {
     }
     UUID requester = ExecutionContext.actor().uid();
     if (user.getUid().equals(requester)) {
+      // The owner alone, with nobody else who could approve here, approves their own request
+      // after typing their password; it is recorded as a self-approval.
+      if (selfApprovalAllowed()) {
+        return new Approver(user.getUid(), user.getName(), true);
+      }
       throw Refusal.invalid(
           "approver_is_requester",
           "Someone else must approve: the person asking cannot approve their own action.",
@@ -85,5 +91,44 @@ class ApproversImpl implements Approvers {
           "not_an_approver", user.getName() + " may not approve here (no Approve permission).");
     }
     return new Approver(user.getUid(), user.getName());
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public boolean selfApprovalAllowed() {
+    UUID tenant = TenantContext.tenantUid().orElse(null);
+    if (tenant == null || ExecutionContext.current().isEmpty() || ExecutionContext.rootAdmin()) {
+      return false;
+    }
+    UUID requester = ExecutionContext.actor().uid();
+    UUID branch = ExecutionContext.branchUid().orElse(null);
+    boolean owner =
+        memberships
+            .findByUserUidAndTenantUid(requester, tenant)
+            .filter(Membership::isActive)
+            .filter(ApproversImpl::isOwner)
+            .isPresent();
+    if (!owner) {
+      return false;
+    }
+    List<UUID> others =
+        memberships.findAllByTenantUidAndActiveTrue(tenant).stream()
+            .filter(m -> !m.getUserUid().equals(requester))
+            .filter(m -> mayApprove(m, branch))
+            .map(Membership::getUserUid)
+            .toList();
+    return others.isEmpty() || users.findAllByUidIn(others).stream().noneMatch(User::isActive);
+  }
+
+  /** The pharmacy's owner: a member with the built-in Administrator role. */
+  private static boolean isOwner(Membership membership) {
+    return membership.getRole().isSystem() && "ADMIN".equals(membership.getRole().getCode());
+  }
+
+  private static boolean mayApprove(Membership membership, UUID branch) {
+    return membership.getRole().getPermissions().contains(Permissions.APPROVALS_GRANT)
+        && (branch == null
+            || membership.isAllBranches()
+            || membership.getBranchUids().contains(branch));
   }
 }

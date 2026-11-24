@@ -4601,6 +4601,9 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "selfApproved" : {
+            "type" : "boolean"
+          },
           "token" : {
             "type" : "string"
           }

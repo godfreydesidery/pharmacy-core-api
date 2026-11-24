@@ -63,8 +63,11 @@ class StockControls {
     return text;
   }
 
-  /** The manager whose approval an action used. */
-  record Approver(String name, UUID uid) {}
+  /**
+   * The manager whose approval an action used; {@code self} when the owner, alone able to approve,
+   * approved their own request.
+   */
+  record Approver(String name, UUID uid, boolean self) {}
 
   /**
    * Lets a write-off of {@code value} at cost go ahead: a controlled medicine always needs a
@@ -86,7 +89,7 @@ class StockControls {
     }
     return approvals
         .require(action, amount, reference)
-        .map(approver -> new Approver(approver.name(), approver.uid()));
+        .map(approver -> new Approver(approver.name(), approver.uid(), approver.selfApproved()));
   }
 
   /**
