@@ -183,9 +183,10 @@ class TillAndBranchHardeningTest extends IntegrationTest {
     cashier.get("/api/v1/files/" + arushaFile + "/url").expect(404);
     cashier.get("/api/v1/files?ownerType=SALE").expect(422);
 
-    // In its own branch the cashier sees the sale and its prescription, but cannot delete it.
+    // In its own branch the cashier sees the sale, but not its prescription scan (health.view:
+    // Batch 10), and cannot delete it.
     cashier.get("/api/v1/sales/" + hqSale).expect(200);
-    cashier.get("/api/v1/files/" + hqFile + "/url").expect(200);
+    cashier.get("/api/v1/files/" + hqFile + "/url").expect(403);
     assertThat(cashier.delete("/api/v1/files/" + hqFile).expect(403).string("$.reason"))
         .isEqualTo("forbidden");
     hq.delete("/api/v1/files/" + hqFile).expect(200);

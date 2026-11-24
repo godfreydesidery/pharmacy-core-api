@@ -1,0 +1,335 @@
+package tz.co.pharmacy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import tz.co.pharmacy.support.Api;
+import tz.co.pharmacy.support.Api.Response;
+import tz.co.pharmacy.support.IntegrationTest;
+
+/**
+ * The security and privacy leftovers of the adversarial review of 23 Nov 2026 (Batch 10): a
+ * prescription scan needs {@code health.view}; a recall shows a branch-limited user only its
+ * branches' buyers; the claim batch export needs {@code data.export} and {@code health.view}; and
+ * an upload link works once.
+ */
+class SecurityLeftoversTest extends IntegrationTest {
+
+  private static final String ADMIN_PASSWORD = "Admin#2026x";
+  private static final String STAFF_PASSWORD = "Staff#2026x";
+  private static final byte[] PDF =
+      "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
+  private static final HttpClient HTTP = HttpClient.newHttpClient();
+
+  @Autowired DataSource dataSource;
+
+  private Api anonymous;
+  private Api admin;
+  private String tenant;
+  private String hq;
+  private String second;
+  private String product;
+
+  @BeforeEach
+  void pharmacy() {
+    anonymous = api();
+    Api root = anonymous.as(anonymous.signIn("root@test.local", "Root#Test2026"));
+    String code = "SL" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+    String email = code.toLowerCase() + "@test.local";
+    tenant =
+        root.post(
+                "/api/v1/platform/tenants",
+                """
+                {"code":"%s","name":"Leftovers %s","legalName":"Leftovers %s Ltd","country":"TZ",
+                 "currency":"TZS","timezone":"Africa/Dar_es_Salaam",
+                 "headOffice":{"code":"HQ","name":"Head Office"},
+                 "admin":{"name":"Admin","email":"%s","password":"%s"}}
+                """
+                    .formatted(code, code, code, email, ADMIN_PASSWORD))
+            .expect(201)
+            .string("$.data.uid");
+    admin = anonymous.as(anonymous.signIn(email, ADMIN_PASSWORD)).in(tenant, null);
+    hq = admin.get("/api/v1/auth/me").expect(200).string("$.data.memberships[0].branches[0].uid");
+    second =
+        admin
+            .post("/api/v1/branches", "{\"code\":\"B2\",\"name\":\"Arusha\"}")
+            .expect(201)
+            .string("$.data.uid");
+    product =
+        admin
+            .post(
+                "/api/v1/products",
+                """
+                {"name":"Amoxicillin 250mg","genericName":"Amoxicillin","dosageForm":"CAPSULE",
+                 "schedule":"OTC","sellingPrice":1000,"costPrice":500,"taxRatePercent":0}
+                """)
+            .expect(201)
+            .string("$.data.uid");
+    for (String branch : List.of(hq, second)) {
+      admin
+          .in(tenant, branch)
+          .post(
+              "/api/v1/stock/opening",
+              """
+              {"productUid":"%s","batchNumber":"LOT-R","expiryDate":"%s","quantity":50,"unitCost":500}
+              """
+                  .formatted(product, LocalDate.now().plusYears(1)))
+          .expect(201);
+    }
+  }
+
+  // ------------------------------------------------------------- prescription scans
+
+  @Test
+  @DisplayName(
+      "a prescription scan is listed, linked and downloaded only with health.view, audited")
+  void prescriptionScansNeedHealthView() {
+    String sale = sell(admin.in(tenant, hq), null).string("$.data.uid");
+    String scan =
+        admin
+            .in(tenant, hq)
+            .upload(
+                "/api/v1/files?ownerType=SALE&ownerUid=" + sale + "&purpose=PRESCRIPTION",
+                "rx.pdf",
+                "application/pdf",
+                PDF)
+            .expect(201)
+            .string("$.data.uid");
+    String customer =
+        admin
+            .post("/api/v1/customers", "{\"name\":\"Rehema Juma\",\"phone\":\"0754000111\"}")
+            .expect(201)
+            .string("$.data.uid");
+    String customerRx =
+        admin
+            .upload(
+                "/api/v1/files?ownerType=CUSTOMER&ownerUid=" + customer + "&purpose=PRESCRIPTION",
+                "old-rx.pdf",
+                "application/pdf",
+                PDF)
+            .expect(201)
+            .string("$.data.uid");
+    String customerCard =
+        admin
+            .upload(
+                "/api/v1/files?ownerType=CUSTOMER&ownerUid=" + customer + "&purpose=ATTACHMENT",
+                "id-card.pdf",
+                "application/pdf",
+                PDF)
+            .expect(201)
+            .string("$.data.uid");
+
+    // A cashier sees sales and customers, not health details.
+    Api cashier = login("CASHIER", null).in(tenant, hq);
+    for (String path :
+        List.of(
+            "/api/v1/files?ownerType=SALE&ownerUid=" + sale,
+            "/api/v1/files/" + scan + "/url",
+            "/api/v1/files/" + scan + "/download",
+            "/api/v1/files/" + customerRx + "/url")) {
+      assertThat(cashier.get(path).expect(403).string("$.reason")).as(path).isEqualTo("forbidden");
+    }
+    // A customer's other files stay theirs to see; the prescription among them is left out.
+    List<String> listed =
+        cashier
+            .get("/api/v1/files?ownerType=CUSTOMER&ownerUid=" + customer)
+            .expect(200)
+            .json()
+            .read("$.data[*].uid");
+    assertThat(listed).containsExactly(customerCard);
+    cashier.get("/api/v1/files/" + customerCard + "/url").expect(200);
+
+    // A pharmacist holds health.view: the scan is theirs to read, and the read is audited.
+    Api pharmacist = login("PHARMACIST", null).in(tenant, hq);
+    pharmacist.get("/api/v1/files?ownerType=SALE&ownerUid=" + sale).expect(200);
+    pharmacist.get("/api/v1/files/" + scan + "/url").expect(200);
+    List<String> viewed =
+        admin
+            .get("/api/v1/audit?action=PRESCRIPTION_FILE_VIEWED&limit=20")
+            .expect(200)
+            .json()
+            .read("$.data.items[*].entityUid");
+    assertThat(viewed).contains(scan);
+  }
+
+  // ------------------------------------------------------------- recalls
+
+  @Test
+  @DisplayName("a recall shows a branch-limited user its own branches' buyers only")
+  void recallFollowsTheBranches() {
+    sell(admin.in(tenant, hq), "Baraka Moshi").expect(201);
+    sell(admin.in(tenant, second), "Neema Kweka").expect(201);
+    String batch = batch();
+
+    List<String> everyBranch =
+        admin
+            .get("/api/v1/recalls/batches/" + batch)
+            .expect(200)
+            .json()
+            .read("$.data.sales[*].branchName");
+    assertThat(everyBranch).containsExactlyInAnyOrder("Head Office", "Arusha");
+
+    // A store keeper of the head office: its buyers only, and no patient names (health.view).
+    Api keeper = login("STORE_KEEPER", hq).in(tenant, null);
+    Response limited = keeper.get("/api/v1/recalls/batches/" + batch).expect(200);
+    List<String> branches = limited.json().read("$.data.sales[*].branchName");
+    assertThat(branches).containsExactly("Head Office");
+    List<Object> patients = limited.json().read("$.data.sales[*].patientName");
+    assertThat(patients).containsOnlyNulls();
+    // The manager of the head office reads the patient's name.
+    Api manager = login("BRANCH_MANAGER", hq).in(tenant, null);
+    List<String> named =
+        manager
+            .get("/api/v1/recalls/batches/" + batch)
+            .expect(200)
+            .json()
+            .read("$.data.sales[*].patientName");
+    assertThat(named).containsExactly("Baraka Moshi");
+  }
+
+  // ------------------------------------------------------------- claim batch export
+
+  @Test
+  @DisplayName("the claim batch export needs data.export and health.view, not finance.view alone")
+  void claimExportNeedsHealthAndExport() {
+    String missing = "/api/v1/insurance/batches/" + UUID.randomUUID() + "/export";
+    // An accountant holds finance.view and data.export, not health.view: claims carry diagnoses.
+    Api accountant = login("ACCOUNTANT", null).in(tenant, null);
+    assertThat(accountant.get(missing).expect(403).string("$.reason")).isEqualTo("forbidden");
+    // Past the permissions, the batch itself is looked for.
+    assertThat(admin.get(missing).status()).isEqualTo(404);
+  }
+
+  // ------------------------------------------------------------- one-time upload links
+
+  @Test
+  @DisplayName("an upload link stores its bytes once: a second PUT is refused, even when complete")
+  void uploadLinkWorksOnce() throws Exception {
+    Response ticket =
+        admin
+            .post(
+                "/api/v1/files/uploads",
+                """
+                {"name":"invoice.pdf","contentType":"application/pdf","size":%d,
+                 "ownerType":"TENANT","ownerUid":"%s","purpose":"ATTACHMENT"}
+                """
+                    .formatted(PDF.length, tenant))
+            .expect(201);
+    String uploadUrl = ticket.string("$.data.uploadUrl");
+    String fileUid = ticket.string("$.data.fileUid");
+
+    assertThat(put(uploadUrl, PDF)).isEqualTo(200);
+    byte[] other = "%PDF-1.4\nother bytes\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
+    assertThat(put(uploadUrl, other)).isEqualTo(409);
+    admin.post("/api/v1/files/uploads/" + fileUid + "/complete", null).expect(200);
+    assertThat(put(uploadUrl, other)).isEqualTo(409);
+    String url = admin.get("/api/v1/files/" + fileUid + "/url").expect(200).string("$.data.url");
+    byte[] stored =
+        HTTP.send(
+                HttpRequest.newBuilder(
+                        URI.create(url.startsWith("/") ? "http://localhost:" + port + url : url))
+                    .build(),
+                HttpResponse.BodyHandlers.ofByteArray())
+            .body();
+    assertThat(stored).isEqualTo(PDF);
+  }
+
+  // ------------------------------------------------------------- helpers
+
+  private Response sell(Api till, String patient) {
+    String prescription =
+        patient == null
+            ? ""
+            : """
+              ,"prescription":{"prescriberName":"Dr Asha","patientName":"%s","prescriptionDate":"%s"}
+              """
+                .formatted(patient, LocalDate.now().minusDays(1));
+    return till.post(
+        "/api/v1/sales",
+        """
+        {"idempotencyKey":"%s","lines":[{"productUid":"%s","quantity":1}],
+         "payments":[{"method":"CASH","amount":1000}]%s}
+        """
+            .formatted(UUID.randomUUID(), product, prescription));
+  }
+
+  private String batch() {
+    List<Map<String, Object>> batches =
+        admin
+            .get("/api/v1/recalls/products/" + product + "/batches")
+            .expect(200)
+            .json()
+            .read("$.data[*]");
+    return (String) batches.getFirst().get("uid");
+  }
+
+  /** A staff login with {@code roleCode}, for every branch or {@code branch} only, signed in. */
+  private Api login(String roleCode, String branch) {
+    List<String> roles =
+        admin
+            .get("/api/v1/roles")
+            .expect(200)
+            .json()
+            .read("$.data[?(@.code == '" + roleCode + "')].uid");
+    String username = "staff." + UUID.randomUUID().toString().substring(0, 8);
+    Response created =
+        admin
+            .post(
+                "/api/v1/users/managed",
+                """
+                {"username":"%s","name":"Staff %s","roleUid":"%s",%s}
+                """
+                    .formatted(
+                        username,
+                        username,
+                        roles.getFirst(),
+                        branch == null
+                            ? "\"allBranches\":true"
+                            : "\"allBranches\":false,\"branchUids\":[\"" + branch + "\"]"))
+            .expect(201);
+    String signIn = created.string("$.data.signIn");
+    String temporary = created.string("$.data.temporaryPassword");
+    anonymous
+        .as(anonymous.signIn(signIn, temporary))
+        .post(
+            "/api/v1/auth/change-password",
+            "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
+                .formatted(temporary, STAFF_PASSWORD))
+        .expect(200);
+    return anonymous.as(anonymous.signIn(signIn, STAFF_PASSWORD));
+  }
+
+  private int put(String path, byte[] body) throws InterruptedException {
+    try {
+      return HTTP.send(
+              HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                  .header("Content-Type", "application/pdf")
+                  .PUT(HttpRequest.BodyPublishers.ofByteArray(body))
+                  .build(),
+              HttpResponse.BodyHandlers.discarding())
+          .statusCode();
+    } catch (IOException closed) {
+      return -1;
+    }
+  }
+
+  @SuppressWarnings("unused")
+  private JdbcTemplate jdbc() {
+    return new JdbcTemplate(dataSource);
+  }
+}
