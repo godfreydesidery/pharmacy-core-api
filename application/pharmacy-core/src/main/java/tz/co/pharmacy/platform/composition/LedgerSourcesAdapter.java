@@ -51,9 +51,16 @@ class LedgerSourcesAdapter implements LedgerSources {
         from inventory.movements m join inventory.batches b on b.uid = m.batch_uid
        where m.created_at >= ? and m.created_at < ? and m.type = 'ADJUSTMENT'
          and m.quantity_change <> 0 and b.unit_cost > 0
+      union all
+      select 'SALE_DEBIT_NOTE', uid, number, branch_uid, created_at from sales.debit_notes
+       where created_at >= ? and created_at < ?
+      union all
+      select 'SUPPLIER_DEBIT_NOTE', uid, number, branch_uid, created_at
+        from purchasing.supplier_debit_notes
+       where created_at >= ? and created_at < ?
       """;
 
-  private static final int RANGES = 9;
+  private static final int RANGES = 11;
 
   private final JdbcTemplate jdbc;
 

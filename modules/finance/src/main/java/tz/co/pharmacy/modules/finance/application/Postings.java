@@ -24,6 +24,10 @@ final class Postings {
   static final String INSURANCE_RECEIVABLE = "1110";
   static final String VAT_RECEIVABLE = "1150";
   static final String INVENTORY = "1200";
+  static final String EXPIRY_PROVISION = "1210";
+  static final String EXPIRY_WRITE_DOWN = "5110";
+  static final String PURCHASE_PRICE_DIFFERENCES = "5120";
+  static final String NON_RECLAIMABLE_VAT = "5150";
   static final String PAYABLE = "2000";
   static final String TAX_PAYABLE = "2100";
   static final String SALES_REVENUE = "4000";
@@ -198,6 +202,55 @@ final class Postings {
     List<Line> lines = new ArrayList<>();
     debit(lines, PAYABLE, value);
     credit(lines, INVENTORY, value);
+    return balanced(lines);
+  }
+
+  /**
+   * The month's change in the expiry provision (STD-3): a rise Dr 5110 Expiry write-down / Cr 1210
+   * Inventory expiry provision; a fall (stock sold, written off or no longer near expiry) the
+   * reverse. Nothing for no change.
+   */
+  static List<Line> expiryProvision(BigDecimal adjustment) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, EXPIRY_WRITE_DOWN, adjustment);
+    credit(lines, EXPIRY_PROVISION, adjustment);
+    return balanced(lines);
+  }
+
+  /**
+   * Input VAT TRA does not give back (STD-2 partial exemption), moved out of 1150: Dr 5150
+   * Non-reclaimable input VAT / Cr 1150 VAT receivable; a negative amount (a true-up in the
+   * pharmacy's favour) the reverse.
+   */
+  static List<Line> vatApportionment(BigDecimal nonReclaimable) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, NON_RECLAIMABLE_VAT, nonReclaimable);
+    credit(lines, VAT_RECEIVABLE, nonReclaimable);
+    return balanced(lines);
+  }
+
+  /**
+   * A sales debit note (STD-2): Dr 1100 accounts receivable (the total, on the customer's account)
+   * / Cr 4000 sales revenue (net) and Cr 2100 tax payable (its VAT).
+   */
+  static List<Line> saleDebitNote(BigDecimal net, BigDecimal tax) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, RECEIVABLE, money(net).add(money(tax)));
+    credit(lines, SALES_REVENUE, net);
+    credit(lines, TAX_PAYABLE, tax);
+    return balanced(lines);
+  }
+
+  /**
+   * A supplier's debit note (STD-2): Dr 5120 purchase price differences (net) and Dr 1150 VAT
+   * receivable (its input VAT) / Cr 2000 accounts payable (the total). The stock's batch cost is
+   * not changed, so inventory (1200) keeps matching the stock at cost.
+   */
+  static List<Line> supplierDebitNote(BigDecimal net, BigDecimal vat) {
+    List<Line> lines = new ArrayList<>();
+    debit(lines, PURCHASE_PRICE_DIFFERENCES, net);
+    debit(lines, VAT_RECEIVABLE, vat);
+    credit(lines, PAYABLE, money(net).add(money(vat)));
     return balanced(lines);
   }
 

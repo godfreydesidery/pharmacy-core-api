@@ -16,6 +16,15 @@ public interface StockQueries {
 
   StockSummaryView summary(Set<UUID> branchUids, int expiryAlertDays);
 
+  /**
+   * Stock on hand at cost (FEFO batch cost) in every branch, by branch and expiry date: what the
+   * monthly expiry write-down measures (STD-3). {@code expiryDate} null for stock without one.
+   */
+  record ExpiryExposure(
+      UUID branchUid, java.time.LocalDate expiryDate, java.math.BigDecimal cost) {}
+
+  List<ExpiryExposure> stockByExpiry();
+
   /** The current branch's batches of a product in stock, earliest expiry first. */
   List<BatchView> batches(UUID productUid);
 

@@ -56,6 +56,26 @@ public interface Ledger {
       java.time.LocalDate date,
       java.math.BigDecimal value);
 
+  /** A sales debit note (STD-2): Dr 1100 / Cr 4000 (net) and 2100 (tax); idempotent per note. */
+  void postSaleDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal tax);
+
+  /**
+   * A supplier's debit note (STD-2): Dr 5120 (net) and 1150 (VAT) / Cr 2000; idempotent per note.
+   */
+  void postSupplierDebitNote(
+      java.util.UUID debitNoteUid,
+      String number,
+      java.util.UUID branchUid,
+      java.time.LocalDate date,
+      java.math.BigDecimal net,
+      java.math.BigDecimal vat);
+
   /** A voucher sold: Dr the account paid into / Cr 2300; idempotent per voucher. */
   void postVoucherIssued(
       java.util.UUID voucherUid,

@@ -74,6 +74,7 @@ class FiscalDocumentsImpl implements FiscalDocuments {
   private final FiscalDocumentRepository documents;
   private final SaleRepository sales;
   private final SaleReturnRepository returns;
+  private final tz.co.pharmacy.modules.sales.persistence.SaleDebitNoteRepository debitNotes;
   private final FiscalReceipts authority;
   private final SalesSettings settings;
   private final TenantCalendar calendar;
@@ -84,11 +85,13 @@ class FiscalDocumentsImpl implements FiscalDocuments {
       FiscalDocumentRepository documents,
       SaleRepository sales,
       SaleReturnRepository returns,
+      tz.co.pharmacy.modules.sales.persistence.SaleDebitNoteRepository debitNotes,
       FiscalReceipts authority,
       SalesSettings settings,
       TenantCalendar calendar,
       PlatformTransactionManager transactionManager,
       DataSource dataSource) {
+    this.debitNotes = debitNotes;
     this.documents = documents;
     this.sales = sales;
     this.returns = returns;
@@ -162,6 +165,55 @@ class FiscalDocumentsImpl implements FiscalDocuments {
                 line -> line.getRefund().subtract(line.getTax()),
                 SaleReturnLine::getTax,
                 saleReturn.getRefundTotal())));
+  }
+
+  /**
+   * A debit note's fiscal document (STD-2), PENDING, in the note's own transaction, when its sale
+   * has a fiscal receipt (issued or due); the caller checks {@link #creditNoteFor}.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  FiscalDocument newDebitNote(tz.co.pharmacy.modules.sales.domain.SaleDebitNote note, Sale sale) {
+    UUID original =
+        documents
+            .findByKindAndSourceUid(FiscalDocumentKind.RECEIPT, sale.getUid())
+            .map(FiscalDocument::getUid)
+            .orElse(null);
+    SalesSettings.Seller seller = settings.seller();
+    return documents.save(
+        new FiscalDocument(
+            FiscalDocumentKind.DEBIT_NOTE,
+            note.getBranchUid(),
+            authority.provider(),
+            note.getUid(),
+            note.getNumber(),
+            sale.getUid(),
+            original,
+            calendar.today(),
+            seller.tin(),
+            seller.vrn(),
+            figures(
+                List.of(note),
+                tz.co.pharmacy.modules.sales.domain.SaleDebitNote::getTaxCategory,
+                tz.co.pharmacy.modules.sales.domain.SaleDebitNote::getNet,
+                tz.co.pharmacy.modules.sales.domain.SaleDebitNote::getTax,
+                note.getTotal())));
+  }
+
+  /** Issues a debit note's fiscal document when it has one (after commit). */
+  void fiscaliseDebitNote(UUID debitNoteUid) {
+    if (!authority.enabled()) {
+      return;
+    }
+    UUID document =
+        transaction.execute(
+            status ->
+                documents
+                    .findByKindAndSourceUid(FiscalDocumentKind.DEBIT_NOTE, debitNoteUid)
+                    .map(FiscalDocument::getUid)
+                    .orElse(null));
+    if (document != null) {
+      issue(document);
+    }
   }
 
   /** Whether a return of this sale gets a credit note: the sale has a fiscal receipt. */
@@ -327,6 +379,8 @@ class FiscalDocumentsImpl implements FiscalDocuments {
       }
       case CREDIT_NOTE ->
           returns.recordCreditNote(document.getSourceUid(), status.name(), text(number, 100));
+      case DEBIT_NOTE ->
+          debitNotes.recordFiscal(document.getSourceUid(), status.name(), text(number, 100));
       case Z_REPORT -> {
         // A Z report stands alone.
       }
@@ -338,7 +392,8 @@ class FiscalDocumentsImpl implements FiscalDocuments {
    * fiscal reference from before documents were kept. Null for the other kinds.
    */
   private String originalNumber(FiscalDocument document) {
-    if (document.getKind() != FiscalDocumentKind.CREDIT_NOTE) {
+    if (document.getKind() != FiscalDocumentKind.CREDIT_NOTE
+        && document.getKind() != FiscalDocumentKind.DEBIT_NOTE) {
       return null;
     }
     Optional<FiscalDocument> receipt =
@@ -348,7 +403,8 @@ class FiscalDocumentsImpl implements FiscalDocuments {
     if (receipt.isPresent()) {
       if (receipt.get().getStatus() != FiscalStatus.ISSUED) {
         throw new IllegalStateException(
-            "Credit note "
+            document.getKind()
+                + " "
                 + document.getSourceNumber()
                 + " waits for the receipt of sale "
                 + receipt.get().getSourceNumber());
@@ -436,6 +492,37 @@ class FiscalDocumentsImpl implements FiscalDocuments {
                 .map(line -> line(line, sold.get(line.getSaleLineUid())))
                 .toList(),
             refunds(saleReturn),
+            totals,
+            counter,
+            document.getDailyCounter(),
+            originalNumber,
+            null);
+      }
+      case DEBIT_NOTE -> {
+        var note = debitNotes.findByUid(document.getSourceUid()).orElseThrow();
+        Sale sale = sales.findByUid(note.getSaleUid()).orElseThrow();
+        yield new FiscalRequest(
+            document.getUid(),
+            document.getKind(),
+            document.getSourceNumber(),
+            document.getBranchUid(),
+            branchCode,
+            document.getBusinessDate(),
+            note.getCreatedAt(),
+            sender,
+            sale.getCustomerName(),
+            List.of(
+                new FiscalRequest.Line(
+                    "Debit note: " + note.getReason(),
+                    1,
+                    note.getNet(),
+                    Amounts.ZERO,
+                    note.getTaxCategory(),
+                    note.getTaxRatePercent(),
+                    note.getNet(),
+                    note.getTax(),
+                    note.getTotal())),
+            List.of(new FiscalRequest.Payment("CREDIT", note.getTotal())),
             totals,
             counter,
             document.getDailyCounter(),

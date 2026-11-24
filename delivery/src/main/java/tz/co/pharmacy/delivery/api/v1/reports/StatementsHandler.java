@@ -47,6 +47,10 @@ public class StatementsHandler {
   private final SalesReports salesReports;
   private final TenantCalendar calendar;
   private final UserAdministration people;
+  private final tz.co.pharmacy.modules.purchasing.ports.inbound.SupplierDebitNotes
+      supplierDebitNotes;
+  private final tz.co.pharmacy.modules.finance.ports.inbound.ExpiryProvisions provisions;
+  private final tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments apportionments;
 
   /** The pharmacy's "today": report days follow its time zone, not the server's UTC clock. */
   private LocalDate orToday(LocalDate day) {
@@ -83,6 +87,18 @@ public class StatementsHandler {
     ReportRange range =
         ReportRange.limited(from == null ? orToday(null).withDayOfMonth(1) : from, orToday(to));
     VatSummary summary = statements.vat(range.from(), range.to());
+    List<SalesReports.VatCategoryLine> categories =
+        salesReports.vatByCategory(range.from(), range.to(), calendar.zone());
+    BigDecimal salesNet = BigDecimal.ZERO;
+    BigDecimal salesTax = BigDecimal.ZERO;
+    for (SalesReports.VatCategoryLine line : categories) {
+      salesNet = salesNet.add(line.debitNotesNet());
+      salesTax = salesTax.add(line.debitNotesTax());
+    }
+    var purchases =
+        supplierDebitNotes.totals(
+            range.from().atStartOfDay(calendar.zone()).toInstant(),
+            range.to().plusDays(1).atStartOfDay(calendar.zone()).toInstant());
     return ApiResponse.ok(
         new VatReport(
             summary.from(),
@@ -92,9 +108,51 @@ public class StatementsHandler {
             summary.netOutputVat(),
             summary.inputVat(),
             summary.netPayable(),
-            salesReports.vatByCategory(range.from(), range.to(), calendar.zone())),
+            categories,
+            summary.inputVatBeforeApportionment(),
+            summary.nonReclaimableInputVat(),
+            summary.inputVat(),
+            apportionments.runs(range.from(), range.to()),
+            new DebitNoteTotals(salesNet, salesTax, purchases.net(), purchases.vat())),
         "VAT summary retrieved");
   }
+
+  /**
+   * The expiry write-down runs (STD-3) whose month falls in the range, newest first: the rule each
+   * used, the stock at cost and the provision by branch and band, and the journal entry.
+   */
+  @GetMapping("/expiry-provision")
+  @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
+  public ApiResponse<List<tz.co.pharmacy.modules.finance.ports.inbound.ExpiryProvisions.Run>>
+      expiryProvision(
+          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+              LocalDate from,
+          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+              LocalDate to) {
+    LocalDate end = orToday(to);
+    return ApiResponse.ok(
+        provisions.list(from == null ? end.minusMonths(12).withDayOfMonth(1) : from, end),
+        "Expiry write-down retrieved");
+  }
+
+  /** The VAT apportionment runs (STD-2) whose month falls in the range, newest first. */
+  @GetMapping("/vat-apportionment")
+  @Access(scope = AccessScope.TENANT_OPTIONAL_BRANCH, permission = "finance.view")
+  public ApiResponse<List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.Run>>
+      vatApportionment(
+          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+              LocalDate from,
+          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+              LocalDate to) {
+    LocalDate end = orToday(to);
+    return ApiResponse.ok(
+        apportionments.runs(from == null ? end.minusMonths(12).withDayOfMonth(1) : from, end),
+        "VAT apportionment retrieved");
+  }
+
+  /** Debit notes of the period (STD-2): on sales (output VAT) and from suppliers (input VAT). */
+  public record DebitNoteTotals(
+      BigDecimal salesNet, BigDecimal salesTax, BigDecimal purchasesNet, BigDecimal purchasesVat) {}
 
   /**
    * The VAT report: {@code netPayable} = {@code outputVat} − {@code vatReversed} − {@code inputVat}
@@ -108,7 +166,14 @@ public class StatementsHandler {
       BigDecimal netOutputVat,
       BigDecimal inputVat,
       BigDecimal netPayable,
-      List<SalesReports.VatCategoryLine> categories) {}
+      List<SalesReports.VatCategoryLine> categories,
+      /* STD-2 partial exemption: input VAT before the apportionment, what it moved to 5150 (not
+       * reclaimable), and what is reclaimable (= inputVat). */
+      BigDecimal inputVatBeforeApportionment,
+      BigDecimal nonReclaimableInputVat,
+      BigDecimal reclaimableInputVat,
+      List<tz.co.pharmacy.modules.finance.ports.inbound.VatApportionments.Run> apportionments,
+      DebitNoteTotals debitNotes) {}
 
   /** Stock at cost and at retail for one branch. */
   public record BranchStock(

@@ -27,7 +27,12 @@ class SupplierActivityImpl implements SupplierActivity {
           + " coalesce(base_total, total) as amount from purchasing.goods_receipts"
           + " union all"
           + " select supplier_uid, supplier_name, 'RETURN', uid, number, goods_receipt_number,"
-          + " created_at, -total from purchasing.supplier_returns";
+          + " created_at, -total from purchasing.supplier_returns"
+          // A supplier's debit note (STD-2) raises what is owed, like a receipt.
+          + " union all"
+          + " select supplier_uid, supplier_name, 'DEBIT_NOTE', uid, number,"
+          + " coalesce(supplier_reference, goods_receipt_number), created_at, total"
+          + " from purchasing.supplier_debit_notes";
 
   private final JdbcTemplate jdbc;
 
@@ -47,7 +52,8 @@ class SupplierActivityImpl implements SupplierActivity {
   public List<Totals> totals() {
     return jdbc.query(
         "select supplier_uid, max(supplier_name) as supplier_name,"
-            + " coalesce(sum(case when type = 'RECEIPT' then amount end), 0) as received,"
+            + " coalesce(sum(case when type in ('RECEIPT', 'DEBIT_NOTE') then amount end), 0)"
+            + " as received,"
             + " coalesce(-sum(case when type = 'RETURN' then amount end), 0) as returned,"
             + " max(created_at) as last from ("
             + ENTRIES

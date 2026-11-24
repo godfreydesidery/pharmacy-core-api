@@ -69,7 +69,10 @@ public interface SalesReports {
    */
   List<VatCategoryLine> vatByCategory(LocalDate from, LocalDate to, java.time.ZoneId zone);
 
-  /** One VAT category: sales, returns, and what is left ({@code net}, {@code tax}). */
+  /**
+   * One VAT category: sales, returns, sales debit notes (STD-2), and what is left ({@code net},
+   * {@code tax}: sales less returns plus debit notes).
+   */
   record VatCategoryLine(
       tz.co.pharmacy.platform.kernel.TaxCategory category,
       BigDecimal salesNet,
@@ -77,5 +80,7 @@ public interface SalesReports {
       BigDecimal returnsNet,
       BigDecimal returnsTax,
       BigDecimal net,
-      BigDecimal tax) {}
+      BigDecimal tax,
+      BigDecimal debitNotesNet,
+      BigDecimal debitNotesTax) {}
 }

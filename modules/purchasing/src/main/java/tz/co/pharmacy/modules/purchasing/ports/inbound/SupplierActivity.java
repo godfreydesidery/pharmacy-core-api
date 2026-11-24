@@ -6,8 +6,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * What each supplier delivered and took back, in the base currency: goods receipts raise what is
- * owed to them, returns (debit notes) lower it. Finance adds payments and opening balances.
+ * What each supplier delivered and took back, in the base currency: goods receipts and the
+ * supplier's debit notes (type DEBIT_NOTE, STD-2) raise what is owed to them, returns lower it.
+ * Finance adds payments and opening balances. {@code received} counts receipts and debit notes.
  */
 public interface SupplierActivity {
 

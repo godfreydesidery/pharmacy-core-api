@@ -52,8 +52,8 @@ public class SupplierAccountsHandler {
       LocalDate lastActivity) {}
 
   /**
-   * A statement line: OPENING, RECEIPT, PAYMENT or RETURN. {@code amount} raises what is owed when
-   * positive (opening, receipt) and lowers it when negative (payment, return).
+   * A statement line: OPENING, RECEIPT, DEBIT_NOTE, PAYMENT or RETURN. {@code amount} raises what
+   * is owed when positive (opening, receipt) and lowers it when negative (payment, return).
    */
   public record StatementLine(
       LocalDate date,
@@ -155,7 +155,7 @@ public class SupplierAccountsHandler {
       raw.add(
           new Raw(
               LocalDate.ofInstant(e.at(), zone),
-              "RECEIPT".equals(e.type()) ? 1 : 3,
+              "RECEIPT".equals(e.type()) || "DEBIT_NOTE".equals(e.type()) ? 1 : 3,
               e.type(),
               e.documentUid(),
               e.number(),
