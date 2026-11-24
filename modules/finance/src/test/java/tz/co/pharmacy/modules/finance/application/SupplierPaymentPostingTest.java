@@ -106,14 +106,16 @@ class SupplierPaymentPostingTest {
                     supplier,
                     "USD",
                     new BigDecimal("2600"),
-                    new BigDecimal("300")),
+                    new BigDecimal("300"),
+                    BigDecimal.ZERO),
                 new BookedReceipt(
                     UUID.randomUUID(),
                     "GRN-2",
                     supplier,
                     "USD",
                     new BigDecimal("2700"),
-                    new BigDecimal("100"))));
+                    new BigDecimal("100"),
+                    BigDecimal.ZERO)));
     // (300 × 2600 + 100 × 2700) / 400 = 2625
     assertThat(rate).isEqualByComparingTo("2625");
   }

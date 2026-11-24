@@ -83,6 +83,7 @@ class StockServiceImpl implements StockService, ProductSnapshots {
   private final Clock clock;
   private final TenantCalendar calendar;
   private final StockControls controls;
+  private final tz.co.pharmacy.platform.persistence.audit.AuditLog audit;
 
   @Override
   @Transactional
@@ -364,6 +365,16 @@ class StockServiceImpl implements StockService, ProductSnapshots {
                 after,
                 movement.getUid(),
                 Amounts.money(batch.getUnitCost().multiply(BigDecimal.valueOf(change)))));
+    // An adjustment is a movement, which the automatic trail leaves out (PERF-7): it is audited
+    // on its own, for the trail and the owner's digest of sensitive actions (FRD-19).
+    java.util.Map<String, Object> adjusted = new java.util.LinkedHashMap<>();
+    adjusted.put("product", product.getName());
+    adjusted.put("batch", batch.getBatchNumber());
+    adjusted.put("quantityChange", change);
+    adjusted.put("reason", reason.name());
+    adjusted.put("value", Amounts.money(batch.getUnitCost().multiply(BigDecimal.valueOf(change))));
+    adjusted.put("movementUid", movement.getUid().toString());
+    audit.record("STOCK_ADJUSTED", "Batch", batch.getUid(), null, adjusted);
     signalLow(product, before, after);
     return views.movement(movement);
   }
@@ -821,7 +832,11 @@ class StockServiceImpl implements StockService, ProductSnapshots {
           .with("batchUnitCost", batch.getUnitCost());
     }
     BigDecimal previousCost = existing.isPresent() ? batch.getUnitCost() : null;
-    BigDecimal rounding = batch.receive(existing.isPresent() ? held(batch) : 0, quantity, unitCost);
+    long held = existing.isPresent() ? held(batch) : 0;
+    BigDecimal rounding =
+        command.value() == null
+            ? batch.receive(held, quantity, unitCost)
+            : batch.receiveValue(held, quantity, Checks.notNegative(command.value(), "value"));
     serials.forEach(serial -> units.save(new SerialUnit(batch, serial, branch)));
     int before = (int) levels.quantityAt(branch, productUid);
     levelFor(branch, batch).change(quantity);

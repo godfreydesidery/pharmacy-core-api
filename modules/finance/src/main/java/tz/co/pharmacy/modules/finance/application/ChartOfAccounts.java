@@ -32,6 +32,8 @@ class ChartOfAccounts {
           new Seed("1110", "Insurance Receivable", AccountType.ASSET),
           // STD-2: input VAT paid to suppliers, recoverable from TRA against output VAT (2100).
           new Seed("1150", "VAT Receivable", AccountType.ASSET),
+          // FRD-16: stock returned to suppliers, at cost, until their credit notes are recorded.
+          new Seed("1160", "Supplier Returns Awaiting Credit", AccountType.ASSET),
           new Seed("1200", "Inventory", AccountType.ASSET),
           new Seed("2000", "Accounts Payable", AccountType.LIABILITY),
           new Seed("2100", "Tax Payable", AccountType.LIABILITY),

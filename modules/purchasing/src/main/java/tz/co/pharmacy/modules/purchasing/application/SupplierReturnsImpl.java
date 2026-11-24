@@ -1,32 +1,44 @@
 package tz.co.pharmacy.modules.purchasing.application;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import javax.sql.DataSource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tz.co.pharmacy.modules.purchasing.domain.GoodsReceipt;
 import tz.co.pharmacy.modules.purchasing.domain.SupplierReturn;
 import tz.co.pharmacy.modules.purchasing.domain.SupplierReturnLine;
+import tz.co.pharmacy.modules.purchasing.events.SupplierCredited;
 import tz.co.pharmacy.modules.purchasing.events.SupplierReturned;
 import tz.co.pharmacy.modules.purchasing.persistence.GoodsReceiptRepository;
 import tz.co.pharmacy.modules.purchasing.persistence.SupplierReturnRepository;
 import tz.co.pharmacy.modules.purchasing.ports.inbound.SupplierReturns;
+import tz.co.pharmacy.modules.purchasing.ports.outbound.PayableSettlements;
+import tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingCurrencies;
 import tz.co.pharmacy.modules.purchasing.ports.outbound.PurchasingDirectory;
 import tz.co.pharmacy.platform.bus.DomainEventPublisher;
+import tz.co.pharmacy.platform.kernel.Amounts;
 import tz.co.pharmacy.platform.kernel.Checks;
+import tz.co.pharmacy.platform.kernel.Clocks;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.Page;
 import tz.co.pharmacy.platform.kernel.PageQuery;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.PayableLocks;
 import tz.co.pharmacy.platform.persistence.Specs;
 
 @Service
-@RequiredArgsConstructor
 class SupplierReturnsImpl implements SupplierReturns {
 
   /** Who may record a return not linked to a goods receipt. */
@@ -37,6 +49,32 @@ class SupplierReturnsImpl implements SupplierReturns {
   private final PurchasingDirectory directory;
   private final DocumentNumbers documentNumbers;
   private final DomainEventPublisher events;
+  private final PurchasingCurrencies currencies;
+  private final PayableSettlements settlements;
+  private final TenantCalendar calendar;
+  private final JdbcTemplate jdbc;
+
+  @SuppressWarnings("java:S107")
+  SupplierReturnsImpl(
+      SupplierReturnRepository returns,
+      GoodsReceiptRepository receipts,
+      PurchasingDirectory directory,
+      DocumentNumbers documentNumbers,
+      DomainEventPublisher events,
+      PurchasingCurrencies currencies,
+      PayableSettlements settlements,
+      TenantCalendar calendar,
+      DataSource dataSource) {
+    this.returns = returns;
+    this.receipts = receipts;
+    this.directory = directory;
+    this.documentNumbers = documentNumbers;
+    this.events = events;
+    this.currencies = currencies;
+    this.settlements = settlements;
+    this.calendar = calendar;
+    this.jdbc = new JdbcTemplate(dataSource);
+  }
 
   @Override
   @Transactional
@@ -132,7 +170,8 @@ class SupplierReturnsImpl implements SupplierReturns {
                 saved.getBranchUid(),
                 saved.getSupplierUid(),
                 saved.getSupplierName(),
-                saved.getTotal()));
+                saved.getTotal(),
+                true));
     return view(saved);
   }
 
@@ -148,12 +187,19 @@ class SupplierReturnsImpl implements SupplierReturns {
 
   @Override
   @Transactional(readOnly = true)
-  public Page<SupplierReturnView> list(UUID supplierUid, PageQuery query) {
+  public Page<SupplierReturnView> list(UUID supplierUid, String status, PageQuery query) {
     UUID branch = ExecutionContext.requireBranch();
+    String wanted = status == null || status.isBlank() ? null : status.trim().toUpperCase();
+    if (wanted != null
+        && !wanted.equals(SupplierReturn.PENDING_CREDIT)
+        && !wanted.equals(SupplierReturn.CREDITED)) {
+      throw Refusal.invalid("invalid_status", "status is PENDING_CREDIT or CREDITED.", "status");
+    }
     return Keyset.page(
         returns,
         Specs.<SupplierReturn>equal("branchUid", branch)
-            .and(Specs.equal("supplierUid", supplierUid)),
+            .and(Specs.equal("supplierUid", supplierUid))
+            .and(Specs.equal("status", wanted)),
         query,
         SupplierReturnsImpl::view);
   }
@@ -167,6 +213,129 @@ class SupplierReturnsImpl implements SupplierReturns {
         .map(SupplierReturnsImpl::view)
         .orElseThrow(
             () -> Refusal.notFound("supplier_return_not_found", "No such supplier return."));
+  }
+
+  @Override
+  @Transactional
+  public SupplierReturnView credit(UUID returnUid, CreditNoteCommand command) {
+    Checks.required(command, "body");
+    String number = Checks.text(command.number(), "number", 64);
+    BigDecimal given = Checks.required(command.amount(), "amount");
+    if (given.signum() <= 0) {
+      throw Refusal.invalid("invalid_amount", "amount must be more than zero.", "amount");
+    }
+    LocalDate today = calendar.today();
+    LocalDate date = command.date() == null ? today : command.date();
+    if (date.isAfter(today)) {
+      throw Refusal.invalid(
+          "future_date", "The credit note's date cannot be after today (" + today + ").", "date");
+    }
+    SupplierReturn found =
+        returns
+            .findByUid(returnUid)
+            .filter(r -> ExecutionContext.mayUseBranch(r.getBranchUid()))
+            .orElseThrow(
+                () -> Refusal.notFound("supplier_return_not_found", "No such supplier return."));
+    GoodsReceipt receipt =
+        found.getGoodsReceiptUid() == null
+            ? null
+            : receipts.findByUid(found.getGoodsReceiptUid()).orElse(null);
+    // The receipt's payable first, then the return (the order a payment takes them in).
+    if (receipt != null) {
+      PayableLocks.lock(jdbc, List.of(receipt.getUid()));
+    }
+    SupplierReturn supplierReturn = returns.lockByUid(returnUid).orElseThrow();
+    if (!supplierReturn.pendingCredit()) {
+      throw Refusal.conflict(
+          "return_already_credited",
+          supplierReturn.getNumber()
+              + " already has the supplier's credit note"
+              + (supplierReturn.getCreditNoteNumber() == null
+                  ? "."
+                  : " " + supplierReturn.getCreditNoteNumber() + "."));
+    }
+    if (returns.creditNoteRecorded(supplierReturn.getSupplierUid(), number)) {
+      throw Refusal.invalid(
+              "duplicate_credit_note",
+              "Credit note " + number + " from this supplier is already recorded.",
+              "number")
+          .with("number", number);
+    }
+    String currency = receipt == null ? currencies.baseCurrency() : receipt.getCurrency();
+    BigDecimal amount = Amounts.money(given, currency);
+    BigDecimal applied = Amounts.money(BigDecimal.ZERO, currency);
+    BigDecimal base;
+    if (receipt != null) {
+      BigDecimal total = Amounts.money(receipt.getTotal(), currency);
+      if (amount.compareTo(total) > 0) {
+        throw Refusal.invalid(
+                "credit_exceeds_receipt",
+                "The credit note is more than "
+                    + receipt.getNumber()
+                    + " was for ("
+                    + Amounts.display(currency, total)
+                    + ").",
+                "amount")
+            .with("receipt", receipt.getNumber())
+            .with("total", total)
+            .with("currency", currency);
+      }
+      applied = amount.min(open(receipt).max(BigDecimal.ZERO));
+      // At the rate the receipt was booked at: the payable comes down as it went up.
+      base = currencies.toBase(amount, receipt.getExchangeRate());
+    } else {
+      base = Amounts.money(amount);
+    }
+    supplierReturn.credit(
+        number,
+        date,
+        currency,
+        amount,
+        base,
+        applied,
+        Clocks.now(),
+        ExecutionContext.actor().reference(),
+        ExecutionContext.actor().uid());
+    SupplierReturn saved = returns.saveAndFlush(supplierReturn);
+    BigDecimal creditBase = base;
+    events.publish(
+        "supplier.credited",
+        meta ->
+            new SupplierCredited(
+                meta,
+                saved.getUid(),
+                saved.getNumber(),
+                saved.getBranchUid(),
+                saved.getSupplierUid(),
+                number,
+                saved.getTotal(),
+                creditBase,
+                currency,
+                amount));
+    return view(saved);
+  }
+
+  /** What is still open of the receipt, in its currency: its total less payments and credits. */
+  private BigDecimal open(GoodsReceipt receipt) {
+    List<UUID> uid = List.of(receipt.getUid());
+    BigDecimal paid = settlements.settledByPayments(uid).get(receipt.getUid());
+    BigDecimal credited = creditedAgainst(uid).get(receipt.getUid());
+    return Amounts.money(receipt.getTotal(), receipt.getCurrency())
+        .subtract(paid == null ? BigDecimal.ZERO : paid)
+        .subtract(credited == null ? BigDecimal.ZERO : credited);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Map<UUID, BigDecimal> creditedAgainst(Collection<UUID> receiptUids) {
+    Map<UUID, BigDecimal> credited = new HashMap<>();
+    if (receiptUids == null || receiptUids.isEmpty()) {
+      return credited;
+    }
+    for (Object[] row : returns.creditedAgainst(receiptUids)) {
+      credited.put((UUID) row[0], (BigDecimal) row[1]);
+    }
+    return credited;
   }
 
   private static SupplierReturnView view(SupplierReturn r) {
@@ -196,6 +365,18 @@ class SupplierReturnsImpl implements SupplierReturns {
                         l.getQuantity(),
                         l.getUnitCost(),
                         l.getLineTotal()))
-            .toList());
+            .toList(),
+        r.getStatus(),
+        r.getCreditAmount() == null
+            ? null
+            : new CreditNoteView(
+                r.getCreditNoteNumber(),
+                r.getCreditNoteDate(),
+                r.getCreditCurrency(),
+                r.getCreditAmount(),
+                r.getCreditBaseAmount(),
+                r.getCreditApplied(),
+                r.getCreditedAt(),
+                r.getCreditedBy()));
   }
 }

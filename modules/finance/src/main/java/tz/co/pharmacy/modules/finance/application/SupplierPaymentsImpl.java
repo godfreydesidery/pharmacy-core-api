@@ -30,8 +30,8 @@ import tz.co.pharmacy.platform.kernel.Refusal;
 import tz.co.pharmacy.platform.kernel.TenantCalendar;
 import tz.co.pharmacy.platform.persistence.DocumentNumbers;
 import tz.co.pharmacy.platform.persistence.Keyset;
+import tz.co.pharmacy.platform.persistence.PayableLocks;
 import tz.co.pharmacy.platform.persistence.Specs;
-import tz.co.pharmacy.platform.persistence.TenantContext;
 
 /**
  * Supplier payments. A payment in a foreign currency costs its amount at today's (or the given)
@@ -98,6 +98,11 @@ class SupplierPaymentsImpl implements SupplierPayments {
     } else {
       rate = currencies.rateToBase(currency, paidOn);
     }
+    // The receipts' payables are locked before their open amounts are read: a credit note for a
+    // return against one of them waits, and reads what this payment settled (PayableLocks).
+    if (command.goodsReceiptUids() != null) {
+      PayableLocks.lock(jdbc, command.goodsReceiptUids());
+    }
     List<BookedReceipt> receipts = settled(command.goodsReceiptUids(), supplierUid, currency);
     Map<UUID, BigDecimal> allocation = allocate(receipts, amount, currency);
     BigDecimal settledBase = currencies.toBase(amount, rate);
@@ -142,6 +147,19 @@ class SupplierPaymentsImpl implements SupplierPayments {
         payments, Specs.equal("supplierUid", supplierUid), query, SupplierPaymentsImpl::view);
   }
 
+  @Override
+  @Transactional(readOnly = true)
+  public Map<UUID, BigDecimal> settledOf(java.util.Collection<UUID> receiptUids) {
+    Map<UUID, BigDecimal> settled = new HashMap<>();
+    if (receiptUids == null || receiptUids.isEmpty()) {
+      return settled;
+    }
+    for (Object[] row : payments.settledOf(receiptUids)) {
+      settled.put((UUID) row[0], (BigDecimal) row[1]);
+    }
+    return settled;
+  }
+
   /**
    * The rate the settled receipts were booked at, weighted by their totals: Σ(total × rate) ÷ Σ
    * total, to ten decimals.
@@ -161,10 +179,11 @@ class SupplierPaymentsImpl implements SupplierPayments {
 
   /**
    * What the payment settles of each receipt, in the order named: each takes what is still open of
-   * it (its total less what earlier payments settled), up to what is left of the payment. A payment
-   * larger than what is open on the receipts it names is refused (422 overpayment); one naming no
-   * receipt is on account. The receipts are locked (a transaction-scoped advisory lock each, in uid
-   * order) so two payments at once cannot both settle the same open amount.
+   * it (its total less what earlier payments settled and credited returns took off), up to what is
+   * left of the payment. A payment larger than what is open on the receipts it names is refused
+   * (422 overpayment); one naming no receipt is on account. The receipts are locked (a
+   * transaction-scoped advisory lock each, in uid order) so two payments at once cannot both settle
+   * the same open amount.
    */
   private Map<UUID, BigDecimal> allocate(
       List<BookedReceipt> receipts, BigDecimal amount, String currency) {
@@ -172,27 +191,18 @@ class SupplierPaymentsImpl implements SupplierPayments {
     if (receipts.isEmpty()) {
       return allocation;
     }
-    UUID tenant = TenantContext.requireTenant();
-    receipts.stream()
-        .map(BookedReceipt::uid)
-        .sorted()
-        .forEach(
-            uid ->
-                jdbc.queryForObject(
-                    "select 1 from (select pg_advisory_xact_lock(hashtextextended(?, 0))) held",
-                    Integer.class,
-                    tenant + ":goods-receipt-payable:" + uid));
-    Map<UUID, BigDecimal> settledSoFar = new HashMap<>();
-    for (Object[] row : payments.settledOf(receipts.stream().map(BookedReceipt::uid).toList())) {
-      settledSoFar.put((UUID) row[0], (BigDecimal) row[1]);
-    }
+    // The receipts are locked (record, PayableLocks) since before they were read.
+    Map<UUID, BigDecimal> settledSoFar =
+        settledOf(receipts.stream().map(BookedReceipt::uid).toList());
     // In the payment's currency, the receipts' (USD to the cent, UGX whole).
     BigDecimal left = Amounts.money(amount, currency);
     BigDecimal open = BigDecimal.ZERO;
     for (BookedReceipt receipt : receipts) {
+      // Credited supplier returns came off the receipt (FRD-16): no payment settles them again.
       BigDecimal openOfReceipt =
           Amounts.money(receipt.total(), currency)
               .subtract(settledSoFar.getOrDefault(receipt.uid(), BigDecimal.ZERO))
+              .subtract(receipt.credited() == null ? BigDecimal.ZERO : receipt.credited())
               .max(BigDecimal.ZERO);
       open = open.add(openOfReceipt);
       BigDecimal portion = left.min(openOfReceipt);

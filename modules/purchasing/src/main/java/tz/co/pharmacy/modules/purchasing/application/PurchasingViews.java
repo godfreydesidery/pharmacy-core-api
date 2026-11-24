@@ -75,6 +75,7 @@ final class PurchasingViews {
                         line.getUnitCost(),
                         line.getLineTotal(),
                         baseUnitCost(line.getUnitCost(), receipt.getExchangeRate()),
+                        Amounts.money(line.getLineTotal().multiply(receipt.getExchangeRate())),
                         line.getSerialNumbers()))
             .toList(),
         receipt.getCreatedAt(),
