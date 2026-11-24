@@ -70,7 +70,7 @@
         <google-java-format.version>1.30.0</google-java-format.version>
         <sentry.version>8.55.0</sentry.version>
         <!-- Guava comes with webauthn-server-core; CVE-2026-102554 is fixed in 33.7.2. -->
-        <guava.version>33.7.2-jre</guava.version>
+        <guava.version>33.8.0-jre</guava.version>
         <!-- Only pharmacy-core is runnable: mvn -pl application/pharmacy-core -am spring-boot:run -->
         <spring-boot.run.skip>true</spring-boot.run.skip>
         <!-- The build folder. CI and scripts may pass -Dpharmacy.build.dir=target-mvn so an IDE's
