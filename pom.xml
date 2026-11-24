@@ -57,23 +57,18 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-modulith.version>2.2.0</spring-modulith.version>
-        <springdoc.version>3.1.1</springdoc.version>
+        <springdoc.version>3.2.1</springdoc.version>
         <fastexcel.version>0.20.2</fastexcel.version>
         <archunit.version>1.5.1</archunit.version>
         <bouncycastle.version>1.86</bouncycastle.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
-        <embedded-postgres-binaries.version>19.0.0</embedded-postgres-binaries.version>
+        <!-- The tests' PostgreSQL major is production's (Railway and RDS run 18); move both together. -->
+        <embedded-postgres-binaries.version>18.7.0</embedded-postgres-binaries.version>
         <!-- AWS SDK for Java v2 (the files module's S3-compatible store), through its BOM. -->
         <awssdk.version>2.59.5</awssdk.version>
         <spotless.version>3.10.4</spotless.version>
         <google-java-format.version>1.28.0</google-java-format.version>
         <sentry.version>8.55.0</sentry.version>
-        <!-- Security fixes over Spring Boot 4.1.1's managed versions (CI image scan, 24 Nov 2026):
-             Tomcat CVE-2026-65182 (critical) and others, Jackson 2 and 3 CVE-2026-89407/68497/91776.
-             Drop each once the Spring Boot parent carries the fixed version. -->
-        <tomcat.version>11.0.25</tomcat.version>
-        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
-        <jackson-bom.version>3.1.7</jackson-bom.version>
         <!-- Guava comes with webauthn-server-core; CVE-2026-102554 is fixed in 33.7.2. -->
         <guava.version>33.7.2-jre</guava.version>
         <!-- Only pharmacy-core is runnable: mvn -pl application/pharmacy-core -am spring-boot:run -->
