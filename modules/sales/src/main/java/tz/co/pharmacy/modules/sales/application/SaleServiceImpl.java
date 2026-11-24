@@ -257,6 +257,9 @@ class SaleServiceImpl implements SaleService {
           "A prescription item needs the prescriber's details.",
           "prescription");
     }
+    if (prescriptionRequired) {
+      requireFullPrescription(prescription);
+    }
 
     Sale sale =
         new Sale(
@@ -278,7 +281,13 @@ class SaleServiceImpl implements SaleService {
           Checks.optionalText(
               prescription.prescriberRegistration(), "prescription.prescriberRegistration", 100),
           Checks.optionalText(prescription.reference(), "prescription.reference", 100),
-          Checks.optionalText(prescription.patientName(), "prescription.patientName", 200));
+          Checks.optionalText(prescription.patientName(), "prescription.patientName", 200),
+          prescription.prescriptionDate());
+    }
+    if (prescriptionRequired) {
+      // STD-7: the seller holds sales.dispense_rx (checkout refuses otherwise) and is the
+      // dispenser.
+      sale.dispensedBy(ExecutionContext.actor().name(), ExecutionContext.actor().uid());
     }
 
     List<SaleTotals.LineAmounts> amounts = new ArrayList<>();
@@ -963,6 +972,54 @@ class SaleServiceImpl implements SaleService {
     return date == null ? null : date.atStartOfDay(calendar.zone()).toInstant();
   }
 
+  /**
+   * STD-7: a prescription item is dispensed against a whole prescription: the prescriber's
+   * registration number, the patient and a date neither after today nor older than {@link
+   * PrescriptionDetails#VALID_MONTHS} months (422 prescription_incomplete,
+   * prescription_date_in_future, prescription_expired). The prescriber's name is checked before it
+   * (prescription_required).
+   */
+  private void requireFullPrescription(PrescriptionDetails rx) {
+    if (blankText(rx.prescriberRegistration())) {
+      throw incomplete("prescriberRegistration", "the prescriber's registration number");
+    }
+    if (blankText(rx.patientName())) {
+      throw incomplete("patientName", "the patient's name");
+    }
+    if (rx.prescriptionDate() == null) {
+      throw incomplete("prescriptionDate", "the prescription's date");
+    }
+    LocalDate today = calendar.today();
+    if (rx.prescriptionDate().isAfter(today)) {
+      throw Refusal.invalid(
+          "prescription_date_in_future",
+          "The prescription's date is after today.",
+          "prescription.prescriptionDate");
+    }
+    LocalDate oldest = today.minusMonths(PrescriptionDetails.VALID_MONTHS);
+    if (rx.prescriptionDate().isBefore(oldest)) {
+      throw Refusal.invalid(
+              "prescription_expired",
+              "The prescription is older than "
+                  + PrescriptionDetails.VALID_MONTHS
+                  + " months; ask for a new one.",
+              "prescription.prescriptionDate")
+          .with("validMonths", PrescriptionDetails.VALID_MONTHS)
+          .with("oldestAllowed", oldest.toString());
+    }
+  }
+
+  private static Refusal incomplete(String field, String what) {
+    return Refusal.invalid(
+        "prescription_incomplete",
+        "A prescription item needs " + what + ".",
+        "prescription." + field);
+  }
+
+  private static boolean blankText(String value) {
+    return value == null || value.isBlank();
+  }
+
   static SaleView view(Sale sale) {
     PrescriptionDetails prescription =
         sale.getPrescriberName() == null
@@ -971,7 +1028,8 @@ class SaleServiceImpl implements SaleService {
                 sale.getPrescriberName(),
                 sale.getPrescriberRegistration(),
                 sale.getPrescriptionReference(),
-                sale.getPatientName());
+                sale.getPatientName(),
+                sale.getPrescriptionDate());
     return new SaleView(
         sale.getUid(),
         sale.getNumber(),
@@ -1029,7 +1087,9 @@ class SaleServiceImpl implements SaleService {
         sale.getPriceListUid(),
         sale.getPriceListName(),
         sale.getPricePlanSource(),
-        sale.isFiscalDue());
+        sale.isFiscalDue(),
+        sale.getDispensedBy(),
+        false);
   }
 
   static SaleSummaryView summary(Sale sale) {

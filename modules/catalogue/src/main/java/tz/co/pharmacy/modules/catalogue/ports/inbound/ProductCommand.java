@@ -34,4 +34,59 @@ public record ProductCommand(
     String brand,
     String model,
     Integer warrantyMonths,
-    Boolean requiresSerialAtSale) {}
+    Boolean requiresSerialAtSale,
+    /* The TMDA registration (marketing authorisation) number, optional (STD-8). */
+    String tmdaRegistrationNumber) {
+
+  /** A product without a TMDA registration number. */
+  public ProductCommand(
+      String name,
+      String genericName,
+      String sku,
+      String gtin,
+      String atcCode,
+      UUID categoryUid,
+      UUID manufacturerUid,
+      DosageForm dosageForm,
+      String strength,
+      String packSize,
+      Schedule schedule,
+      BigDecimal sellingPrice,
+      BigDecimal costPrice,
+      BigDecimal taxRatePercent,
+      Integer reorderLevel,
+      Storage storage,
+      ProductType productType,
+      TrackingMode trackingMode,
+      UnitOfMeasure unitOfMeasure,
+      String brand,
+      String model,
+      Integer warrantyMonths,
+      Boolean requiresSerialAtSale) {
+    this(
+        name,
+        genericName,
+        sku,
+        gtin,
+        atcCode,
+        categoryUid,
+        manufacturerUid,
+        dosageForm,
+        strength,
+        packSize,
+        schedule,
+        sellingPrice,
+        costPrice,
+        taxRatePercent,
+        reorderLevel,
+        storage,
+        productType,
+        trackingMode,
+        unitOfMeasure,
+        brand,
+        model,
+        warrantyMonths,
+        requiresSerialAtSale,
+        null);
+  }
+}

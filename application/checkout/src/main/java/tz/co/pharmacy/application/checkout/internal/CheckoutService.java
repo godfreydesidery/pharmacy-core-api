@@ -94,6 +94,9 @@ class CheckoutService implements Checkout {
   /** The permission to sell on account: credit sales and balances put on account. */
   static final String CREDIT_PERMISSION = "sales.credit";
 
+  /** The permission to dispense prescription and controlled medicines (STD-7). */
+  static final String DISPENSE_PERMISSION = "sales.dispense_rx";
+
   /**
    * Not {@code @Transactional}: the payment providers are asked before the sale's transaction
    * starts, and that transaction is the template's below.
@@ -137,6 +140,7 @@ class CheckoutService implements Checkout {
             .products(lines.stream().map(CheckoutLine::productUid).distinct().toList())
             .stream()
             .collect(Collectors.toMap(ProductView::uid, Function.identity()));
+    requireDispenser(products);
 
     String customerName = null;
     String customerType = null;
@@ -339,6 +343,31 @@ class CheckoutService implements Checkout {
                 Collectors.toMap(
                     PricingService.PricedLine::productUid, Function.identity(), (a, b) -> a));
     return new Basket(plan, prices, normalTotal, byProduct);
+  }
+
+  /**
+   * STD-7: a PRESCRIPTION or CONTROLLED medicine is dispensed only by a seller holding {@code
+   * sales.dispense_rx} (403 dispense_not_allowed, member {@code products}: their names,
+   * comma-separated). The standard, simplest rule: the person at the till is the dispenser and is
+   * recorded on the sale, rather than a second person signing off each sale at the busiest screen.
+   * Checked before any stock or number is taken.
+   */
+  private static void requireDispenser(Map<UUID, ProductView> products) {
+    List<String> restricted =
+        products.values().stream()
+            .filter(
+                p -> p.schedule() == Schedule.PRESCRIPTION || p.schedule() == Schedule.CONTROLLED)
+            .map(ProductView::name)
+            .sorted()
+            .toList();
+    if (!restricted.isEmpty() && !ExecutionContext.permits(DISPENSE_PERMISSION)) {
+      throw Refusal.forbidden(
+              "dispense_not_allowed",
+              "Only staff allowed to dispense prescription medicines can sell "
+                  + String.join(", ", restricted)
+                  + "; ask the pharmacist.")
+          .with("products", String.join(", ", restricted));
+    }
   }
 
   /**

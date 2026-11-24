@@ -66,6 +66,28 @@ class PermissionsTest {
   }
 
   @Test
+  void dispensingAndHealthDetailsAreForThePharmacyTeamNotTheTill() {
+    assertThat(Permissions.TENANT_ALL)
+        .contains(Permissions.SALES_DISPENSE_RX, Permissions.HEALTH_VIEW, Permissions.ADR_REPORT);
+    assertThat(Permissions.catalogue())
+        .anyMatch(
+            view ->
+                view.code().equals("sales.dispense_rx")
+                    && view.description().equals("Dispense prescription medicines"));
+    for (String role : java.util.List.of("ADMIN", "BRANCH_MANAGER", "PHARMACIST")) {
+      assertThat(Permissions.preset(role))
+          .as(role)
+          .contains(Permissions.SALES_DISPENSE_RX, Permissions.HEALTH_VIEW, Permissions.ADR_REPORT);
+    }
+    for (String role : java.util.List.of("CASHIER", "STORE_KEEPER", "ACCOUNTANT")) {
+      assertThat(Permissions.preset(role))
+          .as(role)
+          .doesNotContain(
+              Permissions.SALES_DISPENSE_RX, Permissions.HEALTH_VIEW, Permissions.ADR_REPORT);
+    }
+  }
+
+  @Test
   void creditLimitsAreSetByManagersAndFinanceNotByThePharmacist() {
     assertThat(Permissions.TENANT_ALL).contains(Permissions.PARTNERS_CREDIT_LIMIT);
     for (String role : java.util.List.of("ADMIN", "BRANCH_MANAGER", "ACCOUNTANT")) {

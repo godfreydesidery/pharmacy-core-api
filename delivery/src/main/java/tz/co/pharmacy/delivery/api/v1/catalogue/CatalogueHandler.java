@@ -224,7 +224,9 @@ public class CatalogueHandler {
       String brand,
       String model,
       Integer warrantyMonths,
-      Boolean requiresSerialAtSale) {
+      Boolean requiresSerialAtSale,
+      /* The TMDA registration number (STD-8), optional. */
+      String tmdaRegistrationNumber) {
 
     ProductCommand toCommand() {
       return new ProductCommand(
@@ -254,7 +256,8 @@ public class CatalogueHandler {
           brand,
           model,
           warrantyMonths,
-          requiresSerialAtSale);
+          requiresSerialAtSale,
+          tmdaRegistrationNumber);
     }
 
     private static boolean blank(String value) {

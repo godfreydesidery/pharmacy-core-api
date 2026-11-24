@@ -133,6 +133,12 @@ class ProductImport implements Importer<ProductImport.Plan> {
           optional("model", "Model", "Modeli", "Equipment's model.", "Modeli ya kifaa."),
           optional(
               "warrantyMonths", "Warranty (months)", "Dhamana (miezi)", "0 to 120.", "0 hadi 120."),
+          optional(
+              "tmdaRegistrationNumber",
+              "TMDA registration",
+              "Usajili wa TMDA",
+              "The TMDA registration number, if any.",
+              "Namba ya usajili wa TMDA, kama ipo."),
           required("cost", "Cost", "Gharama", "The buying price.", "Bei ya kununua.")
               .about("costPrice"),
           required("price", "Price", "Bei", "The selling price.", "Bei ya kuuza.")
@@ -187,6 +193,7 @@ class ProductImport implements Importer<ProductImport.Plan> {
         "BOX",
         "",
         null,
+        "",
         3500,
         5000,
         0,
@@ -290,6 +297,12 @@ class ProductImport implements Importer<ProductImport.Plan> {
     Integer warranty =
         row.pick(
             "warrantyMonths", was, ProductView::warrantyMonths, r -> r.whole("warrantyMonths"));
+    String tmda =
+        row.pick(
+            "tmdaRegistrationNumber",
+            was,
+            ProductView::tmdaRegistrationNumber,
+            r -> r.text("tmdaRegistrationNumber"));
     BigDecimal cost = amount(row, "cost");
     BigDecimal price = amount(row, "price");
     BigDecimal vat = row.pick("vat", was, ProductView::taxRatePercent, r -> r.number("vat"));
@@ -329,7 +342,8 @@ class ProductImport implements Importer<ProductImport.Plan> {
             brand,
             model,
             warranty,
-            was == null ? null : was.requiresSerialAtSale());
+            was == null ? null : was.requiresSerialAtSale(),
+            tmda);
     return new Plan(code, existing, command, newManufacturer, active);
   }
 
@@ -394,7 +408,8 @@ class ProductImport implements Importer<ProductImport.Plan> {
         c.brand(),
         c.model(),
         c.warrantyMonths(),
-        c.requiresSerialAtSale());
+        c.requiresSerialAtSale(),
+        c.tmdaRegistrationNumber());
   }
 
   private static String key(String name) {

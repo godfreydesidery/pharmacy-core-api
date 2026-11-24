@@ -46,9 +46,10 @@ public interface CatalogueService {
 
   /**
    * The products of the controlled-drugs register, by name: every product CONTROLLED now or at any
-   * time before (FRD-6).
+   * time before (FRD-6), a page at a time (STD-7: the register is no longer one capped list).
    */
-  List<ProductView> controlledRegisterProducts();
+  tz.co.pharmacy.platform.kernel.Page<ProductView> controlledRegisterProducts(
+      tz.co.pharmacy.platform.kernel.PageQuery query);
 
   /** Whether the product is CONTROLLED now or ever was. */
   boolean everControlled(UUID productUid);

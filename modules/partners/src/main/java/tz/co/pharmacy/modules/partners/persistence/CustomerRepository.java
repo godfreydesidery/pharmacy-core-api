@@ -11,4 +11,6 @@ public interface CustomerRepository
     extends JpaRepository<Customer, Long>, JpaSpecificationExecutor<Customer> {
 
   Optional<Customer> findByUid(UUID uid);
+
+  java.util.List<Customer> findByUidIn(java.util.Collection<UUID> uids);
 }

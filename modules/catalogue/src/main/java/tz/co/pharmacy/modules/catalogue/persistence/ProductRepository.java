@@ -29,10 +29,9 @@ public interface ProductRepository
 
   boolean existsByGtinAndUidNot(String gtin, UUID uid);
 
-  /** Every product CONTROLLED now or at any time before, by name. */
+  /** How many products are CONTROLLED now or were at any time before. */
   @org.springframework.data.jpa.repository.Query(
-      "select p from Product p where p.everControlled = true or p.schedule ="
-          + " tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule.CONTROLLED"
-          + " order by lower(p.name), p.id")
-  java.util.List<Product> findControlledEver();
+      "select count(p) from Product p where p.everControlled = true or p.schedule ="
+          + " tz.co.pharmacy.modules.catalogue.ports.inbound.Schedule.CONTROLLED")
+  long countControlledEver();
 }

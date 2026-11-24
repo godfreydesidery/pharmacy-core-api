@@ -33,4 +33,6 @@ public record ProductView(
     String brand,
     String model,
     Integer warrantyMonths,
-    boolean requiresSerialAtSale) {}
+    boolean requiresSerialAtSale,
+    /* The TMDA registration number (STD-8), optional. */
+    String tmdaRegistrationNumber) {}

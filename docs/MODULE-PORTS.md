@@ -842,3 +842,70 @@ record SealedColumn(String table, String column, Purpose purpose, boolean tenant
 class SealedValues { Map<String, Long> count(SealedColumn c); Batch reseal(SealedColumn c, long afterId, int limit); }
 interface KeyRotation { Status status(); boolean start(); }   // bound in composition (KeyResealJob): GET /api/v1/platform/keys, POST .../reseal
 ```
+
+## Batch 9-b: personal-data rights, dispensing records, TMDA (STD-5, STD-7, STD-8)
+
+```java
+// partners.ports.inbound (migration partners V8: customer_consents, data_subject_requests, customers.anonymised_at)
+enum ConsentPurpose { SMS_RECEIPTS, MARKETING, INSURER_SHARING }   // allowedWithoutRecord(): SMS_RECEIPTS only
+record ConsentView(UUID uid, ConsentPurpose purpose, Instant givenAt, String givenBy, Instant withdrawnAt,
+                   String withdrawnBy, String note, boolean inForce) {}
+record ConsentsView(List<Current> current, List<ConsentView> history) {
+  record Current(ConsentPurpose purpose, String status /* GIVEN, WITHDRAWN, NONE */, Instant since, boolean effective) {}
+}
+interface CustomerConsents {
+  ConsentsView consents(UUID customerUid);                                        // 404 customer_not_found
+  ConsentsView record(UUID customerUid, ConsentPurpose p, boolean given, String note); // 409 customer_anonymised
+  void apply(UUID customerUid, Map<ConsentPurpose, Boolean> choices);             // only the changes are recorded
+  boolean allows(UUID customerUid, ConsentPurpose p);                             // every customer-message sender asks
+}
+enum RequestKind { ACCESS, CORRECTION, ERASURE, OBJECTION, RESTRICTION }
+enum RequestStatus { OPEN, COMPLETED, REFUSED }
+record DataSubjectRequestView(UUID uid, String number /* DSR-000001 */, RequestKind kind, RequestStatus status,
+                              UUID customerUid, String customerCode, String customerName, Instant receivedAt,
+                              LocalDate dueOn, Instant completedAt, String completedBy, String outcome, String note,
+                              boolean overdue, Instant createdAt, String createdBy) {}
+interface DataSubjectRequests {
+  int DUE_DAYS = 30;                                                              // verify with counsel (C7)
+  DataSubjectRequestView log(RequestKind k, UUID customerUid, LocalDate receivedOn, String note);
+  Page<DataSubjectRequestView> list(RequestStatus s, RequestKind k, UUID customerUid, PageQuery q);
+  Optional<DataSubjectRequestView> find(UUID uid);
+  void requireOpen(UUID requestUid, RequestKind k, UUID customerUid);             // 404 request_not_found, 409 request_closed, 422 request_mismatch
+  DataSubjectRequestView complete(UUID requestUid, RequestKind k, UUID customerUid, String outcome); // null uid: logged and completed now
+  DataSubjectRequestView complete(UUID requestUid, String outcome);
+  DataSubjectRequestView refuse(UUID requestUid, String reason);
+}
+interface PersonalData {                     // implemented in composition (PersonalDataService), SQL across the modules' tables
+  record Export(String fileName, byte[] zip, DataSubjectRequestView request) {}
+  Export export(UUID customerUid, UUID requestUid);                               // audited DATA_SUBJECT_EXPORT
+  DataSubjectRequestView anonymise(UUID customerUid, UUID requestUid, String note); // 422 subject_has_balance, subject_under_legal_hold; 409 customer_anonymised
+}
+// CustomerView gains Instant anonymisedAt; CustomerService.change refuses an anonymised customer (409 customer_anonymised).
+
+// sales.ports.inbound (migration sales V16 prescription_date, dispensed_by, dispensed_by_uid; V17 index by customer)
+record PrescriptionDetails(String prescriberName, String prescriberRegistration, String reference, String patientName,
+                           LocalDate prescriptionDate) { int VALID_MONTHS = 6; }   // the 4-argument constructor stays
+// SaleView gains String dispensedBy, boolean prescriptionWithheld; withoutHealthDetails().
+// SaleService.record refuses 422 prescription_incomplete, prescription_date_in_future, prescription_expired.
+// Checkout refuses 403 dispense_not_allowed (member products) without sales.dispense_rx.
+
+// catalogue.ports.inbound (migration catalogue V14 tmda_registration_number)
+// ProductCommand and ProductView gain String tmdaRegistrationNumber (last; the old ProductCommand constructor stays).
+// CatalogueService.controlledRegisterProducts(PageQuery) returns a Page, by name (was a List).
+
+// insurance.ports.inbound: ClaimView.withoutDiagnosis().
+
+// inventory.ports.inbound (migration inventory V12 adverse_reactions)
+interface AdverseReactions {
+  enum Sex { FEMALE, MALE }  enum Seriousness { SERIOUS, NOT_SERIOUS }
+  enum SeriousReason { DEATH, LIFE_THREATENING, HOSPITALISATION, DISABILITY, CONGENITAL_ANOMALY, OTHER_MEDICALLY_IMPORTANT }
+  enum Outcome { RECOVERED, RECOVERING, NOT_RECOVERED, RECOVERED_WITH_SEQUELAE, FATAL, UNKNOWN }
+  record ReportCommand(...);  record AdverseReactionView(...);                    // see the source
+  AdverseReactionView report(ReportCommand c);                                    // ADR-000001; 422 onset_in_future, serious_reason_required, invalid_therapy_dates
+  Page<AdverseReactionView> list(String q, Set<UUID> branches, PageQuery q);
+  Optional<AdverseReactionView> find(UUID uid);
+}
+
+// access: Permissions.SALES_DISPENSE_RX, HEALTH_VIEW, ADR_REPORT (migration access V19 backfills them).
+// delivery: HealthFields (health.view) hides prescriptions, register patients and diagnosis codes.
+```

@@ -85,14 +85,17 @@ class ControlledDrugsTest extends IntegrationTest {
                     morphine,
                     """
                     {"prescriberName":"Dr. Mushi","prescriberRegistration":"MCT-1180",
-                     "reference":"KCMC-77","patientName":"Baraka Moshi"}
-                    """))
+                     "reference":"KCMC-77","patientName":"Baraka Moshi",
+                     "prescriptionDate":"%s"}
+                    """
+                        .formatted(LocalDate.now().minusDays(1))))
             .expect(201)
             .string("$.data.number");
 
+    // STD-7: the register's products come a page at a time.
     Response products = hq.get("/api/v1/controlled-drugs").expect(200);
-    assertThat(products.read("$.data[0].name", String.class)).isEqualTo("Morphine 10mg");
-    assertThat(products.read("$.data[0].onHand", Integer.class)).isEqualTo(18);
+    assertThat(products.read("$.data.items[0].name", String.class)).isEqualTo("Morphine 10mg");
+    assertThat(products.read("$.data.items[0].onHand", Integer.class)).isEqualTo(18);
 
     Response register = hq.get("/api/v1/controlled-drugs/" + morphine + "/register").expect(200);
     List<String> types = register.json().read("$.data.items[*].type");
@@ -104,6 +107,11 @@ class ControlledDrugsTest extends IntegrationTest {
         .containsExactly("Baraka Moshi");
     assertThat(register.read("$.data.items[?(@.type == 'SALE')].balance", List.class))
         .containsExactly(18);
+    // The pharmacist who dispensed it, and the prescription's date, are in the register (STD-7).
+    assertThat(register.read("$.data.items[?(@.type == 'SALE')].dispensedBy", List.class))
+        .containsExactly("Admin");
+    assertThat(register.read("$.data.items[?(@.type == 'SALE')].prescriptionDate", List.class))
+        .containsExactly(LocalDate.now().minusDays(1).toString());
 
     assertThat(
             hq.get("/api/v1/controlled-drugs/" + paracetamol + "/register")

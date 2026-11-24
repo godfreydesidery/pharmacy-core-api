@@ -17,4 +17,6 @@ public record CustomerView(
     String address,
     boolean active,
     Instant createdAt,
-    PaymentTerms paymentTerms) {}
+    PaymentTerms paymentTerms,
+    /* When the person's data was anonymised (STD-5); null while they are a person on record. */
+    Instant anonymisedAt) {}
