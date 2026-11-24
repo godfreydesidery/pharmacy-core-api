@@ -187,8 +187,7 @@ class TransformationsImpl implements Transformations {
     BigDecimal unitCost =
         totalCost.divide(BigDecimal.valueOf(outputQuantity), 4, RoundingMode.HALF_UP);
     LocalDate batchExpiry = expiry;
-    java.util.Optional<Batch> existing =
-        batches.findByProductUidAndBatchNumber(outputUid, batchNumber);
+    java.util.Optional<Batch> existing = batches.numbered(outputUid, batchNumber);
     Batch batch =
         existing.orElseGet(
             () -> batches.save(new Batch(outputUid, batchNumber, batchExpiry, unitCost)));

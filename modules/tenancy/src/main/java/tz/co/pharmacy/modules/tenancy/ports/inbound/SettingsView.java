@@ -27,4 +27,7 @@ public record SettingsView(
     /* Days a sale's goods may come back without a manager. */
     int returnWindowDays,
     /* A cashier must open a shift before selling or refunding. */
-    boolean requireOpenShift) {}
+    boolean requireOpenShift,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

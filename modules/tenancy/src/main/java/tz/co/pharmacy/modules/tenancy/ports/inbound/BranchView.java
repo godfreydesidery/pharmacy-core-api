@@ -12,4 +12,7 @@ public record BranchView(
     String licenceNumber,
     boolean headOffice,
     boolean active,
-    Instant createdAt) {}
+    Instant createdAt,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

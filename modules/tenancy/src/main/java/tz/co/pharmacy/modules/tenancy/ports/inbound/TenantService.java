@@ -18,6 +18,12 @@ public interface TenantService {
   /** A registry read, in any scope. */
   Optional<TenantView> find(UUID tenantUid);
 
+  /**
+   * The tenant's base currency (ISO 4217), a registry read in any scope without the rest of the
+   * view: money rounds to its minor units (Amounts.money).
+   */
+  Optional<String> baseCurrency(UUID tenantUid);
+
   /** Platform scope, newest first; {@code q} matches code, name or legal name. */
   Page<TenantView> list(String q, PageQuery query);
 

@@ -525,7 +525,7 @@ class CustomerCreditImpl implements CustomerCredit {
         && givenRate
                 .subtract(rate)
                 .abs()
-                .divide(rate, 6, RoundingMode.HALF_EVEN)
+                .divide(rate, 6, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING)
                 .compareTo(RATE_TOLERANCE)
             > 0) {
       throw Refusal.invalid(

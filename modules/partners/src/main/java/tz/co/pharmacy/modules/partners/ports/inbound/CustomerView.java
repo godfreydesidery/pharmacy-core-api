@@ -17,4 +17,7 @@ public record CustomerView(
     String address,
     boolean active,
     Instant createdAt,
-    PaymentTerms paymentTerms) {}
+    PaymentTerms paymentTerms,
+    /* The row's version: the ETag of the resource and what If-Match names. */
+    long version)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

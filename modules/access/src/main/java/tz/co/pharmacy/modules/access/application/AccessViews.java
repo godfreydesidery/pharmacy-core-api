@@ -38,7 +38,8 @@ final class AccessViews {
         role.getName(),
         role.getDescription(),
         role.isSystem(),
-        ordered(role.getPermissions()));
+        ordered(role.getPermissions()),
+        role.getVersion());
   }
 
   static MembershipGrant grant(Membership membership) {

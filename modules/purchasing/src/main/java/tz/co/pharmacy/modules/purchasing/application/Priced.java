@@ -76,7 +76,9 @@ record Priced(String currency, BigDecimal rate) {
       return;
     }
     BigDecimal deviation =
-        rate.subtract(recorded).abs().divide(recorded, 6, java.math.RoundingMode.HALF_EVEN);
+        rate.subtract(recorded)
+            .abs()
+            .divide(recorded, 6, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
     if (deviation.compareTo(TOLERANCE) > 0) {
       throw Refusal.invalid(
           "rate_out_of_range",

@@ -125,6 +125,15 @@ class TenantServiceImpl implements TenantService {
 
   @Override
   @Transactional(readOnly = true)
+  public Optional<String> baseCurrency(UUID tenantUid) {
+    if (tenantUid == null) {
+      return Optional.empty();
+    }
+    return tenants.findByUid(tenantUid).map(Tenant::getCurrency);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public Page<TenantView> list(String q, PageQuery query) {
     return Keyset.page(
         tenants, Specs.containsAny(q, "code", "name", "legalName"), query, this::view);
@@ -308,10 +317,11 @@ class TenantServiceImpl implements TenantService {
         throw new IllegalArgumentException(currency);
       }
       Currency.getInstance(currency);
-      return currency;
     } catch (IllegalArgumentException unknown) {
       throw Refusal.invalid("invalid_currency", "currency must be an ISO 4217 code.", "currency");
     }
+    // The money columns keep 2 decimals: a 3-decimal base currency (KWD) could not be stored.
+    return tz.co.pharmacy.platform.kernel.Amounts.requireStorable(currency, "currency");
   }
 
   private static String timezone(String value) {

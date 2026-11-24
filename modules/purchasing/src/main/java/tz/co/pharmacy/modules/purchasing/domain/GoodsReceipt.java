@@ -101,6 +101,6 @@ public class GoodsReceipt extends TenantEntity {
             unitCost,
             serialNumbers);
     lines.add(line);
-    total = Amounts.money(total.add(line.getLineTotal()));
+    total = Amounts.money(total.add(line.getLineTotal()), currency);
   }
 }

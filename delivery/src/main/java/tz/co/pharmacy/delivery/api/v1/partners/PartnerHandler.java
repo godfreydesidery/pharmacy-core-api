@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -18,6 +19,7 @@ import tz.co.pharmacy.delivery.api.Access;
 import tz.co.pharmacy.delivery.api.AccessScope;
 import tz.co.pharmacy.delivery.api.ApiResponse;
 import tz.co.pharmacy.delivery.api.Pages;
+import tz.co.pharmacy.delivery.edge.Preconditions;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerCommand;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerService;
 import tz.co.pharmacy.modules.partners.ports.inbound.CustomerType;
@@ -38,6 +40,7 @@ public class PartnerHandler {
 
   private final CustomerService customers;
   private final SupplierService suppliers;
+  private final Preconditions preconditions;
 
   // customers
 
@@ -66,8 +69,14 @@ public class PartnerHandler {
         customers.create(body.toCommand(body.creditLimit())), "Customer created");
   }
 
+  /**
+   * One customer, with its ETag; also for someone who only decides credit limits
+   * (partners.credit_limit), whose change of the limit names the version it read.
+   */
   @GetMapping("/customers/{uid}")
-  @Access(scope = AccessScope.TENANT, permission = "partners.view")
+  @Access(
+      scope = AccessScope.TENANT,
+      anyOf = {"partners.view", CreditLimits.PERMISSION})
   public ApiResponse<CustomerView> customer(@PathVariable UUID uid) {
     return ApiResponse.ok(
         customers
@@ -86,7 +95,9 @@ public class PartnerHandler {
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
   @Transactional
   public ApiResponse<CustomerView> changeCustomer(
-      @PathVariable UUID uid, @RequestBody CustomerRequest body) {
+      @PathVariable UUID uid,
+      @RequestHeader(value = Preconditions.IF_MATCH, required = false) String ifMatch,
+      @RequestBody CustomerRequest body) {
     if (body == null) {
       throw Refusal.malformed("A customer is required.");
     }
@@ -94,6 +105,7 @@ public class PartnerHandler {
         customers
             .find(uid)
             .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    preconditions.ifMatch(ifMatch, current::version);
     BigDecimal limit = body.creditLimit() == null ? current.creditLimit() : body.creditLimit();
     CreditLimits.require(current.creditLimit(), limit);
     return ApiResponse.ok(customers.change(uid, body.toCommand(limit)), "Customer changed");
@@ -107,7 +119,9 @@ public class PartnerHandler {
   @Access(scope = AccessScope.TENANT, permission = CreditLimits.PERMISSION)
   @Transactional
   public ApiResponse<CustomerView> changeCreditLimit(
-      @PathVariable UUID uid, @RequestBody CreditLimitRequest body) {
+      @PathVariable UUID uid,
+      @RequestHeader(value = Preconditions.IF_MATCH, required = false) String ifMatch,
+      @RequestBody CreditLimitRequest body) {
     if (body == null || body.creditLimit() == null) {
       throw Refusal.invalid("invalid_credit_limit", "creditLimit is required.", "creditLimit");
     }
@@ -115,6 +129,7 @@ public class PartnerHandler {
         customers
             .find(uid)
             .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
+    preconditions.ifMatch(ifMatch, c::version);
     return ApiResponse.ok(
         customers.change(
             uid,
@@ -164,8 +179,21 @@ public class PartnerHandler {
 
   @PutMapping("/suppliers/{uid}")
   @Access(scope = AccessScope.TENANT, permission = "partners.manage")
+  @Transactional
   public ApiResponse<SupplierView> changeSupplier(
-      @PathVariable UUID uid, @RequestBody SupplierRequest body) {
+      @PathVariable UUID uid,
+      @RequestHeader(value = Preconditions.IF_MATCH, required = false) String ifMatch,
+      @RequestBody SupplierRequest body) {
+    if (body == null) {
+      throw Refusal.malformed("A supplier is required.");
+    }
+    preconditions.ifMatch(
+        ifMatch,
+        () ->
+            suppliers
+                .find(uid)
+                .orElseThrow(() -> Refusal.notFound("supplier_not_found", "No such supplier."))
+                .version());
     return ApiResponse.ok(suppliers.change(uid, body.toCommand()), "Supplier changed");
   }
 

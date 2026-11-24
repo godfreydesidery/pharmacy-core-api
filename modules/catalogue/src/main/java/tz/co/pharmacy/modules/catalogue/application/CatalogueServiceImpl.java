@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tz.co.pharmacy.modules.catalogue.domain.Category;
+import tz.co.pharmacy.modules.catalogue.domain.Gtin;
 import tz.co.pharmacy.modules.catalogue.domain.Manufacturer;
 import tz.co.pharmacy.modules.catalogue.domain.Product;
 import tz.co.pharmacy.modules.catalogue.events.ProductChanged;
@@ -54,7 +55,6 @@ import tz.co.pharmacy.platform.persistence.Specs;
 @RequiredArgsConstructor
 class CatalogueServiceImpl implements CatalogueService {
 
-  private static final Pattern GTIN = Pattern.compile("^\\d{8,14}$");
   private static final Pattern ATC = Pattern.compile("^[A-Z][0-9]{2}[A-Z]{0,2}[0-9]{0,2}$");
 
   private final CategoryRepository categories;
@@ -422,8 +422,19 @@ class CatalogueServiceImpl implements CatalogueService {
       }
     }
     String gtin = Checks.optionalText(c.gtin(), "gtin", 14);
-    if (gtin != null && !GTIN.matcher(gtin).matches()) {
-      throw Refusal.invalid("invalid_gtin", "gtin must be 8 to 14 digits (GS1 GTIN).", "gtin");
+    // STD-18: a barcode is a GS1 GTIN with its check digit (422 invalid_gtin). A product saved
+    // before the check keeps a GTIN it already has, even a wrong one, so it stays editable; the
+    // catalogue migration V14 lists those for the pharmacy to correct.
+    if (gtin != null
+        && !Gtin.valid(gtin)
+        && (existingUid == null
+            || !gtin.equals(products.findByUid(existingUid).map(Product::getGtin).orElse(null)))) {
+      throw Refusal.invalid(
+              "invalid_gtin",
+              "gtin is not a valid GTIN: 8, 12, 13 or 14 digits (EAN-8, UPC-A, EAN-13, GTIN-14)"
+                  + " ending in the right check digit.",
+              "gtin")
+          .with("gtin", gtin);
     }
     String atc = Checks.optionalText(c.atcCode(), "atcCode", 7);
     if (atc != null) {

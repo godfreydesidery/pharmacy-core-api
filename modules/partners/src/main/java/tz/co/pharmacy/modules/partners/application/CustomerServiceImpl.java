@@ -61,6 +61,8 @@ class CustomerServiceImpl implements CustomerService {
             .findByUid(uid)
             .orElseThrow(() -> Refusal.notFound("customer_not_found", "No such customer."));
     customer.change(details(c, customer.isActive()));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    customers.flush();
     return view(customer);
   }
 
@@ -103,6 +105,7 @@ class CustomerServiceImpl implements CustomerService {
         c.getAddress(),
         c.isActive(),
         c.getCreatedAt(),
-        c.getPaymentTerms());
+        c.getPaymentTerms(),
+        c.getVersion());
   }
 }

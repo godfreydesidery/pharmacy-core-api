@@ -148,7 +148,10 @@ public class LedgerReactions {
           last
               ? taxLeft
               : tax.multiply(share.getValue())
-                  .divide(total, 2, java.math.RoundingMode.HALF_UP)
+                  .divide(
+                      total,
+                      tz.co.pharmacy.platform.kernel.Amounts.scale(),
+                      tz.co.pharmacy.platform.kernel.Amounts.ROUNDING)
                   .min(share.getValue());
       taxLeft = taxLeft.subtract(shareTax);
       boolean own = postings.isEmpty();

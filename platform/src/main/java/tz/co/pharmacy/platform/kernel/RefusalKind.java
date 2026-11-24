@@ -14,6 +14,13 @@ public enum RefusalKind {
   PAYLOAD_TOO_LARGE(413),
   /** 415: a file of a type the route does not take. */
   UNSUPPORTED_MEDIA_TYPE(415),
+  /**
+   * 412: the request's {@code If-Match} names a version the resource no longer has (RFC 9110
+   * §13.1.1): someone else changed it since it was read.
+   */
+  PRECONDITION_FAILED(412),
+  /** 428: the server requires {@code If-Match} on this change and none was sent (RFC 6585 §3). */
+  PRECONDITION_REQUIRED(428),
   /** 423: the account is locked for a while, such as after repeated failed sign-ins. */
   LOCKED(423),
   /** 429: too many requests from this client; retry after the given seconds. */

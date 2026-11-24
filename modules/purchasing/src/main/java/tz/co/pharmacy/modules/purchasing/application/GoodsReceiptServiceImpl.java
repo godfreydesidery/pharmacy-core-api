@@ -90,6 +90,17 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
             directory.supplierName(supplierUid),
             invoice,
             Checks.optionalText(command.note(), "note", 1000));
+    // A receipt against an order is in the order's currency at its locked rate, unless the rate is
+    // overridden here (the supplier invoiced at another rate). Priced first: the lines round to
+    // the receipt currency's minor units.
+    Priced priced =
+        Priced.of(
+            currencies,
+            command.currency(),
+            command.exchangeRate(),
+            order == null ? null : order.getCurrency(),
+            order == null ? null : order.getExchangeRate());
+    receipt.priceIn(priced.currency(), priced.rate());
     for (int i = 0; i < lines.size(); i++) {
       ReceiptLineCommand line = lines.get(i);
       String name;
@@ -107,16 +118,6 @@ class GoodsReceiptServiceImpl implements GoodsReceiptService {
           line.unitCost(),
           ReceiptTracking.serials(line));
     }
-    // A receipt against an order is in the order's currency at its locked rate, unless the rate is
-    // overridden here (the supplier invoiced at another rate).
-    Priced priced =
-        Priced.of(
-            currencies,
-            command.currency(),
-            command.exchangeRate(),
-            order == null ? null : order.getCurrency(),
-            order == null ? null : order.getExchangeRate());
-    receipt.priceIn(priced.currency(), priced.rate());
     receipt.settleBase(currencies.toBase(receipt.getTotal(), priced.rate()));
     GoodsReceipt saved = receipts.save(receipt);
     events.publish(

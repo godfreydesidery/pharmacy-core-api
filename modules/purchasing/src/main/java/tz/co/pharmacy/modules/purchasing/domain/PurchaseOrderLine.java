@@ -40,8 +40,10 @@ public class PurchaseOrderLine extends TenantEntity {
     this.productUid = productUid;
     this.productName = productName;
     this.quantity = quantity;
-    this.unitCost = Amounts.money(unitCost);
-    this.lineTotal = Amounts.times(this.unitCost, quantity);
+    // In the document's currency (USD 2 decimals, UGX none), not necessarily the base one.
+    String currency = purchaseOrder.getCurrency();
+    this.unitCost = Amounts.money(unitCost, currency);
+    this.lineTotal = Amounts.times(this.unitCost, quantity, currency);
   }
 
   public int outstanding() {

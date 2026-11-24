@@ -1,7 +1,6 @@
 package tz.co.pharmacy.platform.composition;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Set;
@@ -16,8 +15,8 @@ import tz.co.pharmacy.platform.kernel.TenantCalendar;
 /**
  * Binds the currency needs of purchasing, sales and finance to tenancy (the base and accepted
  * currencies, through {@link FxTenantAdapter}) and fx (rates and minor units). A foreign currency
- * must be one the tenant accepts; conversion to base rounds half-even to the base currency's ISO
- * 4217 minor units.
+ * must be one the tenant accepts; conversion to base rounds half-up (Amounts.ROUNDING) to the base
+ * currency's ISO 4217 minor units.
  */
 @Component
 class CurrenciesAdapter implements PurchasingCurrencies, SalesCurrencies, FinanceCurrencies {
@@ -61,12 +60,16 @@ class CurrenciesAdapter implements PurchasingCurrencies, SalesCurrencies, Financ
 
   @Override
   public BigDecimal toBase(BigDecimal amount, BigDecimal rate) {
-    return amount.multiply(rate).setScale(rates.minorUnits(baseCurrency()), RoundingMode.HALF_EVEN);
+    return amount
+        .multiply(rate)
+        .setScale(
+            rates.minorUnits(baseCurrency()), tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
   }
 
   @Override
   public BigDecimal round(BigDecimal amount, String currency) {
-    return amount.setScale(rates.minorUnits(currency), RoundingMode.HALF_EVEN);
+    return amount.setScale(
+        rates.minorUnits(currency), tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
   }
 
   @Override

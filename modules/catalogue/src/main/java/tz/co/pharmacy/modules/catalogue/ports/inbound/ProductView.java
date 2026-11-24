@@ -33,4 +33,5 @@ public record ProductView(
     String brand,
     String model,
     Integer warrantyMonths,
-    boolean requiresSerialAtSale) {}
+    boolean requiresSerialAtSale)
+    implements tz.co.pharmacy.platform.kernel.Versioned {}

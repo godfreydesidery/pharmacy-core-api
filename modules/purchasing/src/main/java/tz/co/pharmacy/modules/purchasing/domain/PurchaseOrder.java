@@ -90,7 +90,7 @@ public class PurchaseOrder extends TenantEntity {
     PurchaseOrderLine line =
         new PurchaseOrderLine(this, productUid, productName, quantity, unitCost);
     lines.add(line);
-    total = Amounts.money(total.add(line.getLineTotal()));
+    total = Amounts.money(total.add(line.getLineTotal()), currency);
   }
 
   public boolean open() {

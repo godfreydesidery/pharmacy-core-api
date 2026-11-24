@@ -125,7 +125,7 @@ public class Entry extends TenantEntity {
   public Entry paidIn(String method, String currency, BigDecimal foreignAmount, BigDecimal rate) {
     this.method = method;
     this.currency = currency;
-    this.foreignAmount = foreignAmount == null ? null : Amounts.money(foreignAmount);
+    this.foreignAmount = foreignAmount == null ? null : Amounts.money(foreignAmount, currency);
     this.exchangeRate = rate;
     return this;
   }

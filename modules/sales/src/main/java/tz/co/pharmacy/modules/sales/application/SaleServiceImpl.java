@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.sales.application;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -384,7 +383,7 @@ class SaleServiceImpl implements SaleService {
         // amount the provider confirmed, not the part left on the sale.
         BigDecimal authorized =
             payment.authorizedAmount() != null && payment.authorizedAmount().compareTo(amount) > 0
-                ? Amounts.money(payment.authorizedAmount())
+                ? Amounts.money(payment.authorizedAmount(), tenderLine.currency())
                 : amount;
         PaymentAuthorization authorization =
             paymentAuthorizations.authorize(
@@ -939,7 +938,7 @@ class SaleServiceImpl implements SaleService {
                         "refundCurrency"));
     BigDecimal foreign =
         currencies.round(
-            saleReturn.getRefundTotal().divide(saleRate, 8, RoundingMode.HALF_EVEN), currency);
+            saleReturn.getRefundTotal().divide(saleRate, 8, Amounts.ROUNDING), currency);
     BigDecimal todayRate = currencies.rateToBase(currency, calendar.today());
     saleReturn.refundIn(
         currency, foreign, saleRate, todayRate, Amounts.money(foreign.multiply(todayRate)));
@@ -1154,7 +1153,9 @@ class SaleServiceImpl implements SaleService {
     BigDecimal recorded = currencies.rateToBase(currency, today);
     if (sent != null && recorded != null && recorded.signum() > 0) {
       BigDecimal deviation =
-          sent.subtract(recorded).abs().divide(recorded, 6, RoundingMode.HALF_EVEN);
+          sent.subtract(recorded)
+              .abs()
+              .divide(recorded, 6, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
       if (deviation.compareTo(RATE_TOLERANCE) > 0) {
         throw Refusal.invalid(
             "exchange_rate_mismatch",

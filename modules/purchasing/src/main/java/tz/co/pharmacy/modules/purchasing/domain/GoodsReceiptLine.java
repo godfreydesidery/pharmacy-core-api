@@ -53,7 +53,9 @@ public class GoodsReceiptLine extends TenantEntity {
     this.batchNumber = batchNumber;
     this.expiryDate = expiryDate;
     this.quantity = quantity;
-    this.unitCost = Amounts.money(unitCost);
-    this.lineTotal = Amounts.times(this.unitCost, quantity);
+    // In the document's currency (USD 2 decimals, UGX none), not necessarily the base one.
+    String currency = goodsReceipt.getCurrency();
+    this.unitCost = Amounts.money(unitCost, currency);
+    this.lineTotal = Amounts.times(this.unitCost, quantity, currency);
   }
 }

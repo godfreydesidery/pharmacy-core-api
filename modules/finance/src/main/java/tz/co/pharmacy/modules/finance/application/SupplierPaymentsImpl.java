@@ -1,7 +1,6 @@
 package tz.co.pharmacy.modules.finance.application;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -157,7 +156,7 @@ class SupplierPaymentsImpl implements SupplierPayments {
     if (totals.signum() == 0) {
       return receipts.getFirst().exchangeRate();
     }
-    return weighted.divide(totals, 10, RoundingMode.HALF_EVEN);
+    return weighted.divide(totals, 10, Amounts.ROUNDING);
   }
 
   /**
@@ -187,11 +186,12 @@ class SupplierPaymentsImpl implements SupplierPayments {
     for (Object[] row : payments.settledOf(receipts.stream().map(BookedReceipt::uid).toList())) {
       settledSoFar.put((UUID) row[0], (BigDecimal) row[1]);
     }
-    BigDecimal left = Amounts.money(amount);
+    // In the payment's currency, the receipts' (USD to the cent, UGX whole).
+    BigDecimal left = Amounts.money(amount, currency);
     BigDecimal open = BigDecimal.ZERO;
     for (BookedReceipt receipt : receipts) {
       BigDecimal openOfReceipt =
-          Amounts.money(receipt.total())
+          Amounts.money(receipt.total(), currency)
               .subtract(settledSoFar.getOrDefault(receipt.uid(), BigDecimal.ZERO))
               .max(BigDecimal.ZERO);
       open = open.add(openOfReceipt);
@@ -283,7 +283,9 @@ class SupplierPaymentsImpl implements SupplierPayments {
       return;
     }
     BigDecimal deviation =
-        rate.subtract(recorded).abs().divide(recorded, 6, java.math.RoundingMode.HALF_EVEN);
+        rate.subtract(recorded)
+            .abs()
+            .divide(recorded, 6, tz.co.pharmacy.platform.kernel.Amounts.ROUNDING);
     if (deviation.compareTo(new BigDecimal("0.25")) > 0) {
       throw Refusal.invalid(
           "rate_out_of_range",

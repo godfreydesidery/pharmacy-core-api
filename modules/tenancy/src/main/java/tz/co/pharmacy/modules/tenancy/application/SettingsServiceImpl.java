@@ -127,6 +127,8 @@ class SettingsServiceImpl implements SettingsService {
         command.requireOpenShift());
     Tenant tenant = tenant();
     row.changeAcceptedCurrencies(foreignCurrencies(command.acceptedCurrencies(), tenant));
+    // Flushed, so the view carries the version this change gave the row (its new ETag).
+    settings.flush();
     return view(tenant, row);
   }
 
@@ -206,6 +208,7 @@ class SettingsServiceImpl implements SettingsService {
         row.isRequireTwoFactor(),
         row.getApprovalLimit(),
         row.getReturnWindowDays(),
-        row.isRequireOpenShift());
+        row.isRequireOpenShift(),
+        row.getVersion());
   }
 }
