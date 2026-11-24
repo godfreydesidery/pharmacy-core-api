@@ -33,6 +33,7 @@ import tz.co.pharmacy.platform.kernel.Actor;
 import tz.co.pharmacy.platform.kernel.ExecutionContext;
 import tz.co.pharmacy.platform.kernel.ExecutionContext.Frame;
 import tz.co.pharmacy.platform.kernel.Refusal;
+import tz.co.pharmacy.platform.kernel.RequestOrigin;
 import tz.co.pharmacy.platform.kernel.Uids;
 import tz.co.pharmacy.platform.persistence.TenantContext;
 
@@ -163,17 +164,25 @@ public class EdgeFilter extends OncePerRequestFilter {
     response.setHeader(CORRELATION_HEADER, correlationId);
     SecurityHeaders.apply(request, response);
     MDC.put("correlationId", correlationId);
+    Frame root = null;
     try {
+      // STD-22: every audit entry of this request notes its client address, user agent and,
+      // once the bearer token is checked, its session.
+      RequestOrigin.enter(
+          new RequestOrigin(ClientAddress.of(request), request.getHeader("User-Agent"), null));
       tz.co.pharmacy.platform.approval.ApprovalContext.enter(
           request.getHeader(tz.co.pharmacy.platform.approval.Approvals.HEADER));
       requireCleanPath(request);
       throttleSignIn(request);
       Frame frame = resolve(request, correlationId);
+      if (request.getAttribute(PRINCIPAL) instanceof Principal principal) {
+        RequestOrigin.current()
+            .ifPresent(origin -> RequestOrigin.enter(origin.inSession(principal.sessionUid())));
+      }
       ExecutionContext.enter(frame);
       TenantContext.enter(frame.tenantUid(), frame.actor() == null ? null : frame.actor().uid());
-      if (frame.rootAdmin() && frame.tenantUid() != null && frame.actor() != null) {
-        rootActivity.note(
-            frame.actor().uid(), frame.tenantUid(), request.getMethod(), path(request));
+      if (frame.rootAdmin() && frame.actor() != null && RootActivity.noted(request)) {
+        root = frame;
       }
       // Fair share: a pharmacy's own requests count against its limit (not the live stream, which
       // stays open, nor a root administrator's support work).
@@ -187,9 +196,19 @@ public class EdgeFilter extends OncePerRequestFilter {
     } catch (Refusal refusal) {
       Problems.write(response, refusal, correlationId);
     } finally {
+      // FRD-19: every request of a root administrator, with how it ended (not once an hour).
+      if (root != null) {
+        rootActivity.note(
+            root.actor().uid(),
+            root.tenantUid(),
+            request.getMethod(),
+            path(request),
+            response.getStatus());
+      }
       tz.co.pharmacy.platform.approval.ApprovalContext.leave();
       ExecutionContext.leave();
       TenantContext.leave();
+      RequestOrigin.leave();
       MDC.remove("correlationId");
     }
   }

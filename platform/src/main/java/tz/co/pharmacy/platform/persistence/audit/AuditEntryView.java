@@ -22,4 +22,10 @@ public record AuditEntryView(
     Map<String, Object> before,
     Map<String, Object> after,
     String correlationId,
-    String label) {}
+    String label,
+    /* Where it came from (STD-22): the client's IP address, user agent and sign-in session. */
+    String ip,
+    String userAgent,
+    UUID sessionUid,
+    /* SUCCESS, or FAILURE for a refused or failed attempt; null for entries from before. */
+    String outcome) {}

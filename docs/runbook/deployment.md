@@ -21,7 +21,7 @@ needed.
 | Queue-like work | Rows are claimed by one worker: exports `FOR UPDATE SKIP LOCKED` with heartbeats; webhook deliveries `FOR UPDATE SKIP LOCKED` with a lease; notification messages by a conditional update one caller wins (with a lease); the SMS cap under a transaction advisory lock |
 | Job status | `platform.job_runs`: job, instance, start, end, outcome (OK, FAILED, SKIPPED), message, the pharmacies a run failed for. Root reads it at `GET /api/v1/platform/jobs` (and `/jobs/{job}/runs`). 30 days are kept (`PHARMACY_JOB_RUNS_DAYS`) |
 | Sign-in limits | Failures per client IP (20 in 15 min, then 15 min locked) and per unknown email (5 in 15 min), and the sign-in requests per IP (20 a minute): a sliding window per key in `platform.rate_windows`, updated by one atomic upsert per hit. Keys are stored as SHA-256 hashes (no email or IP address). Expired rows go with the nightly retention |
-| Root activity notes | The "root acted in this pharmacy" audit entry, once an hour per administrator and pharmacy, counted in `platform.rate_windows` |
+| Root activity | Every request of a root administrator is one audit entry (`ROOT_ACTED_IN_TENANT` in the pharmacy, `ROOT_REQUEST` on the platform), with its status and outcome; no counting needed (Batch 10, FRD-19) |
 | Live notifications (SSE) | A new in-app message is signalled with `NOTIFY pharmacy_inapp` (payload: instance, pharmacy and user ids, no personal data). Each instance holds **one dedicated listener connection** (outside the pool, `application_name = pharmacy-signals`); the instance that holds the user's stream reads the message and the unread count from the database and pushes them. After the listener reconnects (database restart, failover), every open stream gets its current state again |
 | Undelivered internal events | Delivered again by the `event-resubmission` job (every 5 min, older than 5 min, one instance). Republishing at start-up is off (`PHARMACY_EVENTS_REPUBLISH_ON_START=false`), because a starting instance would deliver again the events the others are still delivering |
 | Files | `PHARMACY_FILES_STORAGE=s3` (one bucket for all instances). Local storage is one volume and does not work with several instances |
@@ -34,10 +34,11 @@ needed.
 | Fair share per pharmacy (`PHARMACY_TENANT_CONCURRENCY`, 10 requests at once) | It shares out **this instance's** database pool; with N instances a pharmacy may have N × 10 in progress, which N pools can serve |
 | Argon2 hashing slots | They protect this instance's CPU and memory (19 MiB per hash) |
 | Provider circuit breaker (`ProviderHealth`) | It only orders the providers to try; a tripped provider is still tried. Each instance learns after 3 failures of its own. The provider's last success and error are on its row, shared |
-| "Worked in this pharmacy" write throttle | Saves writes only; the one SIGN_IN audit entry per session and pharmacy is decided in the database |
+| "Worked in this pharmacy" write throttle | A pure cache that saves round trips: the one SIGN_IN audit entry per session and pharmacy is decided in the database, and `last_active_at` is a conditional update (written only when older than 5 minutes), so N instances still write it once per period |
 | Short caches | A pharmacy's 2FA policy (30 s), time zone, the SMTP sender built from a provider row |
 | The edge's access cache (`PHARMACY_EDGE_ACCESS_CACHE_SECONDS`, 30 s) | A session's pharmacy (status), membership (role permissions, branches) and branch (active), so most requests run one database transaction before their handler instead of four. The session itself is checked on every request. Sign-out, a member changed or deactivated, a role or branch changed, and a pharmacy suspended, closed, reopened or erased are evicted on every instance at once: the instance evicts, then sends `NOTIFY pharmacy_edge_access` (payload `t:<tenant>`, `u:<user>` or `*`). After a listener reconnect the cache is emptied. Anything else, such as the nightly subscription run suspending an unpaid pharmacy, is seen within 30 s |
 | Requests in progress (`PHARMACY_MAX_IN_FLIGHT`, 100) | It protects **this instance's** pool and threads. One over the limit waits `PHARMACY_MAX_IN_FLIGHT_WAIT_MS` (250 ms), then gets 503 `server_busy` with `Retry-After: 2`. The live stream and the health probes are not counted |
+| The notification senders (`PHARMACY_NOTIFY_THREADS` 8, `PHARMACY_NOTIFY_QUEUE` 2,000) | Deliver messages after commit. With a full queue a dispatch is dropped (logged `NOTIFY_REJECTED`, counted `pharmacy.notifications.senders.rejected`); its messages stay QUEUED and `notification-retries` sends them within a minute |
 | The async reactions' pool (`PHARMACY_ASYNC_THREADS` 8, `PHARMACY_ASYNC_QUEUE` 10,000) | The ledger postings, read models, webhooks and notices after commit. With a full queue a reaction is refused (logged `ASYNC_REJECTED`) and its event is delivered again by `event-resubmission` |
 | Stream heartbeats (25 s) | Each instance pings its own streams |
 | The export worker's poll (5 s) | Every instance polls; the claim makes each export one instance's |
@@ -51,6 +52,7 @@ needed.
 | `audit-partitions` | start and 02:15 UTC | one instance |
 | `fx-refresh` | 06:00 UTC | one instance |
 | `notification-digests` | every 15 min | one instance |
+| `sensitive-digest` | every 15 min (sends at 07:00 local, the day before; dedup per day) | one instance |
 | `notification-retries` | every minute | one instance; each message claimed once |
 | `webhook-retries` | every minute | one instance; each delivery claimed once |
 | `event-resubmission` | every 5 min | one instance |
@@ -133,3 +135,26 @@ logged at ERROR with the stable prefix **`JOB_FAILED`**:
     `HTTPCode_Target_5XX_Count`).
 - Traces are not emitted by the API. If they are wanted, add the OpenTelemetry Java agent to the
   task (`JAVA_TOOL_OPTIONS=-javaagent:...`) sending OTLP to the same ADOT collector; no code change.
+
+## Audit default partition (OPS-18)
+
+An audit entry whose month has no partition lands in `audit.entries_default`. It should stay empty:
+once it holds an entry of a month, that month's partition can no longer be created, and every later
+entry of the month stays there. The `audit-partitions` job (start and 02:15 UTC) counts it:
+
+- the gauge `pharmacy.audit.default_partition.rows` (alert when it is above 0);
+- the log line `AUDIT_DEFAULT_PARTITION_ROWS <n>` and the job run marked FAILED.
+
+To repair, as the application role or the owner, at a quiet moment (it holds an exclusive lock on
+`audit.entries` for a few moments; writers wait):
+
+```sql
+select audit.default_partition_rows();     -- how many are trapped
+select audit.repair_default_partition();   -- moves them into their months; returns how many moved
+```
+
+The function detaches the default partition, creates the partitions of the months its rows belong
+to and a new empty default, copies every row back through the parent under its pharmacy's
+row-level security, checks the count and drops the old table, all in one transaction (an error
+changes nothing). With `PHARMACY_AUDIT_REPAIR_DEFAULT_PARTITION=true` the nightly job does it
+itself. Find out first why the partitions were not created (`GET /api/v1/platform/jobs`).

@@ -48,6 +48,24 @@ public class JdbcAuditLog implements AuditLog {
   }
 
   @Override
+  @Transactional
+  public void record(
+      String action,
+      String entityType,
+      UUID entityUid,
+      Map<String, Object> before,
+      Map<String, Object> after,
+      String outcome) {
+    writer.insert(
+        action,
+        entityType,
+        entityUid,
+        AuditValues.masked(before),
+        AuditValues.masked(after),
+        outcome);
+  }
+
+  @Override
   @Transactional(readOnly = true)
   public Page<AuditEntryView> search(
       String action,
@@ -60,7 +78,8 @@ public class JdbcAuditLog implements AuditLog {
     StringBuilder sql =
         new StringBuilder(
             "select uid, at, actor, action, entity_type, entity_uid, tenant_uid, branch_uid,"
-                + " before::text as before_json, after::text as after_json, correlation_id, label"
+                + " before::text as before_json, after::text as after_json, correlation_id, label,"
+                + " ip, user_agent, session_uid, outcome"
                 + " from audit.entries where true");
     List<Object> arguments = new ArrayList<>();
     if (action != null && !action.isBlank()) {
@@ -116,7 +135,8 @@ public class JdbcAuditLog implements AuditLog {
   public Page<AuditEntryView> securityEvents(UUID userUid, PageQuery query) {
     String filtered =
         "select uid, at, actor, action, entity_type, entity_uid, tenant_uid, branch_uid,"
-            + " before::text as before_json, after::text as after_json, correlation_id, label"
+            + " before::text as before_json, after::text as after_json, correlation_id, label,"
+            + " ip, user_agent, session_uid, outcome"
             + " from audit.entries where entity_type = 'User' and entity_uid = ?"
             + " and action not in ('CREATE', 'UPDATE', 'DELETE')";
     if (query.numbered()) {
@@ -144,6 +164,30 @@ public class JdbcAuditLog implements AuditLog {
                 after,
                 query.limit() + 1);
     return Page.keyset(rows, query, AuditEntryView::uid);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<AuditEntryView> between(
+      java.time.Instant from,
+      java.time.Instant before,
+      java.util.Collection<String> actions,
+      java.util.Collection<String> entityTypes,
+      int limit) {
+    return labelled(
+        jdbc.query(
+            "select uid, at, actor, action, entity_type, entity_uid, tenant_uid, branch_uid,"
+                + " before::text as before_json, after::text as after_json, correlation_id, label,"
+                + " ip, user_agent, session_uid, outcome from audit.entries"
+                + " where at >= ? and at < ?"
+                + " and (action = any(cast(? as text[])) or entity_type = any(cast(? as text[])))"
+                + " order by at, uid limit ?",
+            this::row,
+            Timestamp.from(from),
+            Timestamp.from(before),
+            "{" + String.join(",", actions) + "}",
+            "{" + String.join(",", entityTypes) + "}",
+            Math.max(1, limit)));
   }
 
   /** Fills in the label of entries written without one, from the module owning the record. */
@@ -189,7 +233,11 @@ public class JdbcAuditLog implements AuditLog {
                   row.before(),
                   row.after(),
                   row.correlationId(),
-                  label));
+                  label,
+                  row.ip(),
+                  row.userAgent(),
+                  row.sessionUid(),
+                  row.outcome()));
     }
     return result;
   }
@@ -207,7 +255,11 @@ public class JdbcAuditLog implements AuditLog {
         map(rs.getString("before_json")),
         map(rs.getString("after_json")),
         rs.getString("correlation_id"),
-        rs.getString("label"));
+        rs.getString("label"),
+        rs.getString("ip"),
+        rs.getString("user_agent"),
+        rs.getObject("session_uid", UUID.class),
+        rs.getString("outcome"));
   }
 
   private static Map<String, Object> map(String json) {
