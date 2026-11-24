@@ -66,6 +66,9 @@ class KeyringTest extends IntegrationTest {
   @Value("${pharmacy.database.owner-password}")
   String ownerPassword;
 
+  /** A job lock the test holds (see {@link #holdJob}); released at the latest after each test. */
+  private Connection heldJob;
+
   private Api anonymous;
   private Api root;
   private Api self;
@@ -157,6 +160,11 @@ class KeyringTest extends IntegrationTest {
     assertThat(keyring.open(Purpose.TOTP, sealedSeed)).isEqualTo(seed);
     ownerUpdate("update access.users set totp_secret = ? where email = ?", legacySeal(seed), email);
 
+    // The webhook retry round (every second in the tests) seals any plain webhook secret it finds
+    // (WebhooksImpl.retryDue): it is held off while the plain previous secret below is planted and
+    // counted, or it may seal it first and the count reads 0 (the intermittent failure at
+    // "previous_secret ... plain"). The lock is the one SingleRunner takes for the job.
+    heldJob = holdJob("webhook-retries");
     // A webhook secret sealed before the rotation, and a previous one still in plain text.
     Response webhook =
         admin
@@ -213,6 +221,7 @@ class KeyringTest extends IntegrationTest {
     assertThat(before.read("$.data.toReseal", Long.class)).isGreaterThanOrEqualTo(4);
     assertThat(before.read("$.data.active.totp", String.class)).isEqualTo("testtotp");
     assertThat(removable(before, "legacy")).isFalse();
+    releaseJob();
 
     root.post("/api/v1/platform/keys/reseal", "{}").expect(202);
     Response after = waitForRun();
@@ -345,6 +354,31 @@ class KeyringTest extends IntegrationTest {
       assertThat(row.next()).isTrue();
       return row.getString(1);
     }
+  }
+
+  @org.junit.jupiter.api.AfterEach
+  void releaseJob() throws SQLException {
+    if (heldJob != null) {
+      heldJob.close();
+      heldJob = null;
+    }
+  }
+
+  /**
+   * Holds the job lock {@link tz.co.pharmacy.platform.persistence.SingleRunner} takes for {@code
+   * job} (waiting for a round in progress), until the connection is closed.
+   */
+  private Connection holdJob(String job) throws SQLException {
+    Connection connection = ownerConnection();
+    try (PreparedStatement lock =
+        connection.prepareStatement("select pg_advisory_lock(hashtextextended(?, 0))")) {
+      lock.setString(1, "job:" + job);
+      lock.execute();
+    } catch (SQLException failure) {
+      connection.close();
+      throw failure;
+    }
+    return connection;
   }
 
   private void ownerUpdate(String sql, Object... values) throws SQLException {
